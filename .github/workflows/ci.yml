@@ -202,20 +202,20 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # TODO(EVT-003, sprint 01): remove continue-on-error. Seven files import
-      # ../types, a barrel that does not exist — 10 errors today.
+      # Blocking since EVT-003: the ../types barrel exists, the lib/features
+      # cycle is gone and the api-client typing is fixed. 0 errors.
       - name: Typecheck
         run: npm run typecheck
-        continue-on-error: true
 
-      # TODO(EVT-005, sprint 01): remove --if-present once vitest is configured.
+      # Blocking since EVT-005: vitest is configured and --if-present is no
+      # longer a fig leaf for a missing script.
       - name: Unit tests
-        run: npm run test --if-present
+        run: npm test
 
-      # TODO(EVT-003, sprint 01): remove continue-on-error.
+      # Blocking since EVT-003. The build used to fail outright — first on the
+      # missing barrel, then on next-intl prerendering without a locale.
       - name: Build
         run: npm run build
-        continue-on-error: true
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:3001/api/v1
           NEXT_PUBLIC_APP_URL: http://localhost:3000
