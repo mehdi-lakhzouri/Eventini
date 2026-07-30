@@ -3,9 +3,17 @@
 > **Statut :** Spécification normative · **Version :** 1.0 · **Date :** 30 juillet 2026
 > **Validation :** bloquante au démarrage — [`BACKEND_ARCHITECTURE.md` §9](../architecture/BACKEND_ARCHITECTURE.md)
 
-> ⚠️ **État vérifié.** Il n'existe **aucun** `.env` ni `.env.example` sous `backend/` ni `web/` — les deux restent à créer (ticket EVT-008). Le corpus documentaire ne nomme que les 12 variables `LOG_*` du Document D §38.
+> ✅ **Implémenté par EVT-008** (30 juillet 2026). `backend/.env.example` et `web/.env.example` existent, la validation est en place dans `backend/src/config/`, et les 14 règles croisées du §17 sont vérifiées de bout en bout.
 >
-> ✅ `docker/.env.example` était à 0 octet lors de l'audit du 30 juillet au matin ; il a été **rempli le même jour à 16:36** avec les 9 variables et des valeurs factices.
+> Pour un `.env` de développement complet en une commande :
+>
+> ```bash
+> cd backend && node scripts/generate-dev-env.mjs
+> ```
+>
+> Il génère 11 secrets indépendants et 2 paires de clés Ed25519 réelles, refuse d'écraser un `.env` existant sans `--force`, et écrit en `0600`.
+>
+> ✅ `docker/.env.example` était à 0 octet lors de l'audit du matin ; **rempli le même jour à 16:36**.
 
 ---
 
@@ -336,5 +344,9 @@ La validation ne se contente pas de vérifier la présence. Elle applique des r�
 | 14 | `ARGON2_MEMORY_COST` ≥ 19456 | `fatal` — sous ce seuil, on quitte la recommandation OWASP |
 
 Les règles 8, 9 et 10 sont celles qui attrapent les vraies erreurs de déploiement : un copier-coller de secret, un exemple laissé en place, une paire de clés dépareillée.
+
+> ✅ **Implémentées et testées** — `backend/src/config/rules/`, une règle par fichier, chacune couverte par des tests qui vérifient le **refus**, pas seulement l'acceptation. Comportement observé sur un démarrage réel sans `.env` : les 25 variables manquantes sont nommées dans un seul message, avec un code de sortie non nul.
+>
+> Les placeholders de `.env.example` sont **délibérément assez longs pour satisfaire la règle 7**, afin que la règle 9 soit celle qui les signale : « vous avez déployé le fichier d'exemple » plutôt qu'une plainte trompeuse sur l'entropie.
 
 Échec ⇒ log `fatal`, message nommant **toutes** les variables fautives, code de sortie non nul. L'orchestrateur redémarre, échoue à nouveau, et le déploiement est marqué en échec — ce qui est le comportement voulu. Un service qui démarre à moitié configuré est bien pire.

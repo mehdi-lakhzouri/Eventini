@@ -42,10 +42,57 @@ Invariant **O-2** : la configuration et l'observabilité précèdent l'authentif
 ## EVT-008 — ConfigModule et validation d'environnement bloquante
 <a id="evt-008"></a>
 
+> ✅ **Fait le 30 juillet 2026.** Les 14 règles croisées sont implémentées et **vérifiées de bout en bout** : l'application démarre avec un `.env` valide, refuse de démarrer sans, et refuse de démarrer avec `.env.example` copié tel quel.
+
 ```
 Branche  feat/EVT-008-config-validation
 Commit   feat(config): add typed configuration with blocking env validation
 ```
+
+### Structure livrée
+
+```
+backend/src/config/
+├── env.schema.ts               ~130 variables, formes et défauts (zod)
+├── validate-environment.ts     orchestration : schéma puis règles
+├── describe-error.ts           extraction de message fiable (voir plus bas)
+├── parsers/                    unités pures et testables
+│   ├── duration.parser.ts      "14d" → 1209600000
+│   ├── size.parser.ts          "10mb" → 10485760
+│   ├── csv.parser.ts
+│   └── secret.parser.ts        base64 + détection de placeholder
+├── rules/                      une règle = un fichier
+│   ├── production-hardening.rule.ts   règles 2-5
+│   ├── secret-hygiene.rule.ts         règles 7-9
+│   ├── key-pair.rule.ts               règle 10
+│   └── coherence.rule.ts              règles 6, 11-14
+└── {application,authentication,cookies,csrf,database,rate-limit,redis}.config.ts
+```
+
+**Deux passes, jamais une seule** — le schéma répond « chaque valeur est-elle bien formée ? », les règles répondent « ces valeurs sont-elles cohérentes entre elles ? ». Dans chaque passe, **toutes** les erreurs sont collectées.
+
+### Vérification réelle, pas déclarative
+
+| Scénario | Résultat observé |
+|---|---|
+| `.env` généré, démarrage | **BOOTED OK** |
+| Aucun `.env` | refus, **25 variables manquantes nommées d'un coup**, code de sortie non nul |
+| `.env.example` copié tel quel | refus citant **11 placeholders par nom** — jamais un message trompeur sur l'entropie |
+| Réutilisation d'un secret (règle 8) | `CSRF_SECRET is identical to COOKIE_SECRET … reuse defeats the key separation` |
+| Paire de clés dépareillée (règle 10) | `does not match … locking out every user` |
+| `production` + cookie non sécurisé + origine http | les 4 règles de durcissement remontent **simultanément** |
+
+### Deux défauts trouvés en écrivant les tests
+
+**`instanceof Error` n'est pas fiable.** Les erreurs de `node:crypto` traversent une frontière de realm sous Jest et échouent le test `instanceof` tout en étant de parfaites `Error`. Le message affiché devenait « unknown error » — dans un message dont le seul rôle est d'expliquer ce qui ne va pas. Remplacé par `describeError()`, qui teste la présence d'un `message` plutôt que le prototype. Le même motif existait à **5 endroits** ; tous corrigés.
+
+**Le message de la règle 10 nommait un libellé humain, pas la variable.** Un opérateur lisait « Access token signing key pair could not be loaded » sans savoir quelle entrée corriger. Le message nomme désormais `ACCESS_TOKEN_PRIVATE_KEY / ACCESS_TOKEN_PUBLIC_KEY` et pointe vers le générateur.
+
+### `scripts/generate-dev-env.mjs`
+
+Le refus de démarrer est correct mais rendrait la première installation pénible : douze secrets à générer à la main. Le script écrit un `.env` complet avec **11 secrets indépendants** et **2 paires Ed25519 réelles**. Le fail-closed reste un principe sans devenir une brimade.
+
+Il refuse d'écraser un `.env` existant sans `--force`, et écrit en `0600`.
 
 **Scope** — `configuration.ts` avec namespaces typés, `validation.schema.ts`, les 14 règles croisées de [`ENVIRONMENT_VARIABLES.md` §17](../../operations/ENVIRONMENT_VARIABLES.md), `backend/.env.example`, `web/.env.example`.
 
