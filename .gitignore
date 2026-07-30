@@ -47,6 +47,7 @@ Desktop.ini
 
 # IDEs and editors
 .idea/
+.claude/
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
