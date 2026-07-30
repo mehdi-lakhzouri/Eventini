@@ -216,6 +216,10 @@ Documentés parce qu'un risque non écrit finit par être découvert au mauvais 
 | RA-6 | Pas de vérification de mot de passe compromis au MVP | Dépendance externe ou jeu de données volumineux | Sprint 12 |
 | RA-7 | Le premier présentant un QR partagé entre | Indécidable sans preuve d'identité supplémentaire | Si une vérification d'identité est ajoutée |
 | RA-8 | Impersonation non implémentée | Hors périmètre ; l'ajouter sans conception dédiée serait pire | Conception dédiée requise |
+| RA-9 | `dangerouslySetInnerHTML` dans `components/ui/chart.tsx` | Composant **généré par la CLI shadcn**, régénéré en bloc — un correctif en place serait écrasé. Il injecte des variables CSS depuis un `ChartConfig` défini par le développeur. **Contrainte : aucune valeur de `ChartConfig` ne doit jamais provenir d'une entrée utilisateur.** Un budget CI empêche toute occurrence supplémentaire | Si shadcn change son implémentation |
+| RA-10 | Advisories `high` non résolus sur des dépendances **de production** | `exceljs → archiver → glob → minimatch → brace-expansion` (DoS) et `@nestjs/swagger → js-yaml` (DoS). `npm audit fix` ne les résout pas sans montée de version cassante. Le gate CI bloque sur `critical` (aucun aujourd'hui) et **remonte** `high` sans bloquer. Atténuation : Swagger désactivé en production, imports bornés à 10 Mo et 50 000 lignes, rate limit 5 imports/h par organisation | **Ticket EVT-074**, sprint 01 |
+
+> ⚠️ **RA-10 n'est pas un risque de dépendance de développement.** Le premier réflexe — passer l'audit en `--omit=dev` — aurait été **faux** : `exceljs` et `@nestjs/swagger` sont des dépendances d'exécution réelles. Le gate a donc été calibré (`critical` bloquant, `high` remonté et suivi) plutôt que contourné.
 
 ---
 

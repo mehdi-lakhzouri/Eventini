@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Tickets** | EVT-001 → EVT-007 |
+| **Tickets** | EVT-001 → EVT-007, **EVT-074** |
 | **Prérequis** | aucun |
 | **Migrations** | aucune |
 | **Jalon** | — |
@@ -36,6 +36,7 @@ Aucune feature métier. Ce sprint ne produit rien de visible pour un utilisateur
 | [EVT-005](#evt-005) | Configuration de test et scripts npm | |
 | [EVT-006](#evt-006) | Fondations CI et `.github/` | |
 | [EVT-007](#evt-007) | `docker/.env.example` | ✅ partiellement fait |
+| [EVT-074](#evt-074) | Remédiation des vulnérabilités de dépendances | |
 
 ---
 
@@ -249,6 +250,46 @@ cp .env.example .env
 docker compose up -d
 docker compose ps          # les 3 conteneurs doivent devenir "healthy"
 ```
+
+---
+
+## EVT-074 — Remédiation des vulnérabilités de dépendances
+<a id="evt-074"></a>
+
+```
+Branche  chore/EVT-074-dependency-remediation
+Commit   chore(deps): resolve high-severity production advisories
+```
+
+**Découvert le 30 juillet 2026** par le premier passage de CI. Documenté comme risque accepté **RA-10** dans [`THREAT_MODEL.md` §5](../../security/THREAT_MODEL.md).
+
+### Les advisories
+
+| Chaîne | Advisory |
+|---|---|
+| `exceljs → archiver → archiver-utils → glob → minimatch → brace-expansion` | DoS par expansion non bornée (`GHSA-mh99-v99m-4gvg`) |
+| `@nestjs/swagger → js-yaml` | temps de parsing exponentiel sur les collections flow |
+| `rimraf → glob`, `zip-stream → archiver-utils`, `readdir-glob → minimatch` | même racine |
+
+### 🔴 Ce ne sont PAS des dépendances de développement
+
+Le réflexe naturel — passer l'audit CI en `--omit=dev` — aurait été **factuellement faux**. `exceljs` sert aux imports et exports de participants (sprint 10) et `@nestjs/swagger` à la documentation d'API : les deux sont des dépendances d'exécution.
+
+`npm audit fix` sans `--force` ne résout rien. Seul `--force` le fait, au prix d'une montée de version cassante d'ESLint.
+
+**Gate CI en attendant** — `critical` bloque (aucun aujourd'hui), `high` est remonté en avertissement et suivi par ce ticket.
+
+### Scope
+
+- monter `exceljs` vers une version dont l'arbre `archiver` est assaini, ou remplacer par une alternative maintenue ;
+- monter `@nestjs/swagger` vers une version dépendant d'un `js-yaml` corrigé ;
+- vérifier qu'aucune régression n'apparaît sur l'import/export et sur la génération OpenAPI ;
+- **retirer le `continue-on-error`** de l'étape « Audit — high » dans `security.yml` ;
+- activer Dependabot ou Renovate pour que ce cas ne se reproduise pas silencieusement.
+
+**Atténuation d'ici là** — Swagger désactivé en production (`SWAGGER_ENABLED=false`), imports bornés à 10 Mo et 50 000 lignes, rate limit de 5 imports par heure et par organisation.
+
+**Vérification** — `npm audit --audit-level=high` retourne 0 sur les deux projets, sans `--omit=dev`.
 
 ---
 

@@ -4,7 +4,11 @@ import { TenantContextService } from './tenant-context.service';
 import { TenantMembershipService } from './tenant-membership.service';
 
 @Module({
-  providers: [TenantContextGuard, TenantContextService, TenantMembershipService],
+  providers: [
+    TenantContextGuard,
+    TenantContextService,
+    TenantMembershipService,
+  ],
   exports: [TenantContextGuard, TenantContextService, TenantMembershipService],
 })
 export class TenantAccessModule {}

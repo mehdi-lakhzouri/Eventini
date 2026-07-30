@@ -10,7 +10,12 @@ import { LogoutUseCase } from './application/logout.use-case';
 import { RefreshSessionUseCase } from './application/refresh-session.use-case';
 
 @Module({
-  imports: [IdentitySessionsModule, PasswordsModule, MfaModule, SecurityEventsModule],
+  imports: [
+    IdentitySessionsModule,
+    PasswordsModule,
+    MfaModule,
+    SecurityEventsModule,
+  ],
   controllers: [AuthenticationController],
   providers: [
     GetCurrentUserUseCase,

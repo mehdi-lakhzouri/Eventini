@@ -36,7 +36,10 @@ function isInside(child: string, parent: string): boolean {
   );
 }
 
-function resolveInternalImport(filePath: string, importPath: string): string | null {
+function resolveInternalImport(
+  filePath: string,
+  importPath: string,
+): string | null {
   if (importPath.startsWith('.')) {
     return normalize(resolve(dirname(filePath), importPath));
   }
@@ -48,7 +51,10 @@ function resolveInternalImport(filePath: string, importPath: string): string | n
   return null;
 }
 
-function isPublicModuleImport(resolvedImport: string, moduleRoot: string): boolean {
+function isPublicModuleImport(
+  resolvedImport: string,
+  moduleRoot: string,
+): boolean {
   return (
     resolvedImport === moduleRoot ||
     resolvedImport === join(moduleRoot, 'index') ||
