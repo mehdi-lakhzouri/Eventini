@@ -115,5 +115,18 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "js-yaml": "5.2.2",
+    "exceljs": {
+      "archiver": {
+        "readdir-glob": {
+          "minimatch": {
+            "brace-expansion": "^5.0.9"
+          }
+        }
+      },
+      "uuid": "11.1.1"
+    }
   }
 }
