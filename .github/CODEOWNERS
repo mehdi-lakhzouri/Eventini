@@ -1,0 +1,50 @@
+# Eventini — code owners
+#
+# Last matching pattern wins. The security-critical paths are listed last on
+# purpose, so they always take precedence over the broader rules above.
+#
+# Replace @mehdi-lakhzouri with a team handle once there is a team.
+
+*                                       @mehdi-lakhzouri
+
+# --- Documentation -----------------------------------------------------------
+/docs/                                  @mehdi-lakhzouri
+
+# ADRs are decisions, not notes. Changing an accepted one is a new ADR.
+/docs/adr/                              @mehdi-lakhzouri
+
+# --- Security-critical: never merge without a deliberate review --------------
+
+# The authorization chain, session lifecycle, CSRF and MFA.
+/backend/src/modules/identity/          @mehdi-lakhzouri
+
+# Guard chain, response envelope, idempotency, concurrency.
+/backend/src/common/                    @mehdi-lakhzouri
+
+# The Prisma tenant-scope extension lives here. It is the single mechanism that
+# makes cross-tenant isolation non-optional.
+/backend/src/infrastructure/database/   @mehdi-lakhzouri
+
+# Rate limiting, lockout, anti-replay, distributed locks.
+/backend/src/infrastructure/redis/      @mehdi-lakhzouri
+/scripts/redis/                         @mehdi-lakhzouri
+
+# Schema and migrations: applied migrations are immutable.
+/backend/prisma/                        @mehdi-lakhzouri
+
+# Bootstrap wiring and environment validation. A silent default here is an
+# OWASP A05 misconfiguration.
+/backend/src/main.ts                    @mehdi-lakhzouri
+/backend/src/app.module.ts              @mehdi-lakhzouri
+/backend/src/config/                    @mehdi-lakhzouri
+
+# Architecture tests: these enforce module boundaries and tenant isolation.
+# Weakening one silently removes a guarantee.
+/backend/src/__architecture__/          @mehdi-lakhzouri
+
+# The API client owns cookies, CSRF and single-flight refresh.
+/web/src/lib/api/                       @mehdi-lakhzouri
+/web/src/middleware.ts                  @mehdi-lakhzouri
+
+# CI gates and secret scanning.
+/.github/                               @mehdi-lakhzouri

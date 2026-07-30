@@ -1,0 +1,60 @@
+name: Bug
+description: Something behaves incorrectly
+title: "[bug] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a **security** issue, use the Security report template instead —
+        or, if it is exploitable, report it privately rather than opening an issue.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: request-id
+    attributes:
+      label: requestId
+      description: |
+        Every API response carries `meta.requestId`. Pasting it here makes the
+        exact request findable in the logs.
+      placeholder: "req_01JABCDEF"
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options: [local, test, CI, staging, production]
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error response
+      description: Redact anything sensitive before pasting.
+      render: json

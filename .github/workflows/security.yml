@@ -1,0 +1,161 @@
+name: Security
+
+on:
+  push:
+    branches: [master, develop, 'release/**', 'hotfix/**']
+  pull_request:
+    branches: [master, develop, 'release/**']
+  schedule:
+    # Weekly, so a newly disclosed CVE surfaces without waiting for a push.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A committed .env is the single most common way secrets leak from a repo.
+      # docker/.env currently holds real Postgres/pgAdmin/Redis passwords.
+      - name: No .env files tracked by git
+        run: |
+          TRACKED=$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$' || true)
+          if [ -n "$TRACKED" ]; then
+            echo "::error::.env files are tracked by git:"
+            echo "$TRACKED"
+            exit 1
+          fi
+          echo "no .env files tracked"
+
+      # Catches an example secret pasted into a real config, or a placeholder
+      # left in place at deploy time. Cross-checked by env validation rule 9.
+      - name: No obvious placeholder secrets in source
+        run: |
+          PATTERNS='(CHANGE_?ME|REPLACE_?ME|your[-_]secret|s3cr3t|password123|admin123)'
+          HITS=$(grep -rniE "$PATTERNS" backend/src web/src 2>/dev/null || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::placeholder secret found in source:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "no placeholder secrets in source"
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [backend, web]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ matrix.project }}/package-lock.json
+
+      - name: Audit (high and critical)
+        working-directory: ${{ matrix.project }}
+        run: npm audit --audit-level=high
+
+      - name: Lockfile is committed and in sync
+        working-directory: ${{ matrix.project }}
+        run: |
+          test -f package-lock.json || { echo "::error::missing package-lock.json"; exit 1; }
+          npm ci --dry-run >/dev/null
+
+  forbidden-patterns:
+    name: Forbidden security patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # AUTH-INV-001: no web token may ever reach JavaScript-accessible storage.
+      - name: No tokens in browser storage
+        run: |
+          HITS=$(grep -rnE '(localStorage|sessionStorage)\.(set|get)Item\(\s*['"'"'"][^'"'"'"]*([Tt]oken|[Jj]wt|[Aa]uth)' \
+                 web/src 2>/dev/null || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::AUTH-INV-001 violated: token in browser storage"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "AUTH-INV-001 holds"
+
+      # trust proxy = true lets anyone forge X-Forwarded-For and bypass every
+      # IP-based rate limit. See docs/operations/ENVIRONMENT_VARIABLES.md §8.
+      - name: No blanket trust proxy
+        run: |
+          HITS=$(grep -rnE "trust proxy['\"]\s*,\s*true|set\(\s*['\"]trust proxy['\"]\s*,\s*true" \
+                 backend/src 2>/dev/null || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::trust proxy must be an explicit hop count, never true"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "trust proxy is not set to true"
+
+      # Context §11.6 forbids it by default; an exception needs an ADR.
+      - name: No dangerouslySetInnerHTML
+        run: |
+          HITS=$(grep -rn 'dangerouslySetInnerHTML' web/src 2>/dev/null || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::dangerouslySetInnerHTML is forbidden by default (context §11.6)"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "no dangerouslySetInnerHTML"
+
+      # Raw SQL is allowed only under explicit review. Flag it so review happens.
+      - name: Flag raw SQL for review
+        run: |
+          HITS=$(grep -rnE '\$queryRaw|\$executeRaw' backend/src 2>/dev/null || true)
+          if [ -n "$HITS" ]; then
+            echo "::warning::raw SQL present — must be parameterised and reviewed:"
+            echo "$HITS"
+          else
+            echo "no raw SQL"
+          fi
+
+      # ADR-0006: organizationId is the only permitted term for the tenant.
+      # TODO(sprint 02): make this blocking once the codebase adopts the term.
+      - name: Tenant terminology
+        continue-on-error: true
+        run: |
+          HITS=$(grep -rnw 'tenantId' backend/src web/src 2>/dev/null \
+                 | grep -v 'TenantContext' | grep -v 'TenantOwnership' || true)
+          if [ -n "$HITS" ]; then
+            echo "::warning::use organizationId, not tenantId (ADR-0006):"
+            echo "$HITS"
+          fi
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@v3

@@ -1,0 +1,77 @@
+name: Security report
+description: A weakness in a control, a hardening gap, or a documentation error with security impact
+title: "[security] "
+labels: ["security"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > ⚠️ **Do not open a public issue for an exploitable vulnerability.**
+        > Report it privately to the maintainers first.
+        >
+        > This template is for weaknesses, hardening gaps, missing controls and
+        > documentation errors with security impact — not for live exploits.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: STRIDE category
+      options:
+        - Spoofing
+        - Tampering
+        - Repudiation
+        - Information disclosure
+        - Denial of service
+        - Elevation of privilege
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: owasp
+    attributes:
+      label: OWASP reference
+      placeholder: "A01 Broken Access Control / API1 BOLA"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: The weakness
+      description: What control is missing, incomplete, or bypassable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: |
+        Who is affected and how. Be concrete — "cross-tenant read of participant
+        PII" beats "security issue".
+    validations:
+      required: true
+
+  - type: input
+    id: control
+    attributes:
+      label: Documented control that should have prevented it
+      placeholder: "AUTH-INV-004 / THREAT_MODEL.md E-1 / chain step 7"
+
+  - type: textarea
+    id: test
+    attributes:
+      label: Negative test that would catch it
+      description: |
+        A finding without a test that reproduces it will regress. What test
+        should exist?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity
+      options: [critical, high, medium, low, informational]
+    validations:
+      required: true

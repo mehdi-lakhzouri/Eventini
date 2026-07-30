@@ -1,0 +1,90 @@
+name: Feature
+description: A sprint feature ticket (EVT-###)
+title: "[EVT-___] "
+labels: ["feature"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A feature only enters a sprint once the Definition of Ready is satisfied.
+        See `docs/sprints/SPRINT_PLAN.md`.
+
+  - type: input
+    id: sprint
+    attributes:
+      label: Sprint
+      placeholder: "09"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is included. Be specific enough that someone else could build it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this deliberately does not cover. Prevents scope drift mid-sprint.
+    validations:
+      required: true
+
+  - type: textarea
+    id: business-rule
+    attributes:
+      label: Business rule
+      description: The rule in prose, including edge cases and what happens when it is violated.
+    validations:
+      required: true
+
+  - type: input
+    id: tables
+    attributes:
+      label: Tables
+      placeholder: "refresh_token_rotations, user_sessions"
+
+  - type: input
+    id: routes
+    attributes:
+      label: Routes
+      placeholder: "POST /api/v1/auth/sessions/current/rotation"
+
+  - type: textarea
+    id: authorization
+    attributes:
+      label: Authorization rule
+      description: Which permission, which scope, which resource ownership check.
+    validations:
+      required: true
+
+  - type: textarea
+    id: negative-tests
+    attributes:
+      label: Expected negative tests
+      description: |
+        What must be rejected, and with which error code. Required — a feature
+        specified only by its happy path is not ready.
+      placeholder: |
+        - replaying a consumed refresh token -> family revoked, no token issued
+        - two concurrent rotations with the same token -> exactly one succeeds
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: ready
+    attributes:
+      label: Definition of Ready
+      options:
+        - label: Business rule written
+          required: true
+        - label: Table and index specified
+        - label: Route and DTO defined
+        - label: Authorization rule explicit
+          required: true
+        - label: Negative tests listed
+          required: true

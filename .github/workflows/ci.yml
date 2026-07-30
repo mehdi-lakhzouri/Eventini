@@ -1,0 +1,372 @@
+name: CI
+
+# Honesty note: jobs that cannot pass yet are gated with continue-on-error and a
+# TODO naming the sprint that removes the gate. A green badge that lies is worse
+# than no badge. See docs/adr/0017-delivery-model.md.
+
+on:
+  push:
+    branches: [master, develop, 'release/**', 'hotfix/**']
+  pull_request:
+    branches: [master, develop, 'release/**']
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_USER: eventini
+          POSTGRES_PASSWORD: eventini_ci
+          POSTGRES_DB: eventini_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U eventini -d eventini_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
+      redis:
+        image: redis:8.8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping | grep PONG"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # TODO(EVT-014, sprint 03): remove the `if` once prisma/schema.prisma exists.
+      - name: Generate Prisma client
+        if: ${{ hashFiles('backend/prisma/schema.prisma') != '' }}
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+
+      # TODO(EVT-002, sprint 01): remove continue-on-error once strict mode lands.
+      - name: Typecheck
+        run: npm run typecheck
+        continue-on-error: true
+
+      - name: Unit tests
+        run: npm test -- --ci --passWithNoTests
+
+      # Guards against a suite that only contains it.todo. The repo currently has
+      # 31 todos and 2 real assertions; this threshold ratchets DOWN each sprint.
+      # TODO(sprint 06): lower MAX_TODOS to 0.
+      - name: Placeholder-test budget
+        run: |
+          MAX_TODOS=31
+          FOUND=$(grep -roE '\bit\.todo\b' src test --include='*.ts' | wc -l | tr -d ' ')
+          echo "it.todo found: $FOUND (budget: $MAX_TODOS)"
+          if [ "$FOUND" -gt "$MAX_TODOS" ]; then
+            echo "::error::Placeholder tests increased ($FOUND > $MAX_TODOS). Write real assertions."
+            exit 1
+          fi
+
+      # TODO(EVT-019, sprint 03): remove continue-on-error.
+      - name: Integration tests
+        run: npm run test:integration --if-present
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+          REDIS_URL: redis://localhost:6379/0
+          NODE_ENV: test
+
+      # TODO(EVT-023, sprint 04): remove continue-on-error.
+      - name: E2E tests
+        run: npm run test:e2e --if-present
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+          REDIS_URL: redis://localhost:6379/0
+          NODE_ENV: test
+
+      # TODO(EVT-036, sprint 06): remove continue-on-error. This is the job that
+      # proves cross-tenant isolation; it must become blocking.
+      - name: Architecture tests
+        run: npm test -- --ci --testPathPattern=__architecture__
+        continue-on-error: true
+
+      - name: Build
+        run: npm run build
+
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_USER: eventini
+          POSTGRES_PASSWORD: eventini_ci
+          POSTGRES_DB: eventini_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U eventini -d eventini_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # TODO(EVT-014, sprint 03): drop the guard once the schema exists.
+      - name: Skip when no schema yet
+        id: schema
+        run: |
+          if [ -f prisma/schema.prisma ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No prisma/schema.prisma yet — migration checks skipped (EVT-014)."
+          fi
+
+      - name: Apply migrations on a clean database
+        if: steps.schema.outputs.present == 'true'
+        run: npm run prisma:migrate:deploy
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+
+      # Fails when schema.prisma and prisma/migrations/ have drifted, i.e. when
+      # someone edited the schema without generating the migration.
+      - name: Detect schema drift
+        if: steps.schema.outputs.present == 'true'
+        run: npm run prisma:migrate:diff
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+          SHADOW_DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_shadow?schema=public
+
+      - name: Seed is idempotent
+        if: steps.schema.outputs.present == 'true'
+        run: |
+          npm run db:seed
+          npm run db:seed
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # TODO(EVT-003, sprint 01): remove continue-on-error. Currently 7 files
+      # import ../types, a barrel that does not exist.
+      - name: Typecheck
+        run: npx tsc --noEmit
+        continue-on-error: true
+
+      # TODO(EVT-005, sprint 01): remove --if-present once vitest is configured.
+      - name: Unit tests
+        run: npm run test --if-present
+
+      # TODO(EVT-003, sprint 01): remove continue-on-error.
+      - name: Build
+        run: npm run build
+        continue-on-error: true
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:3001/api/v1
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+  lua:
+    name: Redis Lua scripts
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:8.8
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping | grep PONG"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install redis-cli
+        run: sudo apt-get update && sudo apt-get install -y redis-tools
+
+      # These four scripts are the one deliverable that is genuinely executable
+      # today, so it is genuinely executed.
+      # See docs/infrastructure/REDIS_KEYS_AND_LUA_SCRIPTS.md section 5.
+      - name: All scripts load
+        run: |
+          for f in scripts/redis/*.lua; do
+            sha=$(redis-cli -h localhost SCRIPT LOAD "$(cat "$f")")
+            echo "$(basename "$f") -> $sha"
+          done
+
+      - name: Rate limiter enforces its limit exactly
+        run: |
+          NOW=1785268800000
+          for i in 1 2 3; do
+            R=$(redis-cli -h localhost --eval scripts/redis/rate-limit-sliding-window.lua \
+                rl:ci , 3 60000 $((NOW+i)) "m$i" | head -1)
+            [ "$R" = "1" ] || { echo "::error::call $i should be allowed, got $R"; exit 1; }
+          done
+          R=$(redis-cli -h localhost --eval scripts/redis/rate-limit-sliding-window.lua \
+              rl:ci , 3 60000 $((NOW+4)) m4 | head -1)
+          [ "$R" = "0" ] || { echo "::error::call 4 should be rejected, got $R"; exit 1; }
+          echo "rate limiter: 3 allowed, 4th rejected"
+
+      - name: A non-owner cannot release a lock
+        run: |
+          redis-cli -h localhost --eval scripts/redis/distributed-lock.lua lock:ci , acquire ownerA 30000 >/dev/null
+          R=$(redis-cli -h localhost --eval scripts/redis/distributed-lock.lua lock:ci , release ownerB | head -1)
+          [ "$R" = "0" ] || { echo "::error::ownerB must not release ownerA's lock"; exit 1; }
+          HOLDER=$(redis-cli -h localhost GET lock:ci)
+          [ "$HOLDER" = "ownerA" ] || { echo "::error::lock was destroyed by a non-owner"; exit 1; }
+          echo "distributed lock: fencing holds"
+
+      - name: A replayed nonce is refused
+        run: |
+          R1=$(redis-cli -h localhost --eval scripts/redis/anti-replay-claim.lua replay:ci , 90000 dev_01 1785268800000 | head -1)
+          R2=$(redis-cli -h localhost --eval scripts/redis/anti-replay-claim.lua replay:ci , 90000 dev_02 1785268800000 | head -1)
+          [ "$R1" = "1" ] && [ "$R2" = "0" ] || { echo "::error::replay not detected"; exit 1; }
+          echo "anti-replay: first claim wins, replay refused"
+
+  branch-hygiene:
+    name: Branch hygiene
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The nested web/.git repo would make `web` a gitlink: the push succeeds,
+      # GitHub shows an empty clickable folder, and NO frontend source is
+      # actually versioned. Silent data loss. See GIT_STRATEGY.md section 12.
+      - name: Frontend source is really tracked
+        run: |
+          COUNT=$(git ls-files web/src | wc -l | tr -d ' ')
+          echo "tracked files under web/src: $COUNT"
+          if [ "$COUNT" -lt 2 ]; then
+            echo "::error::web/ looks like a gitlink, not real files. Is web/.git back?"
+            exit 1
+          fi
+
+      - name: No nested git repositories
+        run: |
+          NESTED=$(find . -name .git -mindepth 2 -not -path './node_modules/*' \
+                   -not -path './*/node_modules/*' || true)
+          if [ -n "$NESTED" ]; then
+            echo "::error::nested git repository found:"
+            echo "$NESTED"
+            exit 1
+          fi
+          echo "no nested git repositories"
+
+      # The classic failure mode of master/develop: a stabilisation fix lands on
+      # master and is never merged back, so the bug returns at the next release.
+      - name: master is an ancestor of develop
+        if: github.ref == 'refs/heads/develop' || github.base_ref == 'develop'
+        run: |
+          git fetch origin master:refs/remotes/origin/master --quiet || {
+            echo "::notice::master does not exist yet — skipping"; exit 0; }
+          if git merge-base --is-ancestor origin/master HEAD; then
+            echo "master is an ancestor of develop"
+          else
+            echo "::error::master is NOT an ancestor of develop."
+            echo "A release or hotfix was not back-merged. See GIT_STRATEGY.md section 3, step 6."
+            exit 1
+          fi
+
+      - name: PRs to master come only from release/* or hotfix/*
+        if: github.event_name == 'pull_request' && github.base_ref == 'master'
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          case "$HEAD_REF" in
+            release/*|hotfix/*) echo "source branch '$HEAD_REF' is allowed" ;;
+            *) echo "::error::PRs to master must come from release/* or hotfix/*, got '$HEAD_REF'"; exit 1 ;;
+          esac
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every path in the older docs says `api/`. The directory is `backend/`.
+      # New documentation must never reintroduce that error.
+      - name: No stale api/ directory references
+        run: |
+          HITS=$(grep -rnE '(^|[^a-z/])api/src/' docs --include='*.md' \
+                 | grep -v 'docs/architecture/authentication-folder-migration.md' \
+                 | grep -v 'docs/security/AUTHENTICATION_SECURITY_BASELINE.md' \
+                 | grep -v 'docs/observability/PINO_LOGGING_SPECIFICATION.md' || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::New docs reference a non-existent api/ directory. Use backend/."
+            echo "$HITS"
+            exit 1
+          fi
+          echo "no stale api/ references outside the three legacy baselines"
+
+      - name: Internal markdown links resolve
+        run: |
+          FAILED=0
+          while IFS= read -r file; do
+            dir=$(dirname "$file")
+            grep -oE '\]\((\.\./|\./)[^)#]+' "$file" 2>/dev/null | sed 's/^](//' | while read -r link; do
+              target="$dir/$link"
+              if [ ! -e "$target" ]; then
+                echo "::error file=$file::broken link -> $link"
+                echo "BROKEN" >> /tmp/broken.txt
+              fi
+            done
+          done < <(find docs -name '*.md')
+          if [ -f /tmp/broken.txt ]; then exit 1; fi
+          echo "all relative markdown links resolve"
