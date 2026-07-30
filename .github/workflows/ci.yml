@@ -67,10 +67,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # TODO(EVT-002, sprint 01): remove continue-on-error once strict mode lands.
+      # Blocking since EVT-002: strict, noImplicitAny, strictBindCallApply,
+      # noUncheckedIndexedAccess and friends are on, and the tree is clean.
       - name: Typecheck
         run: npm run typecheck
-        continue-on-error: true
 
       - name: Unit tests
         run: npm test -- --ci --passWithNoTests
@@ -202,10 +202,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # TODO(EVT-003, sprint 01): remove continue-on-error. Currently 7 files
-      # import ../types, a barrel that does not exist.
+      # TODO(EVT-003, sprint 01): remove continue-on-error. Seven files import
+      # ../types, a barrel that does not exist — 10 errors today.
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
         continue-on-error: true
 
       # TODO(EVT-005, sprint 01): remove --if-present once vitest is configured.
