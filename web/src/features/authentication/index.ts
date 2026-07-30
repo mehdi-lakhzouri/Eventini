@@ -21,7 +21,5 @@ export * from "./schemas/login.schema";
 export * from "./schemas/mfa.schema";
 export * from "./schemas/password.schema";
 export * from "./stores/auth-ui.store";
-export * from "./types/authentication.types";
-export * from "./types/permission.types";
-export * from "./types/session.types";
+export * from "./types";
 export * from "./utils/authentication.utils";
