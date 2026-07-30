@@ -88,20 +88,20 @@ Le graphe d'imports est **sain** : tous les imports relatifs résolvent. Un `dis
 
 ### 3.3 Frontend
 
-| Élément | État |
-|---|---|
-| Routes | 12 — **aucune avec de l'UI réelle** ; 8 retournent `<main />`, `<section />` ou `null` |
-| `(public)` et `(scanner)` | **produisent zéro route** — ni `layout.tsx` ni `page.tsx` |
-| `middleware.ts` | pass-through de 8 lignes, sans `matcher`, sans lecture de cookie, sans redirection |
-| `AuthGuard` | déclare `requiredRole` dans ses props et **ne le lit jamais** — le garde `(super-admin)` est sans effet |
-| `AppProviders` | correctement composé et **jamais monté** — le layout racine ne l'importe pas |
-| Erreur bloquante | **7 fichiers** importent `../types`, barrel qui **n'existe pas** |
-| Client API | fetch + `credentials: include` + CSRF corrects ; **pas de retry sur 401**, corps d'erreur jamais lu, pas de `put`/`patch` |
-| Base URL | défaut `http://localhost:3000` — le **même port que le backend** ; sans `.env`, le front s'appelle lui-même |
-| i18n | `next-intl` installé, `messages={{}}`, aucun fichier de traduction, aucun `useTranslations` |
-| Offline / temps réel | **0** occurrence de `Dexie`, `EventSource`, `socket.io` |
-| Kit UI | **63 composants Base UI réels** — c'est l'actif le plus abouti du dépôt |
-| Features métier | 8 dossiers, 48 sous-répertoires vides, **0 ligne** |
+| Élément | État | Statut |
+|---|---|---|
+| Routes | 12 — **aucune avec de l'UI réelle** ; 8 retournent `<main />`, `<section />` ou `null` | |
+| ~~`(public)` et `(scanner)`~~ | ~~produisaient zéro route~~ | ✅ **EVT-004** — supprimés |
+| `middleware.ts` | pass-through de 8 lignes, sans `matcher`, sans lecture de cookie, sans redirection | ⏳ EVT-039 |
+| `AuthGuard` | déclare `requiredRole` dans ses props et **ne le lit jamais** — le garde `(super-admin)` est sans effet | ⏳ EVT-039 |
+| ~~`AppProviders`~~ | ~~correctement composé et jamais monté~~ | ✅ **EVT-003** |
+| ~~Erreur bloquante~~ | ~~7 fichiers importent `../types`, barrel qui n'existe pas~~ | ✅ **EVT-003** |
+| Client API | fetch + `credentials: include` + CSRF corrects ; ~~pas de `put`/`patch`~~ (✅ EVT-003) ; **pas de retry sur 401** (EVT-038), corps d'erreur jamais lu (EVT-037) | ◐ |
+| Base URL | défaut `http://localhost:3000` — le **même port que le backend** ; sans `.env`, le front s'appelle lui-même | ⏳ EVT-008/013 |
+| i18n | `next-intl` installé, `messages={{}}`, aucun fichier de traduction, aucun `useTranslations` | ◐ `locale` posé par EVT-003, catalogues EVT-047 |
+| Offline / temps réel | **0** occurrence de `Dexie`, `EventSource`, `socket.io` | ⏳ sprint 12 |
+| Kit UI | **63 composants Base UI réels** — c'est l'actif le plus abouti du dépôt | |
+| Features métier | 8 dossiers, 48 sous-répertoires vides, **0 ligne** | ⏳ sprints 08-12 |
 
 ### 3.4 Infrastructure
 
@@ -118,12 +118,12 @@ Le graphe d'imports est **sain** : tous les imports relatifs résolvent. Un `dis
 
 | # | Problème | Conséquence |
 |---|---|---|
-| **B-1** | `master` n'a **aucun commit**, et `web/.git` est un **dépôt git imbriqué distinct** | Committer `web/` aujourd'hui créerait un lien de sous-module vide : **aucune source frontend ne serait poussée** |
-| ~~**B-2**~~ | ~~`docker/.env.example` fait 0 octet~~ — **résolu le 30 juillet 2026 à 16:36** | ~~`docker compose up` échoue sur un clone neuf~~ |
+| # | Problème | Conséquence | Statut |
+|---|---|---|---|
+| ~~**B-1**~~ | ~~`master` n'a aucun commit, et `web/.git` est un dépôt git imbriqué distinct~~ | ~~committer `web/` créerait un lien de sous-module vide~~ | ✅ **EVT-001** — `web/.git` supprimé, `master` et `develop` créées et poussées, `web/src` réellement suivi (212 fichiers) |
+| ~~**B-2**~~ | ~~`docker/.env.example` fait 0 octet~~ | ~~`docker compose up` échoue sur un clone neuf~~ | ✅ **résolu le 30 juillet 2026 à 16:36**, vérification de démarrage restant à EVT-007 |
 
-**B-1 reste ouvert et est traité au sprint 01.** C'est le blocage le plus important du dépôt : tant qu'il subsiste, aucune source frontend n'est réellement versionnée.
-
-B-2 a été corrigé pendant la rédaction de cette documentation : `docker/.env.example` contient désormais les 9 variables avec des valeurs factices. Il reste à vérifier qu'un clone neuf démarre effectivement (`cp .env.example .env && docker compose up`) — c'est le critère de sortie du ticket EVT-007.
+Les deux blocages de dépôt identifiés à l'audit sont **résolus**. Le squelette applicatif (§3.1-3.4) reste, lui, à construire selon la feuille de route.
 
 ### 3.6 Écarts documentation ↔ réalité
 
