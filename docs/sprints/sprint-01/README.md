@@ -156,6 +156,8 @@ Conséquence : le premier `useQuery` monté lève **« No QueryClient set »**. 
 ## EVT-004 — Nettoyer les structures mortes
 <a id="evt-004"></a>
 
+> ✅ **Fait le 30 juillet 2026.**
+
 ```
 Branche  chore/EVT-004-remove-dead-structures
 Commit   chore(repo): remove duplicated and dead directory structures
@@ -163,19 +165,21 @@ Commit   chore(repo): remove duplicated and dead directory structures
 
 **Scope**
 
-| À supprimer | Pourquoi |
-|---|---|
-| `web/src/shared/` | 7 répertoires de `.gitkeep` doublant conceptuellement `src/lib` + `src/features` |
-| `backend/src/application/`, `src/domain/`, `src/presentation/` | squelette DDD parallèle non documenté, doublant la découpe par module |
-| `backend/src/shared/` | 6 répertoires ne contenant que des `.gitkeep` |
-| `web/tsconfig.sidebar-test.tsbuildinfo` | 119 Ko orphelins — aucun `tsconfig.sidebar-test.json` n'existe |
-| `backend/dist/` | build committé en arborescence |
+| Supprimé | Pourquoi | Résultat |
+|---|---|---|
+| `web/src/shared/` | 7 répertoires de `.gitkeep` doublant conceptuellement `src/lib` + `src/features` | 7 fichiers retirés |
+| `backend/src/application/`, `src/domain/`, `src/presentation/` | squelette DDD parallèle non documenté, doublant la découpe par module | **jamais suivis par git** — 0 fichier dans chacun, confirmé avant suppression ; retirés du disque quand même |
+| `backend/src/shared/` | 6 répertoires ne contenant que des `.gitkeep` | 6 fichiers retirés |
+| `web/tsconfig.sidebar-test.tsbuildinfo` | 119 Ko orphelins — aucun `tsconfig.sidebar-test.json` n'existe | supprimé (déjà gitignoré, donc invisible en diff) |
+| `backend/dist/` | build committé en arborescence | **vérifié non suivi par git** (0 fichier, déjà gitignoré) — aucune action nécessaire, la mention initiale était inexacte |
 
-**Décision requise** — `(public)` et `(scanner)` ne produisent **aucune route** (ni `layout.tsx` ni `page.tsx`), mais contiennent `error.tsx`, `loading.tsx` et 8 `.gitkeep`. Soit on crée leurs pages, soit on supprime les groupes. Laisser un groupe de routes fantôme induit en erreur.
+**Décision prise** — `(public)` et `(scanner)` ne produisaient **aucune route** (ni `layout.tsx` ni `page.tsx`), seulement `error.tsx`, `loading.tsx` et 8 `.gitkeep`. **Supprimés plutôt que stubbés** : fabriquer des pages maintenant aurait anticipé du contenu non scopé (`(scanner)` n'a de sens qu'au sprint 12, `(public)` n'est même pas planifié). Aucune référence externe (`grep` sur `web/src`) ne pointait vers ces groupes. Ils seront recréés avec du contenu réel quand leur sprint arrive.
 
-**Pourquoi** — deux taxonomies concurrentes garantissent que le code finira réparti au hasard entre les deux, et qu'aucune ne sera complète.
+**Pourquoi** — deux taxonomies concurrentes garantissent que le code finira réparti au hasard entre les deux, et qu'aucune ne sera complète. Un groupe de routes fantôme induit en erreur de la même façon.
 
-**Checks** — `lint` `typecheck` `build`
+**Documentation mise à jour dans le même changement** — `FRONTEND_ARCHITECTURE.md` (F-8, F-10, F-12 marqués résolus), `BACKEND_ARCHITECTURE.md` (`src/shared/*` et le squelette DDD marqués résolus), `SYSTEM_ARCHITECTURE.md` (§3.3 et §3.5 — **B-1 est également marqué résolu ici**, ayant été traité par EVT-001 avant ce ticket), `IDEMPOTENCY_AND_CONCURRENCY.md` (référence à `shared/idempotency/.gitkeep` mise à jour). C'était un rattrapage : EVT-003 avait corrigé F-1/F-2 sans mettre à jour ces tableaux, contrairement à la règle de `PROJECT_DOCUMENTATION_INDEX.md` §8.
+
+**Checks** — `lint` `typecheck` `build` `test` sur les deux projets, plus `arch` (le test `modularity.spec.ts` gère déjà un `src/shared` absent via `existsSync`, aucune modification requise)
 
 ---
 
@@ -300,4 +304,4 @@ Le réflexe naturel — passer l'audit CI en `--omit=dev` — aurait été **fac
 | `rm -rf web/.git` exécuté sans vérifier son contenu | EVT-001 étape 1 : inspecter `git log` avant |
 | `docker/.env` committé avec de vrais mots de passe | `secret-scan` bloquant + job « no `.env` tracked » |
 | La strictness TypeScript révèle beaucoup d'erreurs d'un coup | Le code réel est quasi inexistant : 3 fichiers avec de la logique. C'est précisément pourquoi on le fait **maintenant** |
-| `(public)` / `(scanner)` laissés en l'état « pour plus tard » | Décision explicite exigée par EVT-004 |
+| ~~`(public)` / `(scanner)` laissés en l'état « pour plus tard »~~ | ✅ Résolu — supprimés par EVT-004, recréés à leur sprint réel |

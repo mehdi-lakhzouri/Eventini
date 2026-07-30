@@ -4,7 +4,7 @@
 > **Décision :** [ADR-0012](../adr/0012-idempotency-storage.md) · **Table :** `idempotency_records` ([`DATABASE_SCHEMA.md` §8.3](../database/DATABASE_SCHEMA.md))
 > **Applique :** Document C §19 et §20 — les 3 choix laissés ouverts y sont tranchés
 
-> ⚠️ **Rien de ceci n'existe dans le dépôt.** Aucune table, aucun intercepteur, aucun en-tête traité. `backend/src/shared/idempotency/` ne contient qu'un `.gitkeep`.
+> ⚠️ **Rien de ceci n'existe dans le dépôt.** Aucune table, aucun intercepteur, aucun en-tête traité. `backend/src/shared/idempotency/` (un `.gitkeep` isolé, doublon de `common/idempotency/` de l'arborescence cible) a été supprimé par EVT-004 — l'implémentation réelle arrive avec la table `idempotency_records` sous `backend/src/common/idempotency/` (EVT-031, sprint 05).
 
 ---
 
