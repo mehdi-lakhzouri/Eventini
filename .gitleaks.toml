@@ -1,0 +1,32 @@
+# Gitleaks configuration
+#
+# Extends the default ruleset rather than replacing it: every built-in detector
+# stays active.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+The .env.example placeholder, and nothing else.
+
+Every secret in backend/.env.example is the base64 of
+"EXAMPLE-DO-NOT-USE-REPLACE-BEFORE-ANY-DEPLOYMENT". It is deliberately long
+enough to satisfy the 32-byte entropy rule so that cross rule 9 reports it as a
+leftover example rather than as weak entropy — which also makes it look exactly
+like a real secret to gitleaks' generic-api-key detector.
+
+Allowlisted by the exact decoded value, NOT by path. Ignoring
+backend/.env.example wholesale would mean a genuine secret pasted into the
+template later would never be caught — precisely the mistake this scan exists
+to prevent. With this scoping, any value other than the placeholder still
+fails the build.
+
+The application itself refuses to start on this value
+(backend/src/config/rules/secret-hygiene.rule.ts), so it cannot reach a
+deployment even if it were somehow trusted here.
+"""
+regexTarget = "match"
+regexes = [
+  '''RVhBTVBMRS1ETy1OT1QtVVNFLVJFUExBQ0UtQkVGT1JFLUFOWS1ERVBMT1lNRU5U''',
+]

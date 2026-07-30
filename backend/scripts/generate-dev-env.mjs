@@ -30,15 +30,6 @@ const targetPath = join(backendRoot, '.env');
 
 const force = process.argv.includes('--force');
 
-if (existsSync(targetPath) && !force) {
-  console.error(
-    `\n  ${targetPath} already exists.\n` +
-      '  Refusing to overwrite it — it may hold secrets you cannot regenerate.\n' +
-      '  Pass --force if you are sure.\n',
-  );
-  process.exit(1);
-}
-
 if (!existsSync(examplePath)) {
   console.error(`\n  ${examplePath} not found.\n`);
   process.exit(1);
@@ -90,7 +81,24 @@ const rendered = readFileSync(examplePath, 'utf8')
   })
   .join('\n');
 
-writeFileSync(targetPath, rendered, { mode: 0o600 });
+// 'wx' fails if the file already exists, atomically. An existsSync() check
+// followed by a write is a time-of-check-to-time-of-use race: the file can
+// appear in between, and the guard that exists to avoid destroying secrets
+// nobody can regenerate would be the thing that destroys them.
+try {
+  writeFileSync(targetPath, rendered, { mode: 0o600, flag: force ? 'w' : 'wx' });
+} catch (error) {
+  if (error?.code === 'EEXIST') {
+    console.error(
+      `\n  ${targetPath} already exists.\n` +
+        '  Refusing to overwrite it — it may hold secrets you cannot regenerate.\n' +
+        '  Pass --force if you are sure.\n',
+    );
+    process.exit(1);
+  }
+
+  throw error;
+}
 
 console.log(
   [
