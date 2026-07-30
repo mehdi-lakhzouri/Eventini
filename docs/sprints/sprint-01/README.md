@@ -49,7 +49,7 @@ Commit   chore(infra): remove nested web git repository and create initial commi
 PR       [EVT-001] chore(infra): repository hygiene
 ```
 
-> ✅ **Fait le 30 juillet 2026** — `web/.git` supprimé, commit initial sur `master`, `develop` créée, les deux poussées. Reste : appliquer les règles de protection de branche dans les paramètres GitHub.
+> ✅ **Fait le 30 juillet 2026** — `web/.git` supprimé, commit initial sur `master`, `develop` créée, les deux poussées, **protection de branche appliquée et vérifiée** (11 checks requis, push direct rejeté). Voir [`GIT_STRATEGY.md` §7](../../operations/GIT_STRATEGY.md).
 
 **Scope** — supprimer `web/.git` ; commit initial sur `master` ; créer `develop` ; protéger les deux branches selon [`GIT_STRATEGY.md` §7](../../operations/GIT_STRATEGY.md).
 
