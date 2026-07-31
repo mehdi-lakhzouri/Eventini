@@ -1,8 +1,13 @@
 // Eventini — Prisma schema.
 //
 // Authoritative reference: docs/database/DATABASE_SCHEMA.md.
-// This file covers migrations 1 (identity_core) and 2 (authorization_core);
-// the remaining twelve arrive with their sprints.
+//
+// Covers migrations 1 (identity_core), 2 (authorization_core), 3 (events_core)
+// and 8 (audit_and_security). The remaining ten arrive with their sprints.
+//
+// Migration 8 is out of numeric order on purpose — invariant O-3 requires the
+// audit trail to exist before the first business write, because an untraced
+// operation cannot be traced retroactively.
 //
 // ## Conventions this file follows, and why (DATABASE_SCHEMA.md §2)
 //
@@ -545,4 +550,120 @@ model EventUserAssignment {
   @@index([eventId, status], map: "ix_event_assignments_event")
   @@index([organizationId, eventId], map: "ix_event_assignments_org_event")
   @@map("event_user_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Migration 8 — audit_and_security
+//
+// Applied in sprint 03 despite its rank, per invariant O-3: an untraced
+// business operation is untraced permanently. Waiting until sprint 08 would
+// leave everything sprints 04-07 create — account creation, role assignment,
+// exactly what an audit trail exists to cover — with no record, and the gap
+// cannot be reconstructed afterwards.
+// ---------------------------------------------------------------------------
+
+/// Security-relevant occurrences. Mixed ownership, APPEND_ONLY, 12-month
+/// retention.
+///
+/// Not the same thing as a Pino log line, and the distinction is the point of
+/// having both (logging spec §3.5, §5). A log is diagnostic, lives in a log
+/// store, and is retained for weeks; this is evidence, lives in PostgreSQL
+/// alongside the data it describes, and is queried during an incident or an
+/// audit. Conflating the two retentions is contradiction C-15.
+model SecurityEvent {
+  id String @id
+
+  /// One of SecurityEventType (enums.ts) — the union of the corpus's four
+  /// competing catalogues (C-11). TEXT + ck_security_events_type.
+  eventType String @map("event_type")
+
+  /// One of SecurityEventSeverity (enums.ts).
+  severity String
+  /// One of SecurityEventResult (enums.ts).
+  result String
+
+  /// Why, in machine-readable form. Free text rather than an enum: the reason
+  /// space grows with every feature, and an over-tight CHECK here would push
+  /// callers into recording nothing.
+  reasonCode String? @map("reason_code")
+
+  /// Every actor field is nullable because a security event can precede
+  /// identity entirely — a failed login has no user, an origin rejection has
+  /// no session, and a platform action has no organization.
+  userId         String? @map("user_id")
+  sessionId      String? @map("session_id")
+  organizationId String? @map("organization_id")
+  membershipId   String? @map("membership_id")
+  deviceId       String? @map("device_id")
+
+  /// Correlation back to the request and its trace, so an event here can be
+  /// joined to the log line and the trace span that produced it.
+  requestId String? @map("request_id")
+  traceId   String? @map("trace_id")
+
+  ipAddress String? @map("ip_address") @db.Inet
+  userAgent String? @map("user_agent")
+
+  /// Allowed keys are listed in AUTHENTICATION_AUTHORIZATION.md §8. Never a
+  /// password, token, cookie, MFA secret, recovery code or QR payload — §8's
+  /// "jamais journalisé" list applies here exactly as it does to logs.
+  metadata Json @default("{}")
+
+  /// When it happened, which is not when the row was written: an event
+  /// recorded from a queued job or an offline scanner sync can land long
+  /// after the fact, and analysis needs the former.
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // The four partial indexes live in the migration SQL.
+  @@index([eventType, occurredAt(sort: Desc)], map: "ix_security_events_type_time")
+  @@index([severity, occurredAt(sort: Desc)], map: "ix_security_events_severity_time")
+  @@map("security_events")
+}
+
+/// Who did what to which resource. Mixed ownership, APPEND_ONLY, retention
+/// per business obligation.
+///
+/// Separate from `security_events` because they answer different questions: a
+/// security event asks "was something attacked or refused", an audit entry
+/// asks "who changed this record, and from what to what".
+model AuditLog {
+  id String @id
+
+  actorUserId    String? @map("actor_user_id")
+  actorSessionId String? @map("actor_session_id")
+
+  /// A TEXTUAL SNAPSHOT of the role at the moment of the action, not a
+  /// foreign key. That is deliberate: a FK would make the audit trail change
+  /// retroactively when the role is renamed, revoked or deleted, so the
+  /// record of what someone was permitted to do would be rewritten by later
+  /// events. An audit trail that changes after the fact is not one.
+  actorRole String? @map("actor_role")
+
+  organizationId String? @map("organization_id")
+
+  targetType String  @map("target_type")
+  targetId   String? @map("target_id")
+  action     String
+
+  /// Before and after. Sensitive fields are replaced with "[REDACTED]" and
+  /// NEVER omitted — omission would hide the fact that they changed at all,
+  /// which is precisely what an auditor is looking for. See
+  /// `audit-redaction.ts`.
+  previousValues Json? @map("previous_values")
+  newValues      Json? @map("new_values")
+
+  /// Free-text justification, where the operation asked for one.
+  reason String?
+
+  requestId String? @map("request_id")
+  ipAddress String? @map("ip_address") @db.Inet
+
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  @@index([organizationId, occurredAt(sort: Desc)], map: "ix_audit_org_time")
+  @@index([actorUserId, occurredAt(sort: Desc)], map: "ix_audit_actor_time")
+  @@index([targetType, targetId, occurredAt(sort: Desc)], map: "ix_audit_target")
+  @@index([action, occurredAt(sort: Desc)], map: "ix_audit_action_time")
+  @@map("audit_logs")
 }
