@@ -14,21 +14,17 @@ import {
   permissionsPolicyMiddleware,
   setupSwagger,
 } from './bootstrap';
+import { HttpExceptionFilter, ResponseEnvelopeInterceptor } from './common/api';
 
 /**
  * Bootstrap order follows BACKEND_ARCHITECTURE.md §4 exactly. Every step here
  * is a security boundary, not an arbitrary preference — see the inline
  * rationale at each call.
  *
- * Two steps from the target sequence are deliberately NOT here yet:
- *   - `app.useLogger(app.get(Logger))` — no Pino Logger provider exists until
- *     EVT-011 fills `infrastructure/logging/`. Nest's built-in logger is used
- *     meanwhile, which is correct, not a workaround.
- *   - `ResponseEnvelopeInterceptor` / `HttpExceptionFilter` — explicitly
- *     EVT-010's scope in docs/sprints/sprint-02/README.md, listed as the very
- *     next ticket. A stray comment in this file once claimed EVT-009 owned
- *     the Pino wiring too; it was written before the sprint's ticket
- *     breakdown existed and is corrected here.
+ * One step from the target sequence is deliberately NOT here yet:
+ * `app.useLogger(app.get(Logger))` — no Pino Logger provider exists until
+ * EVT-011 fills `infrastructure/logging/`. Nest's built-in logger is used
+ * meanwhile, which is correct, not a workaround.
  */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -61,6 +57,9 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api/v1');
 
   app.useGlobalPipes(buildValidationPipe());
+
+  app.useGlobalInterceptors(new ResponseEnvelopeInterceptor());
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   if (application.swaggerEnabled) {
     setupSwagger(app);

@@ -1,9 +1,14 @@
 import { config as loadDotenvFile } from 'dotenv';
 
-import { Module } from '@nestjs/common';
+import {
+  Module,
+  type MiddlewareConsumer,
+  type NestModule,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { configurationNamespaces, validateEnvironment } from './config';
+import { RequestIdMiddleware } from './common/middleware';
 import { IdentityModule } from './modules/identity';
 
 /**
@@ -49,4 +54,13 @@ if (!isProduction) {
     IdentityModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Ahead of every route, so a request ID exists for the logger (EVT-011),
+    // the response envelope, and the exception filter alike. `*path` is the
+    // path-to-regexp v8 wildcard `@nestjs/core` now expects -- the bare `*`
+    // Express/Nest examples still show elsewhere is deprecated and only
+    // auto-converts with a warning.
+    consumer.apply(RequestIdMiddleware).forRoutes('*path');
+  }
+}
