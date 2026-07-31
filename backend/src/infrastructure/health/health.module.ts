@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { HealthIndicatorService, TerminusModule } from '@nestjs/terminus';
 
-import { databaseConfig } from '../../config/database.config';
 import { redisConfig } from '../../config/redis.config';
 import { DatabaseHealthIndicator } from './database.health-indicator';
 import { HealthController } from './health.controller';
@@ -26,14 +25,9 @@ import { StartupState } from './startup.state';
   controllers: [HealthController],
   providers: [
     StartupState,
-    {
-      provide: DatabaseHealthIndicator,
-      inject: [HealthIndicatorService, databaseConfig.KEY],
-      useFactory: (
-        indicatorService: HealthIndicatorService,
-        settings: ConfigType<typeof databaseConfig>,
-      ) => new DatabaseHealthIndicator(indicatorService, settings.url),
-    },
+    // Takes `PrismaService` by injection now that EVT-014 provides it, rather
+    // than the connection string it used to open a private pool with.
+    DatabaseHealthIndicator,
     {
       provide: RedisHealthIndicator,
       inject: [HealthIndicatorService, redisConfig.KEY],

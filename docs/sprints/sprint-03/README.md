@@ -42,6 +42,8 @@ Invariant **O-3** : l'audit précède la première écriture métier. Une opéra
 ## EVT-014 — `schema.prisma` et modèles d'identité
 <a id="evt-014"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Les migrations 1 et 2 sont appliquées sur une base vierge, les 9 tables existent, et `prisma migrate diff --exit-code` retourne **0**. Chaque `CHECK`, chaque index partiel et chaque trigger est vérifié par un test d'intégration **contre PostgreSQL réel**.
+
 ```
 Branche  feat/EVT-014-prisma-identity-schema
 Commit   feat(db): add Prisma schema and identity core migrations
@@ -50,7 +52,88 @@ Tables   users, user_credentials, organizations, organization_memberships   (mig
          membership_role_assignments, platform_role_assignments             (migration 2)
 ```
 
-**État actuel** — il n'existe **aucun** fichier `.prisma` dans le dépôt. `find . -name "*.prisma"` ne retourne rien. Pas de `PrismaService`, pas de `PrismaClient` instancié, aucun script npm Prisma.
+### Structure livrée
+
+```
+backend/prisma.config.ts                        obligatoire en Prisma 7 (voir ci-dessous)
+backend/prisma/schema.prisma                    9 modèles, aucun enum natif
+backend/prisma/migrations/
+├── 20260731154341_identity_core/migration.sql
+└── 20260731154345_authorization_core/migration.sql
+backend/src/infrastructure/database/
+├── enums.ts                 valeurs autorisées, source unique
+├── enums.spec.ts            18 tests de dérive schéma ↔ migrations
+├── prisma.service.ts        client unique, adaptateur pg, connexion au boot
+├── prisma.module.ts         @Global
+├── transaction.manager.ts   runInTransaction
+└── index.ts
+backend/test/database/identity-schema.integration-spec.ts   12 tests contre PostgreSQL
+```
+
+### 🔴 Prisma 7 n'est pas le Prisma des versions précédentes
+
+Ce que la mémoire d'un développeur — ou d'un agent — dicterait ici est **faux**. Vérifié en faisant générer à Prisma son propre échafaudage plutôt qu'en le supposant :
+
+| Point | Prisma ≤ 6 | **Prisma 7.9** |
+|---|---|---|
+| URL de la datasource | `url = env("DATABASE_URL")` dans `schema.prisma` | **`prisma.config.ts`** — le bloc `datasource` n'a plus de champ `url` |
+| Générateur | `prisma-client-js`, sortie dans `node_modules` | **`prisma-client`**, `output` **obligatoire** |
+| Commande de seed | `package.json` → `prisma.seed` | **`prisma.config.ts`** → `migrations.seed` |
+| Connexion du client | moteur natif intégré | **adaptateur obligatoire** (`@prisma/adapter-pg`) — « Query Compiler: enabled » |
+| `migrate diff` | `--to-schema-datamodel`, `--shadow-database-url` | **`--to-schema`**, shadow DB depuis la config |
+
+La commande de `MIGRATION_STRATEGY.md` §2 utilisait la syntaxe Prisma 5/6 : elle **échouait en affichant l'aide**, avec un code de sortie `1` qu'un CI aurait lu comme un échec du gate plutôt que comme une erreur de syntaxe. Corrigée dans le document et dans le script npm.
+
+### Le `CREATE TYPE` que Prisma génère et que le §2.2 interdit
+
+Prisma transforme un bloc `enum` en `CREATE TYPE … AS ENUM`. Le §2.2 l'interdit explicitement : on peut **ajouter** une valeur à un enum natif, pas en **retirer** une sans réécrire la table. Constaté en lisant la migration générée, pas supposé.
+
+Les colonnes concernées sont donc `String` côté Prisma, `TEXT` + `CHECK` nommé côté base. Cela coûte la sécurité de type qu'un `enum` Prisma aurait donnée — récupérée dans `enums.ts`, qui déclare chaque ensemble **une seule fois**. Comme les valeurs vivent alors à deux endroits (TypeScript et SQL), `enums.spec.ts` lit les migrations et vérifie qu'elles coïncident : ajouter un statut d'un côté sans l'autre casse le build au lieu de produire une violation de contrainte en production.
+
+### Trois défauts trouvés en exécutant
+
+| Défaut | Comment trouvé | Correction |
+|---|---|---|
+| **Le client généré est ESM** — `import.meta.url`, que ce backend (CommonJS, pas de `"type": "module"`) ne peut pas charger : *« Cannot use 'import.meta' outside a module »* | la suite unitaire refusait de charger le client | `moduleFormat = "cjs"` sur le générateur |
+| **Les imports générés utilisent des spécificateurs `.js`** pointant vers des fichiers `.ts` — convention NodeNext que TypeScript résout et que Jest ne résout pas | *« Cannot find module './internal/class.js' »* | `moduleNameMapper` dans les 3 configurations Jest |
+| **Le compilateur de requêtes Prisma 7 est en WASM**, chargé par un `import()` dynamique que la VM CommonJS de Jest refuse | 34 tests e2e en échec dès que `AppModule` a inclus `PrismaModule` | `node --experimental-vm-modules` dans les scripts de test — il n'existe **pas** de runtime non-WASM en Prisma 7 |
+
+Deux de mes propres tests étaient également faux et ont été corrigés : l'assertion « aucun enum natif » matchait **mon propre commentaire** expliquant qu'on n'en crée pas, et un `RegExp` avec le drapeau `/g` réutilisé entre appels `.test()` conservait `lastIndex` et sautait silencieusement des lignes.
+
+### INV-09 est appliqué par la base, pas seulement par le code
+
+Un rôle de portée `PLATFORM` accordé via `membership_role_assignments` donnerait une autorité plateforme à quiconque administre **une seule** organisation : c'est la voie d'escalade de privilège la plus directe du modèle. Le §5.6 exige un trigger, et la raison tient en une phrase — un invariant que seul le code applicatif maintient survit exactement jusqu'au premier script, à la première migration ou à la première session console qui contourne la couche service.
+
+Deux triggers, dans les deux sens : `membership_role_assignments` n'accepte que `ORGANIZATION`, `platform_role_assignments` n'accepte que `PLATFORM`. Le second compte autant : sans lui, un rôle d'organisation pourrait être silencieusement élargi en l'insérant dans l'autre table.
+
+### Vérification réelle, pas déclarative
+
+Contre le PostgreSQL 18.4 de `docker-compose` :
+
+| Scénario | Résultat observé |
+|---|---|
+| `prisma migrate deploy` sur base vierge | les 2 migrations appliquées, 9 tables créées |
+| `prisma migrate diff --exit-code` | **« No difference detected », code 0** — critère de sortie du sprint |
+| `status = 'NOT_A_STATUS'` | rejeté par `ck_users_status` |
+| Second utilisateur avec le même email normalisé | rejeté par `ux_users_normalized_email_active` |
+| **Même email après soft delete** | **accepté** — la raison d'être de l'index partiel |
+| Rôle `PLATFORM` via un membership | rejeté, `INV-09` |
+| Rôle `ORGANIZATION` dans `platform_role_assignments` | rejeté, `INV-09` |
+| `UPDATE` échangeant un rôle pour une portée interdite | rejeté, `INV-09` |
+| Re-attribution d'un rôle après révocation | acceptée — raison d'être de `WHERE revoked_at IS NULL` |
+| Aucun `CREATE TYPE`, aucun `TIMESTAMP` sans `TZ` | vérifié par 18 tests lisant les migrations |
+
+265 tests unitaires, 12 d'intégration, 34 e2e.
+
+### Autres décisions
+
+**Le client généré n'est pas committé** — dérivé de `schema.prisma`, spécifique à la plateforme, et la CI le régénère avant lint et typecheck. Il est aussi exclu d'ESLint : analyser une sortie machine produit des remarques que personne ne peut corriger.
+
+**`DatabaseHealthIndicator` utilise désormais `PrismaService`** au lieu du pool `pg` privé d'EVT-012 — le `TODO(EVT-014)` est soldé. Deux configurations de connexion signifiaient qu'une readiness pouvait passer contre des réglages que l'application n'utilise pas.
+
+**Limites assumées** — le seed (`prisma/seed/index.ts`) est le périmètre d'EVT-017 ; l'étape CI correspondante est gardée par `hashFiles` avec un `TODO`, car une étape verte qui n'assert rien est plus trompeuse qu'une étape sautée. Les 21 tables restantes suivent leurs sprints. L'extension Prisma d'isolation tenant est EVT-018 ; `TransactionManager` existe déjà pour lui donner un point d'accroche unique.
+
+**État initial** — il n'existait **aucun** fichier `.prisma` dans le dépôt. Pas de `PrismaService`, pas de `PrismaClient` instancié, aucun script npm Prisma.
 
 **Scope** — créer `backend/prisma/`, `PrismaService`, `PrismaModule`, `TransactionManager` ; migrations 1 et 2 ; les scripts npm de [`MIGRATION_STRATEGY.md` §2](../../database/MIGRATION_STRATEGY.md).
 

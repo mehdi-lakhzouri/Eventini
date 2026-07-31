@@ -1,66 +1,48 @@
-import { Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   HealthIndicatorService,
   type HealthIndicatorResult,
 } from '@nestjs/terminus';
-import { Pool } from 'pg';
 
+import { PrismaService } from '../database/prisma.service';
 import { probeDependency } from './dependency-probe';
 import { DATABASE_INDICATOR_KEY } from './health.constants';
 
 /**
  * Readiness check for PostgreSQL.
  *
- * Runs `SELECT 1` over a real pooled connection, which is the smallest query
- * that proves the whole path — DNS, TCP, TLS, authentication and the database
- * accepting queries. A TCP connect alone would report a server that is
- * listening but rejecting logins as healthy, which is precisely the state
- * readiness exists to catch.
+ * Runs `SELECT 1` through the application's own `PrismaService`, which is the
+ * smallest query proving the whole path — DNS, TCP, TLS, authentication and
+ * the database accepting queries. A TCP connect alone would report a server
+ * that is listening but rejecting logins as healthy, which is precisely the
+ * state readiness exists to catch. Confirmed in EVT-012: a stale password in
+ * `.env` produced exactly that, and only the query caught it.
  *
- * ## Why this owns a pool instead of using Prisma
+ * ## Why it shares the application's client (EVT-014)
  *
- * `PrismaService` arrives in EVT-014 (sprint 03). Rather than block readiness
- * until then, this holds a deliberately tiny `pg` pool of its own: `max: 1`,
- * because a probe needs exactly one connection and must never compete with
- * application traffic for it.
+ * Until `PrismaService` existed this held a separate one-connection `pg` pool
+ * of its own. That was the right stopgap and the wrong end state: two
+ * connection configurations mean readiness can pass against settings the
+ * application does not use, so a wrong pool size, timeout or TLS option would
+ * be invisible to the probe that exists to notice it.
  *
- * The pool is reused across probes on purpose. Connecting per probe would
- * mean a fresh TCP handshake and authentication every few seconds from every
- * replica, which is load the database does not need and which makes the probe
- * measure connection setup rather than database health.
- *
- * TODO(EVT-014, sprint 03): once `PrismaService` exists, inject it and drop
- * this pool, so there is one connection configuration rather than two.
+ * Sharing the pool costs one connection from it per probe, briefly. That is
+ * the intended trade: a probe that measures the real client is worth more
+ * than one that measures a private connection nothing else uses.
  */
 @Injectable()
-export class DatabaseHealthIndicator implements OnModuleDestroy {
-  private readonly pool: Pool;
-
+export class DatabaseHealthIndicator {
   constructor(
     private readonly healthIndicatorService: HealthIndicatorService,
-    connectionString: string,
-  ) {
-    this.pool = new Pool({
-      connectionString,
-      max: 1,
-      // Bounded so a probe cannot inherit the driver's default multi-second
-      // connect timeout and outlive the probe's own deadline.
-      connectionTimeoutMillis: 1_500,
-      idleTimeoutMillis: 30_000,
-      allowExitOnIdle: true,
-    });
-
-    // An idle pool emits 'error' when the server closes a connection. Without
-    // a listener that is an unhandled 'error' event, which in Node terminates
-    // the process — a health check must never be the thing that kills the
-    // service it reports on.
-    this.pool.on('error', () => undefined);
-  }
+    private readonly prisma: PrismaService,
+  ) {}
 
   async isHealthy(): Promise<HealthIndicatorResult> {
     const indicator = this.healthIndicatorService.check(DATABASE_INDICATOR_KEY);
 
-    const outcome = await probeDependency(() => this.pool.query('SELECT 1'));
+    const outcome = await probeDependency(
+      () => this.prisma.$queryRaw`SELECT 1`,
+    );
 
     return outcome.ok
       ? indicator.up({ durationMs: outcome.durationMs })
@@ -70,9 +52,5 @@ export class DatabaseHealthIndicator implements OnModuleDestroy {
           // the connection string, and this is served over HTTP.
           reason: outcome.reason ?? 'unreachable',
         });
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
   }
 }
