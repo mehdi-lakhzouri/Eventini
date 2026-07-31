@@ -190,23 +190,29 @@ jobs:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
           SHADOW_DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_shadow?schema=public
 
-      # Constraint tests against the real database: a CHECK, a partial unique
-      # index and a trigger can only be verified by asking PostgreSQL.
-      - name: Schema constraint tests
-        if: steps.schema.outputs.present == 'true'
-        run: npm run test:integration
-        env:
-          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
-
+      # Before the integration suite, so the first run seeds a genuinely empty
+      # database and the log shows the real creation counts. The suite seeds in
+      # its own `beforeAll` — it has to, since a seed's job is to converge
+      # rather than to demand a blank slate — so running it first would leave
+      # this step with nothing to create and quietly weaken it.
+      #
       # The second run carries `--assert-no-op`, which exits non-zero if the
       # seed wrote anything. Without it the step only proved that the script
-      # does not crash twice — running a command and reading neither result is
+      # does not crash twice: running a command and reading neither result is
       # not a test of idempotency.
       - name: Seed is idempotent
         if: steps.schema.outputs.present == 'true'
         run: |
           npm run db:seed
           npm run db:seed -- --assert-no-op
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+
+      # Constraint tests against the real database: a CHECK, a partial unique
+      # index and a trigger can only be verified by asking PostgreSQL.
+      - name: Schema constraint tests
+        if: steps.schema.outputs.present == 'true'
+        run: npm run test:integration
         env:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
 
