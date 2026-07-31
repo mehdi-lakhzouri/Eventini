@@ -19,10 +19,10 @@ Invariant **O-3** : l'audit précède la première écriture métier. Une opéra
 
 ## Critère de sortie
 
-- `prisma migrate deploy` sur base vierge aboutit ;
-- le seed est **idempotent** (deux exécutions ⇒ même état) ;
-- les **12 invariants** ont chacun un test d'insertion qui **échoue** comme prévu ;
-- `prisma migrate diff --exit-code` retourne 0.
+- ✅ `prisma migrate deploy` sur base vierge aboutit ;
+- ✅ le seed est **idempotent** (deux exécutions ⇒ même état) ;
+- ⚠️ les **12 invariants** ont chacun un test d'insertion qui **échoue** comme prévu — **4 sur 12** en réalité, voir [EVT-019](#evt-019) : les 8 autres contraignent des tables que les migrations 5 à 12 n'ont pas encore créées. Le registre échoue le jour où l'une d'elles apparaît ;
+- ✅ `prisma migrate diff --exit-code` retourne 0.
 
 ---
 
@@ -625,10 +625,81 @@ Le `TenantContext` est le **premier** paramètre, jamais optionnel, jamais un `s
 ## EVT-019 — Tests d'invariants
 <a id="evt-019"></a>
 
+> ✅ **Fait le 31 juillet 2026.** INV-10 est désormais **appliqué par trigger** — il ne l'était nulle part. Les 4 invariants applicables aujourd'hui ont chacun leur test d'insertion en échec contre PostgreSQL réel ; les **8 autres ne sont pas testables en sprint 03**, et le registre est écrit pour **échouer le jour où ils le deviennent**.
+
 ```
 Branche  test/EVT-019-database-invariants
-Commit   test(db): add failing-insert tests for all 12 cross-table invariants
+Commit   test(db): enforce INV-10 and register all twelve invariants
 ```
+
+### 🔴 Le critère de sortie demandait douze tests ; quatre sont possibles
+
+Le §9 énumère douze invariants. Huit d'entre eux contraignent des tables qu'aucune migration n'a encore créées :
+
+| Invariant | Table attendue | Migration | Ticket |
+|---|---|---|---|
+| INV-02, INV-12 | `user_sessions` | 5 | EVT-021 |
+| INV-11 | `mfa_methods` | 6 | EVT-021 |
+| INV-03 | `scanner_devices` | 7 | EVT-045 |
+| INV-05, INV-06 | `registrations`, `registration_sessions` | 10 | EVT-041 |
+| INV-07 | `tickets` | 11 | EVT-046 |
+| INV-08 | `attendance_records` | 12 | EVT-051 |
+
+Il n'y a rien à y insérer et rien à rejeter. Le ticket lui-même ne listait que 6 des 12, dont INV-11 et INV-12 qui tombent dans ce cas.
+
+**Ce qui est livré, et pourquoi ce n'est pas `it.todo`** — un `it.todo` **passe**. La suite resterait donc verte le jour où la migration 5 arrive, pendant qu'INV-02 et INV-12 ne seraient appliqués nulle part. Le registre affirme à la place que ces tables sont **encore absentes** :
+
+```ts
+expect({ invariant, table, testable: exists }).toEqual({
+  invariant, table, testable: false,
+});
+```
+
+Le jour où une migration crée `user_sessions`, deux tests échouent en nommant INV-02, INV-12 et EVT-021. **Un report qui ne peut pas expirer est un report que personne ne rouvrira.** Vérifié en créant réellement la table : les deux tests échouent, puis repassent après suppression.
+
+### INV-10 n'était appliqué nulle part
+
+Les trois autres invariants applicables avaient déjà leur trigger (EVT-014 pour INV-09, EVT-015 pour INV-01 et INV-04). INV-10 était énoncé au §9 et appliqué par rien — la différence entre un invariant et une phrase.
+
+Ce qu'il protège n'est pas une question de qualité de données mais un **verrouillage** : perdre le dernier administrateur plateforme signifie que personne ne peut réattribuer le rôle, puisqu'il faut le détenir pour l'accorder. La récupération est une intervention manuelle sur la base de production.
+
+**Pourquoi `AFTER STATEMENT` avec table de transition**, et pas un trigger par ligne :
+
+| Propriété nécessaire | Pourquoi un trigger par ligne ne l'a pas |
+|---|---|
+| Une base vierge a **zéro** `SUPER_ADMIN`, et c'est légal | L'invariant interdit de passer de « au moins un » à « aucun », pas d'être vide. Un trigger qui comptait simplement refuserait le premier `INSERT` de la procédure d'amorçage. `REFERENCING OLD TABLE` donne l'image d'avant, donc le contrôle ne s'exécute que si le statement a réellement retiré une attribution active |
+| Une révocation de plusieurs lignes se juge sur son **état final** | Un trigger par ligne se déclenche entre les lignes, sur une table à moitié modifiée, et devrait raisonner sur un état intermédiaire qu'aucune transaction n'observe |
+
+`UPDATE` **et** `DELETE` sont couverts : la table est `REVOKE_NOT_DELETE`, donc `UPDATE` est le chemin prévu et `DELETE` celui qu'on prend quand on est pressé. Deux triggers séparés, parce que PostgreSQL n'autorise pas une seule déclaration à porter une table de transition pour plusieurs événements.
+
+### Le trigger a refusé mon propre test, et il avait raison
+
+Le premier `beforeAll` révoquait toutes les attributions `SUPER_ADMIN` actives pour partir d'un état connu. Le trigger a refusé. C'était l'invariant qui fonctionnait et le test qui était faux.
+
+Toutes les écritures sur `platform_role_assignments` passent donc par une transaction systématiquement annulée. Cela règle aussi une dépendance cachée : la CI seed **sans** `BOOTSTRAP_SUPER_ADMIN_EMAIL`, donc avec **zéro** `SUPER_ADMIN` ; en local il y en a un. Une suite dont le comportement dépendait de laquelle est une suite qui passe sur une seule machine.
+
+Pour atteindre « exactement une attribution active » sans jamais passer par zéro : accorder d'abord, puis révoquer les autres en un seul statement.
+
+### Deux couvertures, deux questions différentes
+
+| Fichier | Question | Sans base de données |
+|---|---|---|
+| `test/database/invariants.integration-spec.ts` | le trigger **se comporte**-t-il comme prévu ? | non, se saute |
+| `src/infrastructure/database/invariant-triggers.spec.ts` | le trigger **existe**-t-il encore, avec le bon SQLSTATE et sur les bons événements ? | oui, suite unitaire |
+
+Le second attrape la suppression d'un trigger sur une machine sans Docker, là où la suite d'intégration se saute et où l'erreur passerait la revue.
+
+Il vérifie aussi que chaque `RAISE EXCEPTION` porte un `ERRCODE` de contrainte : un trigger qui lève avec le `raise_exception` par défaut est indistinguable d'un bug dans une fonction, pour un lecteur de logs comme pour tout code qui classe les erreurs.
+
+### Trois tests ajoutés sur des branches non couvertes
+
+En écrivant le registre, trois chemins déjà livrés se sont révélés non testés :
+
+- INV-01 avait un test pour la branche « organisation ≠ celle de l'événement », pas pour « membership d'un autre tenant » — le trigger a deux branches, un test qui n'en exerce qu'une en laisse une non prouvée ;
+- ni INV-01 ni INV-09 n'avaient de test d'`UPDATE`. Un trigger qui ne surveillerait que l'`INSERT` laisserait la violation à un statement de distance ;
+- l'`ERRCODE` des triggers n'était vérifié nulle part.
+
+Un de mes propres tests était également faux : l'assertion sur l'`ERRCODE` découpait le SQL « jusqu'au prochain point-virgule », et le message du trigger `APPEND_ONLY` **contient** un point-virgule (« cannot be updated; record a compensating entry instead »). La migration avait raison, l'assertion avait tort.
 
 **Scope** — un test par invariant INV-01 à INV-12 de [`DATABASE_SCHEMA.md` §9](../../database/DATABASE_SCHEMA.md). Chacun **doit échouer** à l'insertion.
 
