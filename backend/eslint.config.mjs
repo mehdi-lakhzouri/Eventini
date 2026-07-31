@@ -18,12 +18,22 @@ export default tseslint.config(
       },
       sourceType: 'commonjs',
       parserOptions: {
-        project: ['./tsconfig.json', './tsconfig.test.json'],
+        // `projectService` lets typescript-eslint resolve each file through
+        // the same project lookup the editor uses, rather than a hand-listed
+        // set of configs that has to be kept in sync by hand. It works
+        // because `tsconfig.json` now covers `src` and `test` alike; when it
+        // did not, files outside it fell back to a default project whose
+        // options did not match, which is what produced the jest-global
+        // errors this replaced.
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
   },
   {
+    // Jest's globals are declared only where they are legitimate. Application
+    // code referencing `describe` or `jest` stays an error here, which is the
+    // lint-side counterpart of `tsconfig.build.json` narrowing `types`.
     files: ['**/*.spec.ts', 'test/**/*.ts'],
     languageOptions: {
       globals: {

@@ -1,4 +1,16 @@
 {
+  // What `nest build` emits, and the guard that keeps test-only types out of
+  // application code.
+  //
+  // `types` is narrowed back to `["node"]`: `tsconfig.json` has to expose the
+  // jest globals so editors resolve spec files, and this is what stops that
+  // convenience leaking into shipped code. A `describe`/`jest.fn()` reference
+  // inside `src` compiles fine in the editor and fails here — which is the
+  // right place for it to fail, because this config is what produces `dist`.
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "test", "dist", "**/*.spec.ts"]
 }
