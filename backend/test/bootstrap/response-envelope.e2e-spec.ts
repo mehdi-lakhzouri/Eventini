@@ -8,11 +8,7 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { applicationConfig } from '../../src/config';
 import { buildValidationPipe } from '../../src/bootstrap';
-import {
-  HttpExceptionFilter,
-  ResponseEnvelopeInterceptor,
-  type ApiEnvelope,
-} from '../../src/common/api';
+import type { ApiEnvelope } from '../../src/common/api';
 
 function envelope<T>(body: unknown): ApiEnvelope<T> {
   return body as ApiEnvelope<T>;
@@ -61,8 +57,9 @@ describe('response envelope and exception filter (EVT-010)', () => {
     app.get<ConfigType<typeof applicationConfig>>(applicationConfig.KEY);
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(buildValidationPipe());
-    app.useGlobalInterceptors(new ResponseEnvelopeInterceptor());
-    app.useGlobalFilters(new HttpExceptionFilter());
+    // The envelope interceptor and exception filter arrive through AppModule's
+    // APP_INTERCEPTOR/APP_FILTER providers (EVT-011), so registering them here
+    // would run each one twice.
 
     await app.init();
   });

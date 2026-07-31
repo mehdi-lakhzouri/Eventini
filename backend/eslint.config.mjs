@@ -15,12 +15,19 @@ export default tseslint.config(
     languageOptions: {
       globals: {
         ...globals.node,
-        ...globals.jest,
       },
       sourceType: 'commonjs',
       parserOptions: {
-        projectService: true,
+        project: ['./tsconfig.json', './tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    files: ['**/*.spec.ts', 'test/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.jest,
       },
     },
   },

@@ -42,8 +42,13 @@ jobs:
       # left in place at deploy time. Cross-checked by env validation rule 9.
       - name: No obvious placeholder secrets in source
         run: |
-          PATTERNS='(CHANGE_?ME|REPLACE_?ME|your[-_]secret|s3cr3t|password123|admin123)'
-          HITS=$(grep -rniE "$PATTERNS" backend/src web/src 2>/dev/null || true)
+          # The trailing (?![A-Za-z]) matters: without it, `REPLACE_?ME` under
+          # -i matches the ordinary English word "replacement", and the job
+          # fails on a code comment. A placeholder is always followed by a
+          # non-letter (=, ", whitespace, _) so the guard costs no detection —
+          # REPLACE_ME_SECRET still matches, "replacement" no longer does.
+          PATTERNS='(CHANGE_?ME|REPLACE_?ME|your[-_]secret|s3cr3t|password123|admin123)(?![A-Za-z])'
+          HITS=$(grep -rniP "$PATTERNS" backend/src web/src 2>/dev/null || true)
           if [ -n "$HITS" ]; then
             echo "::error::placeholder secret found in source:"
             echo "$HITS"

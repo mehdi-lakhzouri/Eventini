@@ -109,7 +109,7 @@ jobs:
       # TODO(EVT-036, sprint 06): remove continue-on-error. This is the job that
       # proves cross-tenant isolation; it must become blocking.
       - name: Architecture tests
-        run: npm test -- --ci --testPathPattern=__architecture__
+        run: npm test -- --ci --testPathPatterns=__architecture__
         continue-on-error: true
 
       - name: Build

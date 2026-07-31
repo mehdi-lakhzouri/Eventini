@@ -258,33 +258,82 @@ Instance démarrée avec `npx ts-node -T src/main.ts`, sondée avec `curl`, puis
 ## EVT-011 — Logging Pino
 <a id="evt-011"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Pino est le logger unique, la redaction est **vérifiée sur une instance réellement démarrée** avec une valeur canari cherchée dans stdout — méthode qui a trouvé une fuite qu'aucun test existant ne voyait.
+
 ```
 Branche  feat/EVT-011-pino-logging
 Commit   feat(logging): implement structured Pino logging with redaction
 ```
 
-**État actuel** — `backend/src/infrastructure/logging/` contient **13 fichiers de 0 octet**. Le sous-système entier est vide.
-
-**Scope** — remplir les 13 fichiers : module, config, redaction, serializers, event codes, catégories, `request-id.middleware`, `request-context.service`, `request-context.interceptor`, filtre d'erreurs.
-
 **Référence** — [`PINO_LOGGING_SPECIFICATION.md`](../../observability/PINO_LOGGING_SPECIFICATION.md) (Document D) fait autorité sur le schéma de champs, les niveaux, les catégories et la rétention.
 
-### Deux corrections à apporter au Document D
+### Structure livrée
 
-| # | Problème | Correction |
+```
+backend/src/infrastructure/logging/
+├── logging.constants.ts          routes ignorées, borne de profondeur, placeholder
+├── log-categories.ts             les 12 catégories §8
+├── log-event-codes.ts            catalogue stable §10, chaque code lié à sa catégorie
+├── logging.types.ts              champs corrélation / tenant / résultat §9
+├── log-redaction.config.ts       chemins Pino + scrubber récursif (voir C-24)
+├── log-serializers.ts            req / res / err (voir C-25)
+├── logging.config.ts             options Pino depuis l'env §14-17
+├── http-logging.config.ts        options pino-http §19
+├── request-context.service.ts    assign() du contexte tenant résolu §13
+├── request-context.interceptor.ts  traceparent → traceId/spanId §12
+├── pino-bootstrap.ts             logger disponible avant le conteneur DI §29
+├── logging.module.ts             LoggerModule.forRootAsync, @Global
+└── index.ts
+
+backend/src/config/logging.config.ts        namespace typé des 12 variables LOG_*
+backend/test/logging/logging.e2e-spec.ts    les 7 tests §39 ci-dessous
+```
+
+**Trois fichiers du §37 n'ont volontairement pas été créés.** La liste de dossiers du §37 est antérieure à EVT-009/EVT-010 : `request-id.middleware.ts` et `exception-logging.filter.ts` existent déjà sous `common/`. En créer un second de chaque aurait donné deux générateurs d'identifiant produisant des valeurs différentes (donc un champ de corrélation qui ne corrèle pas) et deux lignes de log par exception — ce que le §3.4 « une erreur, un log » interdit explicitement. Les deux existants sont réutilisés : `HttpExceptionFilter` journalise désormais via Pino, et `RequestIdMiddleware` partage son identifiant avec `pino-http` par une fonction idempotente (`ensureRequestId`), de sorte que l'ordre d'exécution des middlewares n'a plus d'importance.
+
+### C-24 — la correction demandée était elle-même incomplète
+
+Le §30 mélange des chemins réels et des **clés nues**. Une clé nue est un chemin *racine* pour Pino, donc `password` ne protégeait que `{password: …}` au tout premier niveau. La correction prévue était d'ajouter les wildcards `*.password`, `*.accessToken`, etc.
+
+**Vérifié contre la documentation de Pino et en l'exécutant : `*` ne couvre qu'un seul niveau.** Avec `paths: ['password', '*.password']`, la valeur dans `{a: {b: {password: 'x'}}}` sort **en clair**. `**` est accepté par le parseur mais ne récurse pas davantage.
+
+Livré : les chemins tels que corrigés (couche rapide pour les formes connues) **plus** `scrubSensitiveKeys`, un parcours récursif indépendant de la profondeur, insensible à la casse, branché sur `formatters.log`. Profondeur bornée à 8 pour qu'un objet cyclique dégrade au lieu de bloquer le processus dans une instruction de log.
+
+### C-25 — les serializers, spécifiés
+
+Le §37 promet `log-serializers.ts`, le §40 dit « ajouter serializers sûrs », aucun n'en spécifie un. Les défauts de `pino-std-serializers` ne pouvaient pas être conservés : ils émettent **tous** les en-têtes et l'URL **avec sa query string**, soit trois violations simultanées (§41 interdit les en-têtes complets, §30 exige la suppression d'`authorization`/`cookie`, §31 interdit les données personnelles). Les serializers livrés sont des **listes blanches** : un en-tête apparaît parce qu'il a été nommé, jamais parce qu'il était présent. IP tronquée en `197.0.x.x` (§31), query string supprimée, `err: {type, message, stack}`.
+
+### Quatre défauts trouvés en exécutant réellement
+
+| Défaut | Comment il a été trouvé | Correction |
 |---|---|---|
-| **C-24** | Les chemins de redaction §30 mélangent chemins réels (`req.headers.authorization`) et **clés nues** (`password`, `accessToken`, `mfaSecret`). Une clé nue ne matche que la racine de l'objet — ce ne sont **pas** des `redact.paths` Pino valides | Ajouter les wildcards : `*.password`, `*.accessToken`, `*.refreshToken`, `*.mfaSecret`, … |
-| **C-25** | La §37 promet `log-serializers.ts` et la §40 dit « ajouter serializers sûrs », **sans jamais en spécifier un seul** | Spécifier les serializers `req`, `res`, `err`. La seule forme implicite du corpus est `err: {type, message, stack}` |
+| **Fuite de secret dans les logs** — le filtre construisait `operation` depuis `originalUrl`, query string comprise : `"operation":"GET /api/v1/nope?token=LEAKCANARY123"`. Le champ RFC 9457 `instance` le renvoyait aussi dans la réponse | démarrage réel + `grep` d'un canari dans stdout ; **aucun test existant ne le voyait** | `stripQueryString()` appliqué à `instance`, plus un test de non-régression e2e sur le chemin d'erreur |
+| **`err` sortait en `{"type":"NonError","message":"[object Object]"}`** pour chaque 5xx — soit précisément l'information dont l'astreinte a besoin | sortie e2e en JSON | `pino-http` enveloppe le serializer `err` dans `wrapErrorSerializer`, qui applique d'abord le serializer standard et passe le **résultat** au nôtre. `serializeError` est rendu idempotent |
+| **`category`/`eventCode` dupliqués et faux** — via `customProps`, ils étaient liés au logger enfant de la requête, donc *tous* les logs métier et sécurité étaient étiquetés `HTTP_ACCESS` / `HTTP_REQUEST_COMPLETED` | lecture de la sortie NDJSON réelle | déplacés vers `customSuccessObject`/`customErrorObject`, qui ne s'appliquent qu'à la ligne finale. Seul `requestId`, stable, reste dans `customProps` |
+| **Ligne de démarrage sans `msg`** — `Logger.log(fields, 'Application started')` classait le message dans `context` | démarrage réel | `Logger` implémente `LoggerService` de Nest (`log(message, …, context)`), pas la signature Pino. `PinoLogger` étant *request-scoped*, `app.get()` le refuse ; la ligne passe par le logger de processus |
 
-**Tests obligatoires**
+Également corrigé : `LoggerModule` enregistrait sa middleware sur `path: '*'`, ré-émettant l'avertissement `LegacyRouteConverter` corrigé en EVT-010. Passé à `forRoutes: ['*path']`.
 
-- un mot de passe passé au logger **n'apparaît pas** en sortie ;
-- un `Authorization` ou un `Cookie` complet n'apparaît pas ;
-- `requestId` présent sur **chaque** ligne ;
-- `LOG_LEVEL=silent` en test produit zéro sortie ;
-- `LOG_REDACTION_ENABLED=false` est **refusé** si `NODE_ENV` vaut `staging` ou `production`.
+### Une lacune de configuration trouvée dans EVT-008
 
-**Principe du Document D §30, à ne pas oublier** — « la redaction est une défense secondaire. La première règle est de ne pas transmettre le secret au logger. »
+La règle 3 (`LOG_REDACTION_ENABLED` obligatoire) ne couvrait que `production`. Or `staging` est une valeur valide de `NODE_ENV` dans le schéma, et le §16 dit de staging, sans réserve, « La redaction ne doit jamais être désactivée » — un environnement de staging contient de vrais utilisateurs invités et de vraies clés d'intégration. La règle couvre désormais les deux.
+
+### Vérification réelle, pas déclarative
+
+| Scénario | Résultat observé |
+|---|---|
+| Démarrage réel, `LOG_FORMAT=json` | NDJSON sur stdout, `{"level":"info",…,"eventCode":"APPLICATION_STARTED","category":"SYSTEM","msg":"Application started"}` |
+| Requête avec `Authorization`, `Cookie` **et** `?token=` portant le même canari | **0 occurrence** du canari dans l'intégralité de stdout |
+| `X-Request-Id` client valide | identique dans l'en-tête de réponse, `meta.requestId` **et** chaque ligne de log |
+| 5xx | une seule ligne `error`, `err.stack` présent dans le log, **absent** de la réponse |
+| `/health/live`, `/metrics` | aucune ligne d'accès |
+| Avertissements de dépréciation au démarrage | **0** |
+
+Suite `test/logging/logging.e2e-spec.ts` (7 tests) : la sortie est lue comme un collecteur la lirait, en NDJSON, via un flux de destination injecté. La première version interceptait `process.stdout.write` — Pino écrit par `sonic-boom` **directement sur le descripteur 1**, donc elle n'attrapait rien et validait un tableau vide. Corrigé en remplaçant le flux, pas la fonction.
+
+**Principe du Document D §30, à ne pas oublier** — « la redaction est une défense secondaire. La première règle est de ne pas transmettre le secret au logger. » La fuite trouvée ci-dessus en est l'illustration exacte : la redaction fonctionnait, mais le secret était recopié dans un champ que personne n'avait pensé à couvrir.
+
+**Hors scope, explicitement** — OpenTelemetry (§12 le séquence après la corrélation ; un `traceparent` entrant est déjà honoré), instrumentation Prisma/Redis/BullMQ (§23-25, ces sous-systèmes n'existent pas encore), centralisation et rétention (§33-34, du ressort du déploiement).
 
 ---
 

@@ -6,9 +6,15 @@ import {
   type NestModule,
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { configurationNamespaces, validateEnvironment } from './config';
+import { HttpExceptionFilter, ResponseEnvelopeInterceptor } from './common/api';
 import { RequestIdMiddleware } from './common/middleware';
+import {
+  LoggingModule,
+  RequestContextInterceptor,
+} from './infrastructure/logging';
 import { IdentityModule } from './modules/identity';
 
 /**
@@ -51,7 +57,18 @@ if (!isProduction) {
       // No `expandVariables`: interpolation would let one secret reference
       // another, which is exactly what the reuse check (rule 8) exists to catch.
     }),
+    LoggingModule,
     IdentityModule,
+  ],
+  providers: [
+    // Registered here rather than in `main.ts` because all three need DI:
+    // the filter and the context interceptor resolve the request-scoped Pino
+    // logger. Order matters for interceptors — `RequestContextInterceptor`
+    // is listed first so correlation fields are on the logger before any
+    // handler runs and can log.
+    { provide: APP_INTERCEPTOR, useClass: RequestContextInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
+    { provide: APP_FILTER, useClass: HttpExceptionFilter },
   ],
 })
 export class AppModule implements NestModule {

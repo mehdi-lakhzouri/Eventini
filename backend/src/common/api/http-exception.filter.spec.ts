@@ -1,7 +1,26 @@
 import { NotFoundException, type ArgumentsHost } from '@nestjs/common';
+import type { PinoLogger } from 'nestjs-pino';
 
 import { AppException } from './app-exception';
 import { HttpExceptionFilter } from './http-exception.filter';
+
+function makeLogger(): {
+  pino: PinoLogger;
+  error: jest.Mock;
+  warn: jest.Mock;
+  setContext: jest.Mock;
+} {
+  const error = jest.fn();
+  const warn = jest.fn();
+  const setContext = jest.fn();
+
+  return {
+    pino: { error, warn, setContext } as unknown as PinoLogger,
+    error,
+    warn,
+    setContext,
+  };
+}
 
 function makeHost(request: {
   method: string;
@@ -26,7 +45,13 @@ function makeHost(request: {
 }
 
 describe('HttpExceptionFilter', () => {
-  const filter = new HttpExceptionFilter();
+  let logger: ReturnType<typeof makeLogger>;
+  let filter: HttpExceptionFilter;
+
+  beforeEach(() => {
+    logger = makeLogger();
+    filter = new HttpExceptionFilter(logger.pino);
+  });
 
   it('renders an AppException as RFC 9457 problem+json with its own code', () => {
     const { host, response } = makeHost({
@@ -83,5 +108,50 @@ describe('HttpExceptionFilter', () => {
       { error: { detail: string } },
     ];
     expect(envelope.error.detail).toBe('An unexpected error occurred.');
+  });
+
+  // PINO_LOGGING_SPECIFICATION.md §39.4 — the stack must reach the log and
+  // must not reach the response. Both halves asserted, on the same exception.
+  it('passes the error to the logger for a 5xx while keeping it out of the response', () => {
+    const { host, response } = makeHost({
+      method: 'GET',
+      originalUrl: '/api/v1/x',
+      id: 'req_4',
+    });
+    const thrown = new Error('relation "users" does not exist');
+
+    filter.catch(thrown, host);
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [fields] = logger.error.mock.calls[0] as [
+      { err: unknown; eventCode: string; errorCode: string; operation: string },
+    ];
+    expect(fields.err).toBe(thrown);
+    expect(fields.eventCode).toBe('UNHANDLED_APPLICATION_ERROR');
+    expect(fields.errorCode).toBe('INTERNAL_ERROR');
+    // `requestId` is intentionally absent — pino-http's customProps already
+    // binds it to the request's child logger, so the filter adding it would
+    // emit the key twice on the same line.
+    expect(fields).not.toHaveProperty('requestId');
+    expect(fields.operation).toBe('GET /api/v1/x');
+
+    expect(JSON.stringify(response.json.mock.calls[0])).not.toContain(
+      'does not exist',
+    );
+  });
+
+  // §3.4 "Une erreur, un log" — exactly one line per exception, never one
+  // per layer, or every error count downstream is inflated.
+  it('logs exactly once per exception, at warn for 4xx and error for 5xx', () => {
+    const { host } = makeHost({
+      method: 'GET',
+      originalUrl: '/api/v1/x',
+      id: 'req_5',
+    });
+
+    filter.catch(new AppException('AUTH_TENANT_DENIED'), host);
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
   });
 });
