@@ -157,6 +157,15 @@ jobs:
             echo "::notice::No prisma/schema.prisma yet — migration checks skipped (EVT-014)."
           fi
 
+      # The generated client is git-ignored, and since EVT-017 the integration
+      # suite uses it: seed.integration-spec.ts drives the real seed functions
+      # rather than re-implementing them in raw SQL, which is the only way the
+      # reconciliation logic is actually under test. The other specs talk to
+      # `pg` directly, so this job got away without generating until now.
+      - name: Generate Prisma client
+        if: steps.schema.outputs.present == 'true'
+        run: npm run prisma:generate
+
       - name: Apply migrations on a clean database
         if: steps.schema.outputs.present == 'true'
         run: npm run prisma:migrate:deploy
