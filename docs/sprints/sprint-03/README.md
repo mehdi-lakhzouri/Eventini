@@ -349,10 +349,118 @@ Invariant **O-3**. Une opération métier non tracée l'est **définitivement** 
 ## EVT-017 — Seed rôles et permissions
 <a id="evt-017"></a>
 
+> ✅ **Fait le 31 juillet 2026.** 30 permissions, 6 rôles système et 52 attributions écrits en base réelle. `db:seed` exécuté deux fois produit un état **identique octet pour octet**, `updated_at` compris. Aucune ligne n'est écrite dans `user_credentials` — vérifié par un test et par une garde CI bloquante.
+
 ```
 Branche  feat/EVT-017-seed-authorization
 Commit   feat(db): add idempotent authorization seed
 ```
+
+### Structure livrée
+
+```
+backend/prisma/seed/
+├── authorization-catalogue.ts       30 permissions, 6 rôles, la matrice
+├── seed-client.ts                   PrismaClient hors Nest
+├── seed-outcome.ts                  compteurs created/updated/unchanged/removed
+├── 01-permissions.seed.ts
+├── 02-roles.seed.ts
+├── 03-role-permissions.seed.ts
+├── 04-bootstrap-super-admin.seed.ts
+└── index.ts                         orchestrateur, --assert-no-op
+backend/src/infrastructure/database/
+├── uuid-v7.ts        + spec         RFC 9562 §5.7, implémenté ici (voir plus bas)
+├── identifiers.ts    + spec         19 préfixes, newId(), hasPrefix()
+├── normalize-email.ts + spec        la définition de normalized_email
+└── authorization-catalogue.spec.ts  26 tests de cohérence du catalogue
+backend/test/database/seed.integration-spec.ts   19 tests contre PostgreSQL
+```
+
+### 🔴 La matrice rôle × permission est **dérivée**, pas citée
+
+Le [`MIGRATION_STRATEGY.md` §8.1](../../database/MIGRATION_STRATEGY.md) nomme les six rôles et demande « la matrice rôle × permission » **sans jamais l'énoncer**. Elle n'existe nulle part dans le corpus. Les 52 attributions sont donc lues sur les responsabilités d'[`EVENTINI_PROJECT_CONTEXT.md` §6.1–6.3](../../00-project-context/EVENTINI_PROJECT_CONTEXT.md) et d'[ADR-0015](../../adr/0015-scanner-role-scope.md), chaque décision non évidente étant justifiée en commentaire à côté de la ligne concernée.
+
+**C'est la partie de ce ticket qui mérite le plus une relecture humaine** : une case fausse ici est une sur-attribution silencieuse, qui ne produit aucune erreur — seulement une permission accordée à quelqu'un qui ne devrait pas l'avoir.
+
+Les trois arbitrages qui ne se déduisent pas mécaniquement :
+
+| Décision | Raison |
+|---|---|
+| `SUPER_ADMIN` n'a **aucune** permission métier | §6.1 : « un super admin ne doit pas utiliser les mêmes routes métier qu'un client admin sans contexte clair ». Lui accorder `events.update` rendrait cette règle inapplicable **plus tard**, puisque le contrôle passerait déjà. L'accès au tenant se fait par `platform.users.impersonate`, qui est audité |
+| `CLIENT_ADMIN` n'a **aucun** `attendance.*` | ADR-0015 : le pointage est toujours de portée `EVENT`. Un administrateur qui doit pointer reçoit une affectation d'événement — visible, bornée, révocable — au lieu d'un droit à l'échelle de l'organisation |
+| `SCANNER` n'a **pas** `attendance.override` | L'override est le moyen de forcer un scan refusé. §6.3 est explicite : l'opérateur n'effectue **aucune modification libre**. Qui doit forcer détient `EVENT_ADMIN` |
+
+`SCANNER` reçoit en revanche `registrations.read`, parce que §6.3 exige qu'il puisse « consulter le résultat de validation » : sans cela un scan serait accepté sans être explicable, et l'opérateur ne pourrait pas distinguer un billet valide d'un billet inconnu.
+
+### `upsert` aurait été le mauvais primitif
+
+C'est pourtant ce que demande le §8.1, et c'est la première chose qu'on écrit. `Permission.updatedAt` porte `@updatedAt` : un `upsert` inconditionnel réécrit l'horodatage des 30 lignes **à chaque exécution** — chaque déploiement, chaque job CI. Les lignes seraient identiques en contenu et différentes sur disque, ce qui coûte deux choses :
+
+- « quand cette permission a-t-elle changé pour la dernière fois ? » devient sans réponse ;
+- le test du ticket — deux exécutions, même état — cesse d'être **littéralement** vrai.
+
+Chaque étape lit donc avant d'écrire et ne modifie que ce qui diffère réellement. C'est ce qui permet à la seconde exécution d'afficher `created: 0, updated: 0` — une affirmation qu'une étape CI peut vérifier, au lieu d'une qu'il faut croire.
+
+```
+step                     created    updated  unchanged    removed
+-----------------------------------------------------------------
+permissions                    0          0         30          0
+roles                          0          0          6          0
+role_permissions               0          0         52          0
+bootstrap_super_admin          0          0          2          0
+
+  Nothing changed — the database already matches the catalogue.
+```
+
+### L'asymétrie suppression : deux règles opposées, volontairement
+
+| Table | Règle | Pourquoi |
+|---|---|---|
+| `permissions`, `roles` | **jamais** de suppression | une entrée retirée du catalogue reste en base : les `audit_logs` la référencent, et supprimer la ligne ferait pointer une entrée d'audit vers le vide — exactement au moment où quelqu'un la consulte |
+| `role_permissions` | **réconciliation exacte**, suppressions comprises | une permission retirée d'un rôle doit réellement cesser de fonctionner. Garder la ligne « pour l'historique » ferait du seed un mécanisme qui accorde sans jamais retirer : un cliquet à sens unique sur le privilège. L'historique vit dans `audit_logs`, qui est append-only ; la table de jointure est l'**état courant**, et un état courant a le droit de diminuer |
+
+La passe de suppression balaie **toute** la table, pas seulement les rôles du catalogue : un rôle retiré du catalogue se retrouve donc sans aucune permission.
+
+### Les étapes 3 et 4 de la procédure d'amorçage ne sont **pas** implémentées
+
+`email_verification_tokens` n'existe pas encore — c'est la migration 4, livrée par [EVT-021](../sprint-04/README.md#evt-021). Il n'y a aucune table où persister un token à usage unique.
+
+Un token affiché ici serait donc une chaîne que **rien ne pourrait jamais vérifier** : pire que pas de token du tout, parce qu'il ressemble à un identifiant valide, qu'il serait collé dans un navigateur, qu'il échouerait sans explication, et qu'il inviterait quelqu'un à « réparer » l'amorçage en écrivant un mot de passe après tout.
+
+Le compte est donc créé `PENDING`, sans credentials, avec son attribution `SUPER_ADMIN` déjà active, et la sortie standard dit exactement ce qui reste à faire :
+
+```
+A platform administrator account was created and CANNOT SIGN IN YET.
+
+  email   …
+  id      usr_019fb9d8-…
+  status  PENDING, with no password and no MFA
+
+No password was written, deliberately: a seeded password reaches
+production every time. …
+```
+
+C'est l'état de repos correct, pas un état cassé : un compte qui ne peut pas s'authentifier ne peut pas non plus se faire compromettre.
+
+### Deux gardes ajoutées à la CI
+
+| Garde | Ce qu'elle empêche |
+|---|---|
+| `npm run db:seed -- --assert-no-op` | l'étape « Seed is idempotent » exécutait la commande **deux fois sans lire aucun code de sortie** — elle ne prouvait que l'absence de crash. Le drapeau fait échouer la seconde exécution si quoi que ce soit a été écrit. Le garde `hashFiles` est retiré |
+| `No credential written by a seed` (bloquante) | un `grep` sur `passwordHash`, `argon2`, `user_credentials`… dans `prisma/seed`. Les lignes de commentaire sont retirées d'abord : sinon le contrôle matche **sa propre justification** dans `04-bootstrap-super-admin.seed.ts`, et un scanner qui se déclenche sur son propre argumentaire apprend aux gens à le désactiver |
+
+### Quatre choses trouvées en exécutant
+
+| Constat | Comment trouvé | Correction |
+|---|---|---|
+| **`uuid` est ESM-only** et Jest ne transforme pas `node_modules` — `transformIgnorePatterns` n'y change rien, `transform` ne matchant que `.ts` | la suite unitaire refusait de charger le paquet | `uuid-v7.ts`, implémenté sur `node:crypto`. Ce qui est écrit est une **disposition d'octets**, pas une primitive : toute l'entropie vient de `randomBytes`. Le paquet `uuid` est retiré des dépendances |
+| **Le client généré importait en `./x.js`** — convention NodeNext que TypeScript résout et que le résolveur CommonJS de Node ne résout pas | `ts-node prisma/seed/index.ts` : `Cannot find module './internal/class.js'` | `importFileExtension = ""` sur le générateur. Cela supprime aussi le `moduleNameMapper` qui masquait le problème dans **trois** configurations Jest |
+| **`prisma/` n'était ni typé, ni linté** : `tsconfig.json` et les globs npm ne couvraient que `src/` et `test/` | en cherchant pourquoi le seed n'apparaissait dans aucun rapport | `prisma/**/*.ts` ajouté à `include`, à `lint` et à `format`. `tsconfig.build.json` garde son propre `include`, donc le seed ne part **pas** dans `dist/` |
+| **Un de mes propres tests était faux** : il comparait les codes de permission triés par PostgreSQL à ceux triés par JavaScript. Le `_` ne se classe pas au même endroit sous la collation de la base et sous la comparaison par point de code — `event_sessions.manage` et `events.create` s'échangent | le test échouait sur une différence qui ne disait rien du seed | comparaison ensembliste, avec la raison en commentaire |
+
+### Un préfixe d'identifiant ajouté au §2.1
+
+La liste de [`DATABASE_SCHEMA.md` §2.1](../../database/DATABASE_SCHEMA.md) couvre les identifiants « exposés dans une API ou une URL » et ne nomme rien pour les trois tables d'affectation. `asg_` est donc ajouté, et signalé comme tel : réutiliser `rol_` mettrait un préfixe de rôle sur une ligne qui n'en est pas un, et l'omettre ferait de ces tables les seules à porter un UUID nu — donc des exceptions à connaître par cœur pour lire une ligne de log.
 
 **Scope** — `01-permissions.seed.ts` (~30 codes), `02-roles.seed.ts` (6 rôles système), `03-role-permissions.seed.ts` (matrice), `04-bootstrap-super-admin.seed.ts`.
 

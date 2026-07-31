@@ -209,7 +209,9 @@ Le seed est **idempotent** et rejouable sans effet cumulatif. Il n'insère jamai
 
 ### 8.1 Permissions et rôles — obligatoire dans tous les environnements
 
-`permissions`, `roles` et `role_permissions` sont du référentiel, pas de la donnée : ils sont livrés avec le code et appliqués par `upsert` sur `code`.
+`permissions`, `roles` et `role_permissions` sont du référentiel, pas de la donnée : ils sont livrés avec le code et rapprochés de la base sur la clé `code`.
+
+> 🔧 **Correction ([EVT-017](../sprints/sprint-03/README.md#evt-017)) : pas `upsert`, mais lecture puis écriture différentielle.** `Permission.updatedAt` porte `@updatedAt` ; un `upsert` inconditionnel réécrit donc l'horodatage des 30 lignes à chaque exécution — chaque déploiement, chaque job CI. Les lignes seraient identiques en contenu et différentes sur disque, ce qui rend « quand cette permission a-t-elle changé ? » sans réponse et rend le critère de sortie du sprint (« deux exécutions ⇒ même état ») littéralement faux. Chaque étape compare donc d'abord et n'écrit que ce qui diffère réellement, ce qui rend la seconde exécution observablement nulle (`created: 0, updated: 0`) plutôt que simplement silencieuse.
 
 | Fichier | Contenu |
 |---|---|
@@ -234,6 +236,8 @@ Procédure :
 5. le passage à `ACTIVE` n'a lieu qu'après enrôlement MFA réussi.
 
 **Aucun mot de passe n'est jamais écrit dans un seed**, y compris en développement. Un mot de passe de seed finit systématiquement en production.
+
+> ⏳ **Étape 3 différée à [EVT-021](../sprints/sprint-04/README.md#evt-021).** `email_verification_tokens` arrive avec la migration 4 : il n'existe aujourd'hui aucune table où persister un token à usage unique. En afficher un serait afficher une chaîne que **rien ne peut vérifier** — pire que rien, parce qu'elle ressemble à un identifiant valide. [EVT-017](../sprints/sprint-03/README.md#evt-017) implémente donc les étapes 1, 2, 4 et 5, laisse le compte `PENDING` sans credentials, et l'annonce explicitement sur la sortie standard.
 
 ### 8.3 Données de démonstration — développement uniquement
 

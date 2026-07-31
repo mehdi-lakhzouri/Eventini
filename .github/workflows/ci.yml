@@ -189,15 +189,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
 
-      # TODO(EVT-017, sprint 03): drop the `hashFiles` guard once
-      # prisma/seed/index.ts exists. Running a seed that is not written yet
-      # would either fail or, worse, pass vacuously — a green check that
-      # asserts nothing is more misleading than a skipped one.
+      # The second run carries `--assert-no-op`, which exits non-zero if the
+      # seed wrote anything. Without it the step only proved that the script
+      # does not crash twice — running a command and reading neither result is
+      # not a test of idempotency.
       - name: Seed is idempotent
-        if: ${{ steps.schema.outputs.present == 'true' && hashFiles('backend/prisma/seed/index.ts') != '' }}
+        if: steps.schema.outputs.present == 'true'
         run: |
           npm run db:seed
-          npm run db:seed
+          npm run db:seed -- --assert-no-op
         env:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
 

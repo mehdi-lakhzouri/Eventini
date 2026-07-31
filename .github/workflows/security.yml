@@ -229,6 +229,29 @@ jobs:
             echo "no raw SQL"
           fi
 
+      # EVT-017: a seed must never write a password, including in development.
+      # A seeded password is committed, identical across environments, and
+      # created before anyone is watching — it reaches production every time.
+      # Blocking, not a warning: this is the one rule the whole bootstrap
+      # procedure is built around.
+      - name: No credential written by a seed
+        run: |
+          # Comment lines are stripped first. Without that the check matches
+          # the doc comment in 04-bootstrap-super-admin.seed.ts that explains
+          # why no credential is written — a scanner that fires on its own
+          # rationale trains people to disable it.
+          HITS=$(grep -rn --include='*.ts' -vE '^\s*(\*|//|/\*)' \
+                   backend/prisma/seed 2>/dev/null \
+                 | grep -iE \
+                   'passwordHash|password_hash|argon2|bcrypt|user_credentials|userCredential' \
+                 || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::a seed must never write a credential (EVT-017):"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "no credential written by any seed"
+
       # ADR-0006: organizationId is the only permitted term for the tenant.
       # TODO(sprint 02): make this blocking once the codebase adopts the term.
       - name: Tenant terminology
