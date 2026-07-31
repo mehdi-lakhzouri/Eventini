@@ -20,6 +20,35 @@ function generateRequestId(): string {
 }
 
 /**
+ * Resolves the request's ID once and memoises it on the request.
+ *
+ * Idempotent on purpose. Two independent pieces of middleware need this ID —
+ * this one, and `pino-http`'s `genReqId` (EVT-011) — and Nest gives no
+ * guarantee about which of an imported module's middleware and the host
+ * module's own runs first. Rather than depend on an order that could change
+ * with an import reshuffle, both call this: whichever arrives first computes
+ * the ID, the other finds it already present. They cannot disagree, so the
+ * ID in the logs is always the ID in `meta.requestId` and in the response
+ * header.
+ */
+export function ensureRequestId(request: RequestWithId): string {
+  if (typeof request.id === 'string' && request.id.length > 0) {
+    return request.id;
+  }
+
+  const supplied = request.headers[REQUEST_ID_HEADER.toLowerCase()];
+  const candidate = typeof supplied === 'string' ? supplied : undefined;
+
+  const id =
+    candidate !== undefined && VALID_REQUEST_ID.test(candidate)
+      ? candidate
+      : generateRequestId();
+
+  request.id = id;
+  return id;
+}
+
+/**
  * Stamps every request with an ID before anything else runs, so it is
  * available to the logger (EVT-011), the response envelope, and the
  * exception filter alike. A valid client-supplied ID is kept — it lets a
@@ -29,14 +58,7 @@ function generateRequestId(): string {
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {
   use(request: RequestWithId, response: Response, next: NextFunction): void {
-    const supplied = request.header(REQUEST_ID_HEADER);
-    const id =
-      supplied && VALID_REQUEST_ID.test(supplied)
-        ? supplied
-        : generateRequestId();
-
-    request.id = id;
-    response.setHeader(REQUEST_ID_HEADER, id);
+    response.setHeader(REQUEST_ID_HEADER, ensureRequestId(request));
     next();
   }
 }

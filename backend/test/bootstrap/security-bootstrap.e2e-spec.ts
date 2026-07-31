@@ -131,7 +131,10 @@ describe('security bootstrap (EVT-009)', () => {
       .send({ name: 'ok' });
 
     expect(response.status).toBe(201);
-    expect(response.body).toEqual({ name: 'ok' });
+    expect(response.body).toMatchObject({
+      data: { name: 'ok' },
+      error: null,
+    });
   });
 
   it('does not let a forged X-Forwarded-For entry beyond the trusted hop count set req.ip', async () => {

@@ -5,9 +5,13 @@ import {
 import type { RequestWithId } from '../types/request-with-id';
 
 function makeRequest(headerValue: string | undefined): RequestWithId {
+  const headers: Record<string, string> = {};
+  if (headerValue !== undefined) {
+    headers[REQUEST_ID_HEADER.toLowerCase()] = headerValue;
+  }
+
   return {
-    header: (name: string) =>
-      name === REQUEST_ID_HEADER ? headerValue : undefined,
+    headers,
   } as unknown as RequestWithId;
 }
 

@@ -3,6 +3,7 @@ export { authenticationConfig } from './authentication.config';
 export { cookiesConfig } from './cookies.config';
 export { csrfConfig } from './csrf.config';
 export { databaseConfig } from './database.config';
+export { loggingConfig } from './logging.config';
 export { rateLimitConfig } from './rate-limit.config';
 export { redisConfig } from './redis.config';
 
@@ -20,6 +21,7 @@ import { authenticationConfig } from './authentication.config';
 import { cookiesConfig } from './cookies.config';
 import { csrfConfig } from './csrf.config';
 import { databaseConfig } from './database.config';
+import { loggingConfig } from './logging.config';
 import { rateLimitConfig } from './rate-limit.config';
 import { redisConfig } from './redis.config';
 
@@ -30,6 +32,7 @@ export const configurationNamespaces = [
   cookiesConfig,
   csrfConfig,
   databaseConfig,
+  loggingConfig,
   rateLimitConfig,
   redisConfig,
 ];

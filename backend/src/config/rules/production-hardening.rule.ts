@@ -27,9 +27,17 @@ export const productionHardeningRule: EnvironmentRule = {
 
     // Rule 3 — redaction off means passwords, tokens and cookies reach the log
     // store in clear text. PINO_LOGGING_SPECIFICATION.md §30 forbids it.
-    if (isProduction && !env.LOG_REDACTION_ENABLED) {
+    //
+    // Staging is included deliberately. §16 says of staging, without
+    // qualification, "La redaction ne doit jamais être désactivée", and
+    // staging routinely holds real invited users and real integration
+    // credentials — a secret leaked to the staging log store is leaked. This
+    // rule previously only covered production; `staging` is a valid NODE_ENV
+    // in the schema, so that left a real environment uncovered.
+    const redactionRequired = isProduction || env.NODE_ENV === 'staging';
+    if (redactionRequired && !env.LOG_REDACTION_ENABLED) {
       errors.push(
-        'LOG_REDACTION_ENABLED must be true when NODE_ENV=production (secrets would be written to logs in clear text).',
+        `LOG_REDACTION_ENABLED must be true when NODE_ENV=${env.NODE_ENV} (secrets would be written to logs in clear text).`,
       );
     }
 

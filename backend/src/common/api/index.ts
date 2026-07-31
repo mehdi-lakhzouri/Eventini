@@ -11,5 +11,6 @@ export { buildResponseMeta } from './build-response-meta';
 export { mapUnknownException, isServerError } from './map-unknown-exception';
 export { mapValidationErrorCode } from './map-validation-error-code';
 export { flattenValidationErrors } from './flatten-validation-errors';
+export { stripQueryString } from './strip-query-string';
 export { ResponseEnvelopeInterceptor } from './response-envelope.interceptor';
 export { HttpExceptionFilter } from './http-exception.filter';

@@ -1,0 +1,67 @@
+import type { LogCategory } from './log-categories';
+
+/**
+ * The stable `eventCode` catalogue — PINO_LOGGING_SPECIFICATION.md §10.
+ *
+ * Messages (`msg`) are prose and may be reworded freely. `eventCode` is the
+ * machine contract: dashboards, alert rules and saved queries are written
+ * against these strings, so renaming one silently breaks an alert rather than
+ * failing a build. Add codes; do not rename them.
+ *
+ * This is a *different namespace* from `common/api/error-codes.ts` — §10 and
+ * ADR-0008 both say so explicitly. `RATE_LIMIT_EXCEEDED` can legitimately
+ * exist in both with no relationship between them; they are not synchronised.
+ *
+ * Each code carries its natural category so a caller cannot pair
+ * `LOGIN_FAILED` with `CACHE` by accident.
+ */
+export const LOG_EVENT_CODES = {
+  // System lifecycle
+  APPLICATION_STARTED: 'SYSTEM',
+  APPLICATION_STOPPING: 'SYSTEM',
+  APPLICATION_START_FAILED: 'SYSTEM',
+  UNCAUGHT_EXCEPTION: 'SYSTEM',
+  UNHANDLED_REJECTION: 'SYSTEM',
+
+  // HTTP
+  HTTP_REQUEST_COMPLETED: 'HTTP_ACCESS',
+  HTTP_REQUEST_FAILED: 'HTTP_ACCESS',
+  SLOW_HTTP_REQUEST: 'PERFORMANCE',
+
+  // Dependencies
+  DATABASE_CONNECTED: 'DATABASE',
+  DATABASE_CONNECTION_FAILED: 'DATABASE',
+  SLOW_DATABASE_QUERY: 'PERFORMANCE',
+  REDIS_CONNECTED: 'CACHE',
+  REDIS_FALLBACK_ACTIVATED: 'CACHE',
+
+  // Queues
+  JOB_STARTED: 'QUEUE',
+  JOB_RETRY_SCHEDULED: 'QUEUE',
+  JOB_SUCCEEDED: 'QUEUE',
+  JOB_FAILED_FINAL: 'QUEUE',
+
+  // Authentication and security
+  LOGIN_SUCCEEDED: 'SECURITY',
+  LOGIN_FAILED: 'SECURITY',
+  ACCOUNT_LOCKED: 'SECURITY',
+  SESSION_CREATED: 'SECURITY',
+  SESSION_REVOKED: 'SECURITY',
+  REFRESH_TOKEN_REUSE_DETECTED: 'SECURITY',
+  CSRF_VALIDATION_FAILED: 'SECURITY',
+  TENANT_ACCESS_DENIED: 'SECURITY',
+
+  // Business and audit
+  ROLE_CHANGED: 'AUDIT',
+  ORGANIZATION_SUSPENDED: 'AUDIT',
+
+  // Application-level failures that are not HTTP-shaped
+  UNHANDLED_APPLICATION_ERROR: 'APPLICATION',
+} as const satisfies Record<string, LogCategory>;
+
+export type LogEventCode = keyof typeof LOG_EVENT_CODES;
+
+/** The category a given event code belongs to. */
+export function categoryForEventCode(code: LogEventCode): LogCategory {
+  return LOG_EVENT_CODES[code];
+}
