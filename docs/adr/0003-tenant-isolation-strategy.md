@@ -55,8 +55,8 @@ Trois documents énoncent la même règle avec trois formulations (A §10.3, B �
 
 ## Vérification
 
-- `tenant-isolation.spec.ts` passe avec des assertions réelles (aujourd'hui : 2 `it.todo`).
-- Test négatif : une requête volontairement non scopée sur un modèle tenant-owned lève `TenantScopeViolationError`.
+- ✅ `tenant-isolation.spec.ts` passe avec **14 assertions réelles** — les 2 `it.todo` d'origine ont été remplacés par [EVT-018](../sprints/sprint-03/README.md#evt-018), et l'étape CI correspondante n'est plus `continue-on-error`.
+- ✅ Test négatif : une requête volontairement non scopée sur un modèle tenant-owned lève `TenantScopeViolationError` — y compris à l'intérieur d'une transaction, vérifié contre PostgreSQL réel.
 
 ---
 
