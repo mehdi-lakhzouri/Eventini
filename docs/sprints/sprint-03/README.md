@@ -157,11 +157,87 @@ Contre le PostgreSQL 18.4 de `docker-compose` :
 ## EVT-015 — Modèles événementiels
 <a id="evt-015"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Migration 3 appliquée, la table fantôme **C-10 est résolue**, et INV-01 comme INV-04 sont appliqués par trigger et vérifiés contre PostgreSQL réel. `prisma migrate diff --exit-code` reste à **0**.
+
 ```
 Branche  feat/EVT-015-events-schema
 Commit   feat(db): add events, event sessions and assignments
 Tables   events, event_sessions, event_user_assignments      (migration 3)
 ```
+
+### Structure livrée
+
+```
+backend/prisma/migrations/20260731162915_events_core/migration.sql
+backend/src/infrastructure/database/enums.ts      + 5 ensembles, + 5 CHECK
+backend/src/modules/events/domain/
+├── event-code.ts              génération Crockford base32, CSPRNG
+├── event-code.spec.ts
+├── event-transitions.ts       la machine à états, en données
+└── event-transitions.spec.ts
+backend/test/database/events-schema.integration-spec.ts   18 tests
+```
+
+### `event_code` — pourquoi l'unicité globale n'est *pas* une entorse au tenant-first
+
+C'est l'inverse d'une entorse. Le scanner saisit ce code **avant que le tenant soit connu** : c'est lui qui *résout* le tenant. D'où deux conséquences que le code applique littéralement :
+
+- il est unique **globalement** (`ux_events_event_code_active`, partiel sur `deleted_at`) ;
+- il doit être **imprévisible**. Un code séquentiel laisserait n'importe qui lier un scanner à l'événement d'une autre organisation — une brèche inter-tenant atteignable depuis l'écran de connexion d'un appareil.
+
+`generateEventCode` tire donc de `node:crypto`, pas de `Math.random`. Elle utilise `randomInt` plutôt que `randomBytes(1)[0] % 32` : ce modulo n'est non biaisé que parce que 256 est divisible par 32, accident qui cesse dès qu'on touche à l'alphabet. Crockford base32 exclut `I`, `L`, `O` et `U` — les trois premiers parce qu'ils se confondent avec `1` et `0` dans la plupart des polices, le dernier pour éviter les grossièretés involontaires. Cela compte ici plus qu'ailleurs : le code est lu sur une feuille imprimée et tapé par quelqu'un debout à l'entrée d'un lieu.
+
+L'unicité reste garantie par l'index, jamais supposée par le générateur : un générateur qui ne collisionne que *probablement* est un générateur qui collisionne en production.
+
+### La machine à états, écrite en données
+
+`DRAFT → ACTIVE → EXPIRED`, `DRAFT|ACTIVE → CANCELLED`, **aucun retour**. Déclarée comme une table de transitions plutôt qu'une cascade de `if`, ce qui permet de l'asserter exhaustivement : chaque paire de statuts est soit listée, soit refusée, sans troisième possibilité.
+
+`EXPIRED` et `CANCELLED` sont terminaux **par conception** : billets, présences et rapports dérivent tous du fait que l'événement a atteint un état terminal ; rouvrir laisserait ces artefacts décrire un état que l'événement n'a plus. Un événement annulé qui doit se tenir malgré tout est un **nouvel** événement.
+
+`DRAFT → ACTIVE` exige au moins une session. Un événement actif sans session n'est pas un événement diminué, c'est un événement cassé : le check-in se résout contre les sessions, donc **chaque scan échouerait à la porte** sans que rien dans les données ne l'explique. La fonction retourne un motif, pas un booléen — sinon chaque appelant réinvente le message et ils divergent.
+
+### INV-01 et INV-04 — la dénormalisation n'est valable que si la copie est vraie
+
+`organization_id` est dénormalisé sur `event_sessions` et `event_user_assignments`. Ce n'est pas une optimisation (§2.4) : c'est ce qui permet à la garde d'isolation d'EVT-018 de vérifier le scope **sans jointure**. Sans cette colonne la garde devrait comprendre le graphe relationnel, donc serait partielle, donc contournable.
+
+Mais cela ne tient que tant que la copie est exacte — donc elle est **appliquée**, pas supposée :
+
+- **INV-04** — `event_sessions.organization_id` = `events.organization_id`. Une session dont le tenant diverge de son événement serait visible par le mauvais tenant, par le mécanisme même censé l'empêcher.
+- **INV-01** — l'assignation doit correspondre **à la fois** à `events.organization_id` **et** à `organization_memberships.organization_id`. Les deux comparaisons comptent : ne vérifier que l'événement laisserait affecter le membre d'une autre organisation ; ne vérifier que le membership laisserait affecter un membre d'ici à l'événement d'un autre tenant. Chacune seule est une attribution inter-tenant.
+
+Les deux triggers couvrent aussi l'`UPDATE`, pas seulement l'`INSERT` : déplacer une ligne existante vers un autre tenant est le même trou.
+
+### `assignment_type` n'est pas du texte libre
+
+`ENTITY_RELATIONSHIPS.md` §4.4 résout les permissions d'événement en joignant `assignment_type` sur `roles.code` où `roles.scope = 'EVENT'`. Une valeur sans rôle correspondant n'accorde donc **rien, silencieusement**. Les deux ensembles sont alignés dans `enums.ts`, et le seed d'EVT-017 crée exactement ces codes de rôle.
+
+### Une contrainte ajoutée au-delà du document
+
+`ck_event_assignments_validity_order` — le §6.3 définit le sens de la fenêtre `valid_from` / `valid_until` sans imposer de contrainte. Une assignation dont la validité se termine avant de commencer n'accorde rien à aucun instant : elle ne peut être qu'une erreur de saisie. La refuser ne coûte rien et évite qu'une permission inerte paraisse accordée dans l'interface. Signalée ici comme un ajout, pas comme une lecture du document.
+
+### Vérification réelle, pas déclarative
+
+| Scénario | Résultat observé |
+|---|---|
+| `prisma migrate deploy` sur base vierge | les 3 migrations appliquées |
+| `prisma migrate diff --exit-code` | **0** |
+| Événement finissant avant de commencer | rejeté, `ck_events_date_order` |
+| Fenêtre de check-in fermée avant ouverture | rejeté, `ck_events_checkin_window` |
+| Fenêtre semi-ouverte (« suit l'événement ») | **acceptée** |
+| Même `slug` dans **deux** organisations | **accepté** — le slug est par tenant |
+| Même `slug` dans la **même** organisation | rejeté, `ux_events_org_slug_active` |
+| Même `event_code` dans une **autre** organisation | **rejeté** — l'unicité est globale |
+| Même `event_code` après soft delete | **accepté** |
+| Session dont le tenant diverge de son événement | rejeté, `INV-04` |
+| `UPDATE` déplaçant une session vers un autre tenant | rejeté, `INV-04` |
+| Assignation dont le tenant diverge de l'événement | rejeté, `INV-01` |
+| Membership d'une autre organisation sur cet événement | rejeté, `INV-01` |
+| Ré-assignation après révocation | **acceptée** |
+
+322 tests unitaires (dont 47 pour le domaine événementiel), 30 d'intégration, 34 e2e.
+
+**Limites assumées** — la règle « `DRAFT → ACTIVE` exige une session » vit dans le domaine, pas dans un trigger : elle porte sur un agrégat (le nombre de sessions non supprimées) et l'imposer en base demanderait un trigger de comptage à chaque écriture de session, coûteux et contournable par une session supprimée dans la même transaction. Elle sera appliquée par le use case d'activation (sprint 09) ; les tests couvrent la décision, pas encore son point d'application. `scanner_device_assignments`, qui référence `event_sessions`, arrive en migration 7 (sprint 11).
 
 ### `events` était une table fantôme
 

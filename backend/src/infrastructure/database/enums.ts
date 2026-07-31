@@ -60,6 +60,55 @@ export const PLATFORM_ROLE_ASSIGNMENT_STATUSES = [
 export type PlatformRoleAssignmentStatus =
   (typeof PLATFORM_ROLE_ASSIGNMENT_STATUSES)[number];
 
+// --- Migration 3, events domain (EVT-015) ----------------------------------
+
+/**
+ * `DRAFT → ACTIVE → EXPIRED`, and `DRAFT|ACTIVE → CANCELLED`. Nothing returns
+ * from `EXPIRED` or `CANCELLED` — see `event-transitions.ts`, which is the
+ * single place that decides.
+ */
+export const EVENT_STATUSES = [
+  'DRAFT',
+  'ACTIVE',
+  'EXPIRED',
+  'CANCELLED',
+] as const;
+export type EventStatus = (typeof EVENT_STATUSES)[number];
+
+export const EVENT_SESSION_TYPES = [
+  'DAY',
+  'PANEL',
+  'WORKSHOP',
+  'ZONE',
+  'SLOT',
+] as const;
+export type EventSessionType = (typeof EVENT_SESSION_TYPES)[number];
+
+export const EVENT_SESSION_STATUSES = ['SCHEDULED', 'OPEN', 'CLOSED'] as const;
+export type EventSessionStatus = (typeof EVENT_SESSION_STATUSES)[number];
+
+/**
+ * These are not free text: ENTITY_RELATIONSHIPS.md §4.4 resolves event
+ * permissions by joining `assignment_type` against `roles.code` where
+ * `roles.scope = 'EVENT'`. A value here with no matching role silently grants
+ * nothing, so the two sets have to stay aligned — the seed (EVT-017) creates
+ * exactly these role codes.
+ */
+export const EVENT_ASSIGNMENT_TYPES = [
+  'EVENT_ADMIN',
+  'SCANNER',
+  'REPORT_VIEWER',
+  'SESSION_MANAGER',
+] as const;
+export type EventAssignmentType = (typeof EVENT_ASSIGNMENT_TYPES)[number];
+
+export const EVENT_ASSIGNMENT_STATUSES = [
+  'ACTIVE',
+  'SUSPENDED',
+  'REVOKED',
+] as const;
+export type EventAssignmentStatus = (typeof EVENT_ASSIGNMENT_STATUSES)[number];
+
 /**
  * Maps each CHECK constraint to the values it permits.
  *
@@ -74,4 +123,9 @@ export const CHECK_CONSTRAINT_VALUES: Readonly<
   ck_memberships_status: MEMBERSHIP_STATUSES,
   ck_roles_scope: ROLE_SCOPES,
   ck_platform_role_assignments_status: PLATFORM_ROLE_ASSIGNMENT_STATUSES,
+  ck_events_status: EVENT_STATUSES,
+  ck_event_sessions_type: EVENT_SESSION_TYPES,
+  ck_event_sessions_status: EVENT_SESSION_STATUSES,
+  ck_event_assignments_type: EVENT_ASSIGNMENT_TYPES,
+  ck_event_assignments_status: EVENT_ASSIGNMENT_STATUSES,
 };
