@@ -11,6 +11,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { configurationNamespaces, validateEnvironment } from './config';
 import { HttpExceptionFilter, ResponseEnvelopeInterceptor } from './common/api';
 import { RequestIdMiddleware } from './common/middleware';
+import { PrismaModule } from './infrastructure/database';
 import { HealthModule } from './infrastructure/health';
 import {
   LoggingModule,
@@ -61,6 +62,9 @@ if (!isProduction) {
     }),
     LoggingModule,
     MetricsModule,
+    // Ahead of HealthModule: the database readiness indicator injects
+    // PrismaService, so the module providing it has to be constructed first.
+    PrismaModule,
     HealthModule,
     IdentityModule,
   ],

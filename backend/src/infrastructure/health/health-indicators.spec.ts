@@ -1,5 +1,6 @@
 import { HealthIndicatorService } from '@nestjs/terminus';
 
+import { PrismaService } from '../database/prisma.service';
 import { DatabaseHealthIndicator } from './database.health-indicator';
 import { RedisHealthIndicator } from './redis.health-indicator';
 import {
@@ -13,9 +14,6 @@ import {
  * runnable on a laptop with nothing started, while the e2e suite covers the
  * wiring and the integration suite (sprint 03) will cover a real round trip.
  */
-interface DatabaseInternals {
-  pool: { query: jest.Mock; on: jest.Mock; end: jest.Mock };
-}
 interface RedisInternals {
   connectedClient: () => Promise<{ ping: jest.Mock }>;
 }
@@ -23,21 +21,18 @@ interface RedisInternals {
 const indicatorService = new HealthIndicatorService();
 
 describe('DatabaseHealthIndicator', () => {
-  function makeIndicator(query: jest.Mock): DatabaseHealthIndicator {
-    const indicator = new DatabaseHealthIndicator(
-      indicatorService,
-      'postgresql://user:hunter2@localhost:5432/db',
-    );
-    (indicator as unknown as DatabaseInternals).pool = {
-      query,
-      on: jest.fn(),
-      end: jest.fn().mockResolvedValue(undefined),
-    };
-    return indicator;
+  /**
+   * `$queryRaw` stands in for the whole client. Since EVT-014 the indicator
+   * shares the application's `PrismaService` rather than opening a pool of
+   * its own, so the seam moved from a private pool to the injected client.
+   */
+  function makeIndicator(queryRaw: jest.Mock): DatabaseHealthIndicator {
+    const prisma = { $queryRaw: queryRaw } as unknown as PrismaService;
+    return new DatabaseHealthIndicator(indicatorService, prisma);
   }
 
   it('reports up when SELECT 1 succeeds', async () => {
-    const indicator = makeIndicator(jest.fn().mockResolvedValue({ rows: [] }));
+    const indicator = makeIndicator(jest.fn().mockResolvedValue([{ x: 1 }]));
 
     const result = await indicator.isHealthy();
 
@@ -72,10 +67,12 @@ describe('DatabaseHealthIndicator', () => {
   });
 
   it('proves the query path, not merely that a socket opened', async () => {
-    const query = jest.fn().mockResolvedValue({ rows: [] });
-    await makeIndicator(query).isHealthy();
+    const queryRaw = jest.fn().mockResolvedValue([{ x: 1 }]);
+    await makeIndicator(queryRaw).isHealthy();
 
-    expect(query).toHaveBeenCalledWith('SELECT 1');
+    // A tagged template, so the call carries the SQL fragments rather than a
+    // plain string — what matters is that a query was actually issued.
+    expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 

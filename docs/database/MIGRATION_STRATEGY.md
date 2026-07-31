@@ -49,13 +49,17 @@ backend/
 "prisma:generate":     "prisma generate",
 "prisma:migrate:dev":  "prisma migrate dev",
 "prisma:migrate:deploy": "prisma migrate deploy",
-"prisma:migrate:diff": "prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma --shadow-database-url $SHADOW_DATABASE_URL --exit-code",
+"prisma:migrate:diff": "prisma migrate diff --from-migrations ./prisma/migrations --to-schema ./prisma/schema.prisma --exit-code",
 "prisma:studio":       "prisma studio",
 "db:seed":             "ts-node prisma/seed/index.ts",
 "db:reset":            "prisma migrate reset --force"
 ```
 
 `prisma:migrate:diff` avec `--exit-code` est le **gate CI** : il échoue si `schema.prisma` et les migrations divergent, c'est-à-dire si quelqu'un a modifié le schéma sans générer la migration correspondante.
+
+> **Corrigé au sprint 03 (EVT-014).** La commande initialement écrite ici utilisait `--to-schema-datamodel` et `--shadow-database-url`, deux drapeaux de Prisma 5/6 : le premier s'appelle `--to-schema` en Prisma 7, le second n'existe plus — l'URL de shadow database vient désormais de `prisma.config.ts`. La commande d'origine échouait en affichant l'aide, avec un code de sortie `1` qu'un CI aurait interprété comme un échec du gate plutôt que comme une erreur de syntaxe.
+
+**`prisma.config.ts` est obligatoire en Prisma 7.** Le bloc `datasource` de `schema.prisma` ne porte plus d'`url` : `env("DATABASE_URL")` n'y est plus le mécanisme. Le fichier de configuration à la racine de `backend/` fournit `datasource.url`, `datasource.shadowDatabaseUrl`, le chemin des migrations et la commande de seed — cette dernière ayant elle aussi quitté `package.json`.
 
 ---
 

@@ -163,6 +163,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
 
+      # `migrate diff --from-migrations` replays every migration into a shadow
+      # database, so one has to exist first: Prisma creates a shadow database
+      # itself only for `migrate dev`, not when the URL is supplied.
+      - name: Create the shadow database
+        if: steps.schema.outputs.present == 'true'
+        run: |
+          PGPASSWORD=eventini_ci createdb -h localhost -U eventini eventini_shadow || \
+            echo "shadow database already present"
+
       # Fails when schema.prisma and prisma/migrations/ have drifted, i.e. when
       # someone edited the schema without generating the migration.
       - name: Detect schema drift
@@ -172,8 +181,20 @@ jobs:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
           SHADOW_DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_shadow?schema=public
 
-      - name: Seed is idempotent
+      # Constraint tests against the real database: a CHECK, a partial unique
+      # index and a trigger can only be verified by asking PostgreSQL.
+      - name: Schema constraint tests
         if: steps.schema.outputs.present == 'true'
+        run: npm run test:integration
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+
+      # TODO(EVT-017, sprint 03): drop the `hashFiles` guard once
+      # prisma/seed/index.ts exists. Running a seed that is not written yet
+      # would either fail or, worse, pass vacuously — a green check that
+      # asserts nothing is more misleading than a skipped one.
+      - name: Seed is idempotent
+        if: ${{ steps.schema.outputs.present == 'true' && hashFiles('backend/prisma/seed/index.ts') != '' }}
         run: |
           npm run db:seed
           npm run db:seed
