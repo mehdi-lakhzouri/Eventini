@@ -1,9 +1,9 @@
 import { registerAs } from '@nestjs/config';
 
-import type { Env } from './env.schema';
+import { getValidatedEnv } from './validated-env';
 
 export const databaseConfig = registerAs('database', () => {
-  const env = process.env as unknown as Env;
+  const env = getValidatedEnv();
 
   return {
     url: env.DATABASE_URL,

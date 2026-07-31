@@ -13,6 +13,7 @@ export {
 } from './validate-environment';
 export { ENVIRONMENT_RULES, runEnvironmentRules } from './rules';
 export type { EnvironmentRule } from './rules';
+export { getValidatedEnv, resetValidatedEnvCache } from './validated-env';
 
 import { applicationConfig } from './application.config';
 import { authenticationConfig } from './authentication.config';

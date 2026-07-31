@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import type { Env } from './env.schema';
+import { getValidatedEnv } from './validated-env';
 
 /**
  * Cookie contract from AUTHENTICATION_AUTHORIZATION.md §2 and ADR-0016.
@@ -9,7 +9,7 @@ import type { Env } from './env.schema';
  * JS-readable cookie is the CSRF token, which carries no authorization.
  */
 export const cookiesConfig = registerAs('cookies', () => {
-  const env = process.env as unknown as Env;
+  const env = getValidatedEnv();
 
   return {
     secret: env.COOKIE_SECRET,

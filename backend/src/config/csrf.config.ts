@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import type { Env } from './env.schema';
+import { getValidatedEnv } from './validated-env';
 
 /**
  * CSRF settings (ADR-0016).
@@ -11,7 +11,7 @@ import type { Env } from './env.schema';
  * resolves.
  */
 export const csrfConfig = registerAs('csrf', () => {
-  const env = process.env as unknown as Env;
+  const env = getValidatedEnv();
 
   return {
     secret: env.CSRF_SECRET,

@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import type { Env } from './env.schema';
+import { getValidatedEnv } from './validated-env';
 
 /**
  * Rate limiting and lockout (ADR-0013).
@@ -10,7 +10,7 @@ import type { Env } from './env.schema';
  * control into the denial of service it exists to prevent.
  */
 export const rateLimitConfig = registerAs('rateLimit', () => {
-  const env = process.env as unknown as Env;
+  const env = getValidatedEnv();
 
   return {
     global: {
