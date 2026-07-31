@@ -57,3 +57,29 @@ Trois documents énoncent la même règle avec trois formulations (A §10.3, B �
 
 - `tenant-isolation.spec.ts` passe avec des assertions réelles (aujourd'hui : 2 `it.todo`).
 - Test négatif : une requête volontairement non scopée sur un modèle tenant-owned lève `TenantScopeViolationError`.
+
+---
+
+## Notes d'implémentation ([EVT-018](../sprints/sprint-03/README.md#evt-018), 31 juillet 2026)
+
+Trois écarts par rapport à la lettre de cette décision, chacun dans le sens du **fail closed** qu'elle énonce.
+
+### 1. `TENANT_OWNED_MODELS` est une liste d'**exemptions**, pas de protections
+
+Le §3 écrit le contrôle `TENANT_OWNED_MODELS.has(model)` — une liste d'inclusion. Le code l'inverse : **un modèle que personne n'a classé est traité comme tenant-owned et ses requêtes sont refusées.**
+
+Avec une liste d'inclusion, oublier d'y ajouter une nouvelle table tenant la laisse **silencieusement non protégée** : toutes les requêtes passent, aucun test n'échoue, et l'écart reste invisible jusqu'à la première lecture cross-tenant. Avec la liste d'exemptions, la même erreur fait échouer immédiatement chaque requête sur ce modèle, en le nommant. « En cas de doute, on refuse » est la phrase de cette ADR ; une liste d'inclusion échoue **ouvert** sur le seul cas qui compte, celui de l'oubli.
+
+`TENANT_OWNED_MODELS` reste exporté et vaut exactement ce que ce document dit qu'il vaut.
+
+### 2. `membership_role_assignments` est gardé **via une relation**
+
+Le §1 exige que « toute table tenant-owned porte `organization_id NOT NULL` » et qu'« aucune table métier ne dépende d'une jointure transitive ». [`DATABASE_SCHEMA.md` §5.6](../database/DATABASE_SCHEMA.md) classe pourtant `membership_role_assignments` en `ORGANIZATION-OWNED` **« (via le membership) »** et n'y liste aucune colonne `organization_id`. EVT-014 a construit ce que le §5.6 spécifiait. C'est la **seule** table de l'inventaire décrite ainsi.
+
+L'exempter aurait été le mauvais arbitrage : c'est la table des attributions de rôle, donc une écriture non scopée y est une escalade de privilège inter-tenant. Elle reste gardée et la garde traverse la relation, ce qui coûte une jointure sur exactement une table. **Correctif attendu : la colonne dénormalisée du §2.4, dans la vague de migrations qui touchera ensuite les tables d'identité ([EVT-021](../sprints/sprint-04/README.md#evt-021)).**
+
+### 3. Le client non gardé n'est plus injectable
+
+`$extends` renvoie un **nouveau** client et laisse l'original pleinement fonctionnel — vérifié : une requête émise par le client de base est invisible pour l'extension. `PrismaModule` conserve donc `PrismaService` comme provider, pour ses hooks de cycle de vie, mais **ne l'exporte plus**. Ce qu'un repository injecte est `TENANT_SCOPED_PRISMA`.
+
+Sans cela, l'isolation aurait eu un contournement d'un seul mot, qui aurait ressemblé à la chose évidente à écrire.

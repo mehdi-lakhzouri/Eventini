@@ -1,6 +1,6 @@
 import { HealthIndicatorService } from '@nestjs/terminus';
 
-import { PrismaService } from '../database/prisma.service';
+import type { TenantScopedPrismaClient } from '../database/tenant-scope.extension';
 import { DatabaseHealthIndicator } from './database.health-indicator';
 import { RedisHealthIndicator } from './redis.health-indicator';
 import {
@@ -23,11 +23,14 @@ const indicatorService = new HealthIndicatorService();
 describe('DatabaseHealthIndicator', () => {
   /**
    * `$queryRaw` stands in for the whole client. Since EVT-014 the indicator
-   * shares the application's `PrismaService` rather than opening a pool of
-   * its own, so the seam moved from a private pool to the injected client.
+   * shares the application's client rather than opening a pool of its own, so
+   * the seam moved from a private pool to the injected client; since EVT-018
+   * that client is the tenant-scoped one.
    */
   function makeIndicator(queryRaw: jest.Mock): DatabaseHealthIndicator {
-    const prisma = { $queryRaw: queryRaw } as unknown as PrismaService;
+    const prisma = {
+      $queryRaw: queryRaw,
+    } as unknown as TenantScopedPrismaClient;
     return new DatabaseHealthIndicator(indicatorService, prisma);
   }
 
