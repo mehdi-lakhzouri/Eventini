@@ -44,6 +44,23 @@ generator client {
   // fail with "Cannot use 'import.meta' outside a module". Found by the unit
   // suite refusing to load the client at all.
   moduleFormat = "cjs"
+
+  // Extensionless relative imports inside the generated client.
+  //
+  // The generator's default is `.js` — the NodeNext convention, where a `.ts`
+  // file imports its sibling as `./thing.js` because that is what it will be
+  // after compilation. TypeScript understands that; Node's CommonJS resolver,
+  // running the sources directly, does not: it looks for a literal
+  // `internal/class.js`, finds only `internal/class.ts`, and throws
+  // MODULE_NOT_FOUND. That is what `ts-node prisma/seed/index.ts` hits, and
+  // what Jest was papering over with a `moduleNameMapper` rewrite in three
+  // separate configurations.
+  //
+  // `""` emits `require('./internal/class')`, which the CommonJS resolver
+  // handles natively and which stays correct after compilation. It fixes the
+  // cause rather than each tool that trips over it.
+  importFileExtension = ""
+
   output   = "../src/infrastructure/database/prisma/generated"
 }
 
