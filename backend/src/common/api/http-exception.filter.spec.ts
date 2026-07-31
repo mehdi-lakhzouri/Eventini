@@ -3,6 +3,17 @@ import type { PinoLogger } from 'nestjs-pino';
 
 import { AppException } from './app-exception';
 import { HttpExceptionFilter } from './http-exception.filter';
+import { MetricsService } from '../../infrastructure/metrics/metrics.service';
+
+/**
+ * A real `MetricsService` with its own registry, not a mock: constructing one
+ * is cheap, and it means the label names the filter passes are validated by
+ * prom-client itself. A mock would happily accept a label the real metric
+ * does not declare.
+ */
+function makeMetrics(): MetricsService {
+  return new MetricsService('eventini-api', 'test');
+}
 
 function makeLogger(): {
   pino: PinoLogger;
@@ -46,11 +57,13 @@ function makeHost(request: {
 
 describe('HttpExceptionFilter', () => {
   let logger: ReturnType<typeof makeLogger>;
+  let metrics: MetricsService;
   let filter: HttpExceptionFilter;
 
   beforeEach(() => {
     logger = makeLogger();
-    filter = new HttpExceptionFilter(logger.pino);
+    metrics = makeMetrics();
+    filter = new HttpExceptionFilter(logger.pino, metrics);
   });
 
   it('renders an AppException as RFC 9457 problem+json with its own code', () => {

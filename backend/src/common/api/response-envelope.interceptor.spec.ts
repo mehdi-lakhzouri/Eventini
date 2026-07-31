@@ -3,6 +3,7 @@ import {
   type CallHandler,
   type ExecutionContext,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { of, firstValueFrom } from 'rxjs';
 
 import { ResponseEnvelopeInterceptor } from './response-envelope.interceptor';
@@ -13,6 +14,11 @@ function makeContext(statusCode: number): ExecutionContext {
       getRequest: () => ({ id: 'req_test123' }),
       getResponse: () => ({ statusCode }),
     }),
+    // The interceptor asks the Reflector about the handler and its class, so
+    // both have to exist on the context even though the stubbed Reflector
+    // ignores what they are.
+    getHandler: () => function handler() {},
+    getClass: () => class Controller {},
   } as unknown as ExecutionContext;
 }
 
@@ -20,8 +26,19 @@ function makeHandler<T>(value: T): CallHandler<T> {
   return { handle: () => of(value) };
 }
 
+/**
+ * A `Reflector` that reports whether the handler carries `@RawResponse()`.
+ * The real one reads decorator metadata; the interceptor only ever asks it
+ * this one question, so a stub keeps these tests about enveloping.
+ */
+function makeReflector(isRaw = false): Reflector {
+  return {
+    getAllAndOverride: () => isRaw,
+  } as unknown as Reflector;
+}
+
 describe('ResponseEnvelopeInterceptor', () => {
-  const interceptor = new ResponseEnvelopeInterceptor();
+  const interceptor = new ResponseEnvelopeInterceptor(makeReflector());
 
   it('wraps a 200 response in data/meta/error', async () => {
     const result = await firstValueFrom(
@@ -47,7 +64,7 @@ describe('ResponseEnvelopeInterceptor', () => {
       interceptor.intercept(makeContext(HttpStatus.OK), makeHandler(undefined)),
     );
 
-    expect(result?.data).toBeNull();
+    expect(result).toMatchObject({ data: null });
   });
 
   it('leaves a 204 response body untouched', async () => {
@@ -59,5 +76,28 @@ describe('ResponseEnvelopeInterceptor', () => {
     );
 
     expect(result).toBeUndefined();
+  });
+
+  /**
+   * Prometheus rejects anything that is not its text exposition format, so
+   * enveloping `/metrics` would switch monitoring off rather than degrade it.
+   */
+  it('returns the handler value untouched when @RawResponse() is present', async () => {
+    const raw = new ResponseEnvelopeInterceptor(makeReflector(true));
+    const body = '# HELP http_requests_total Requests.\n';
+
+    const result = await firstValueFrom(
+      raw.intercept(makeContext(HttpStatus.OK), makeHandler(body)),
+    );
+
+    expect(result).toBe(body);
+  });
+
+  it('still envelopes a handler without @RawResponse()', async () => {
+    const result = await firstValueFrom(
+      interceptor.intercept(makeContext(HttpStatus.OK), makeHandler('plain')),
+    );
+
+    expect(result).toMatchObject({ data: 'plain', error: null });
   });
 });

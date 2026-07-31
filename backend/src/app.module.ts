@@ -11,10 +11,12 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { configurationNamespaces, validateEnvironment } from './config';
 import { HttpExceptionFilter, ResponseEnvelopeInterceptor } from './common/api';
 import { RequestIdMiddleware } from './common/middleware';
+import { HealthModule } from './infrastructure/health';
 import {
   LoggingModule,
   RequestContextInterceptor,
 } from './infrastructure/logging';
+import { MetricsModule } from './infrastructure/metrics';
 import { IdentityModule } from './modules/identity';
 
 /**
@@ -58,6 +60,8 @@ if (!isProduction) {
       // another, which is exactly what the reuse check (rule 8) exists to catch.
     }),
     LoggingModule,
+    MetricsModule,
+    HealthModule,
     IdentityModule,
   ],
   providers: [
