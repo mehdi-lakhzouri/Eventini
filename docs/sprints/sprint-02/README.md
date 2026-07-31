@@ -198,23 +198,60 @@ Instance démarrée avec `npx ts-node -T src/main.ts`, sondée avec `curl`, puis
 ## EVT-010 — Enveloppe de réponse et filtre d'exception
 <a id="evt-010"></a>
 
+> ✅ **Fait le 31 juillet 2026.** L'enveloppe RFC 9457, le catalogue de 37 codes, `X-Request-Id` et le pipeline de validation sont **vérifiés sur une instance réellement démarrée**, pas seulement relus.
+
 ```
 Branche  feat/EVT-010-response-envelope
 Commit   feat(api): add RFC 9457 response envelope and exception filter
 ```
 
-**Scope** — `ResponseEnvelopeInterceptor`, `HttpExceptionFilter` RFC 9457, catalogue `error-codes.ts`, middleware `X-Request-Id`.
-
 **Référence** — [`API_CONVENTIONS.md` §3-4](../../api/API_CONVENTIONS.md), [ADR-0008](../../adr/0008-response-envelope-rfc9457.md).
 
-**Règle du log unique** — le filtre global journalise **une fois**. Le controller ne rejournalise jamais. Journaliser à chaque couche produit quatre lignes pour un incident et rend tout comptage d'erreurs faux.
+### Structure livrée
 
-**Tests**
+```
+backend/src/common/api/
+├── error-codes.ts                  37 codes : général (12), auth (12), métier (13)
+├── problem-details.types.ts        ApiEnvelope, ProblemDetails, FieldError
+├── app-exception.ts                AppException — ce que le code applicatif lève
+├── build-problem-details.ts        catalogue + surcharges → ProblemDetails
+├── build-response-meta.ts          requestId → { requestId, timestamp, apiVersion }
+├── map-unknown-exception.ts        HttpException Nest / erreur inconnue → catalogue
+├── map-validation-error-code.ts    contrainte class-validator → REQUIRED/OUT_OF_RANGE/…
+├── flatten-validation-errors.ts    ValidationError[] imbriqué → FieldError[] plat
+├── response-envelope.interceptor.ts
+└── http-exception.filter.ts        catch() unique, un seul log par exception
 
-- toute réponse porte `data`, `meta`, `error` ;
-- `meta` porte **toujours** `requestId`, `timestamp`, `apiVersion` ;
-- un `500` déclenché ne contient **aucune** trace d'exécution, aucune erreur Prisma, aucun nom de table ;
-- `X-Request-Id` fourni par le client est conservé s'il est valide, remplacé sinon, et toujours renvoyé.
+backend/src/common/middleware/request-id.middleware.ts   X-Request-Id, avant toute route
+backend/src/common/types/request-with-id.ts               req.id, posé par le middleware ci-dessus
+
+backend/test/bootstrap/response-envelope.e2e-spec.ts       les 6 tests ci-dessous
+```
+
+**Catalogue** — les 12 codes généraux et 13 métier d'`API_CONVENTIONS.md` §4, plus les 12 codes `AUTH_*` d'`AUTHENTICATION_AUTHORIZATION.md` §7. `AUTH_ACCOUNT_LOCKED` en est **délibérément absent** : ce code ne doit jamais atteindre un client (§7 : l'annoncer confirme l'existence du compte à qui l'a verrouillé) — un compte verrouillé reçoit `AUTH_INVALID_CREDENTIALS`, comme tout échec de login.
+
+**Règle du log unique** — `HttpExceptionFilter` journalise **une fois**, au niveau `warn` pour un 4xx et `error` (avec la pile, côté serveur seulement) pour un 5xx. Aucun controller ne rejournalise.
+
+**`exceptionFactory` sur le `ValidationPipe`** — sans lui, une validation échouée produit le `BadRequestException` par défaut de Nest (`{statusCode, message: string[], error}`), pas l'enveloppe RFC 9457. Le pipe lève désormais une `AppException('VALIDATION_ERROR', {errors})`, avec les erreurs de `class-validator` aplaties en `FieldError[]` (chemin en pointillés pour les DTO imbriqués) et chaque contrainte classée dans `REQUIRED` / `OUT_OF_RANGE` / `INVALID_FORMAT` / `UNEXPECTED_FIELD` / `INVALID`.
+
+### Un défaut trouvé en testant sur une instance réelle
+
+**`consumer.apply(RequestIdMiddleware).forRoutes('*')` émettait un avertissement de dépréciation** au démarrage (`LegacyRouteConverter`) : la version de `path-to-regexp` utilisée par `@nestjs/core` a retiré le support du caractère générique nu `*` au profit d'un paramètre nommé. Corrigé en `forRoutes('*path')`, la syntaxe que Nest recommandait lui-même dans le message d'avertissement.
+
+### Vérification réelle, pas déclarative
+
+Instance démarrée avec `npx ts-node -T src/main.ts`, sondée avec `curl`, puis reproduite dans `test/bootstrap/response-envelope.e2e-spec.ts` (6 tests, tous verts) :
+
+| Scénario | Résultat observé |
+|---|---|
+| Route inconnue (`GET /api/v1/nonexistent`) | `404`, `Content-Type: application/problem+json`, enveloppe complète : `{"data":null,"meta":{...},"error":{"type":"…/resource-not-found","code":"RESOURCE_NOT_FOUND",…}}` |
+| Réponse `204` | corps **vide** — l'intercepteur n'enveloppe pas un statut qui interdit un corps |
+| Erreur inconnue levée (`Error("relation \"users\" does not exist")`) | `500`, `error.detail` = `"An unexpected error occurred."` — le message original, avec le nom de table, n'apparaît **nulle part** dans la réponse |
+| `{"name":"ok","role":"ADMIN"}` sur un DTO qui ne déclare que `name` | `400`, `VALIDATION_ERROR`, `errors: [{"field":"role","code":"UNEXPECTED_FIELD",…}]` |
+| `X-Request-Id: my-own-trace-id-999` fourni par le client | conservé tel quel, dans l'en-tête **et** dans `meta.requestId` |
+| Aucun `X-Request-Id` fourni | un `req_<uuid>` généré, renvoyé dans l'en-tête et `meta.requestId` |
+
+**Limite assumée** — même limite qu'EVT-009 : `IdentityModule` n'expose encore aucun DTO réel, donc le test de mass-assignment et de `req.id` utilise un `ProbeController` jetable déclaré dans le spec, monté à côté d'`AppModule`, exerçant le pipeline global réel.
 
 ---
 

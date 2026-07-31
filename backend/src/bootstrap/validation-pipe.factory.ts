@@ -1,5 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 
+import { AppException, flattenValidationErrors } from '../common/api';
+
 /**
  * The two non-negotiable settings from BACKEND_ARCHITECTURE.md §4:
  *
@@ -12,6 +14,12 @@ import { ValidationPipe } from '@nestjs/common';
  * `enableImplicitConversion: false` — implicit conversion turns `"0"` into
  * `false` and similar surprises. Each DTO declares its own types explicitly
  * instead.
+ *
+ * `exceptionFactory` — without it, a failed DTO validates into Nest's own
+ * `BadRequestException`, shaped `{statusCode, message: string[], error}`,
+ * which is not the RFC 9457 envelope every other error in the API carries.
+ * Raising an `AppException` here instead means `HttpExceptionFilter` handles
+ * it exactly like any other application error, with per-field `errors[]`.
  */
 export function buildValidationPipe(): ValidationPipe {
   return new ValidationPipe({
@@ -21,5 +29,9 @@ export function buildValidationPipe(): ValidationPipe {
     transformOptions: {
       enableImplicitConversion: false,
     },
+    exceptionFactory: (errors) =>
+      new AppException('VALIDATION_ERROR', {
+        errors: flattenValidationErrors(errors),
+      }),
   });
 }
