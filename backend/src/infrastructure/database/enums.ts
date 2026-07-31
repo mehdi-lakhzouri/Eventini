@@ -109,6 +109,96 @@ export const EVENT_ASSIGNMENT_STATUSES = [
 ] as const;
 export type EventAssignmentStatus = (typeof EVENT_ASSIGNMENT_STATUSES)[number];
 
+// --- Migration 8, audit and security (EVT-016) -----------------------------
+
+/**
+ * The security event catalogue — AUTHENTICATION_AUTHORIZATION.md §8.
+ *
+ * This list resolves contradiction **C-11**: the corpus carried four
+ * competing catalogues, and Document D required recording types the narrowest
+ * enum could not store. This is their union, grouped by domain in the order
+ * the source table uses.
+ *
+ * Distinct from `LOG_EVENT_CODES` in `infrastructure/logging`, and
+ * deliberately so — §10 of the logging spec states the two namespaces are not
+ * synchronised. A code may appear in both (`LOGIN_FAILED`, `ROLE_CHANGED`)
+ * with no relationship: one is a line in a log store with weeks of retention,
+ * the other a row in PostgreSQL kept for twelve months and treated as
+ * evidence.
+ */
+export const SECURITY_EVENT_TYPES = [
+  // Authentication
+  'LOGIN_SUCCEEDED',
+  'LOGIN_FAILED',
+  'ACCOUNT_LOCKED',
+
+  // MFA
+  'MFA_CHALLENGE_CREATED',
+  'MFA_SUCCEEDED',
+  'MFA_FAILED',
+  'MFA_ENABLED',
+  'MFA_DISABLED',
+
+  // Sessions
+  'SESSION_CREATED',
+  'SESSION_REFRESHED',
+  'SESSION_REVOKED',
+  'ALL_SESSIONS_REVOKED',
+  'SESSION_COMPROMISED',
+  'REFRESH_TOKEN_REUSE_DETECTED',
+
+  // Passwords
+  'PASSWORD_CHANGED',
+  'PASSWORD_RESET_REQUESTED',
+  'PASSWORD_RESET_COMPLETED',
+
+  // Authorization
+  'ROLE_CHANGED',
+  'ROLE_ESCALATION_ATTEMPTED',
+  'MEMBERSHIP_REVOKED',
+  'TENANT_ACCESS_DENIED',
+  'REAUTHENTICATION_REQUIRED',
+
+  // Web
+  'CSRF_VALIDATION_FAILED',
+  'ORIGIN_VALIDATION_FAILED',
+  'RATE_LIMIT_EXCEEDED',
+
+  // Organization
+  'ORGANIZATION_SUSPENDED',
+  'ORGANIZATION_KILL_SWITCH_EXECUTED',
+  'ORGANIZATION_CONTEXT_SWITCHED',
+
+  // Tickets and scanners
+  'TICKET_SIGNATURE_INVALID',
+  'TICKET_REPLAY_DETECTED',
+  'SCANNER_DEVICE_REVOKED',
+
+  // System
+  'IDEMPOTENCY_CONFLICT_DETECTED',
+  'UNSCOPED_QUERY_EXECUTED',
+  'SIGNING_KEY_ROTATED',
+] as const;
+export type SecurityEventType = (typeof SECURITY_EVENT_TYPES)[number];
+
+/** Not enumerated in Document A; fixed by DATABASE_SCHEMA.md §8.1. */
+export const SECURITY_EVENT_SEVERITIES = [
+  'INFO',
+  'LOW',
+  'MEDIUM',
+  'HIGH',
+  'CRITICAL',
+] as const;
+export type SecurityEventSeverity = (typeof SECURITY_EVENT_SEVERITIES)[number];
+
+/**
+ * `DENIED` is distinct from `FAILURE` on purpose: a failure is an attempt
+ * that did not work, a denial is one that was refused by policy. Collapsing
+ * them would make "how many people were blocked by authorization" unanswerable.
+ */
+export const SECURITY_EVENT_RESULTS = ['SUCCESS', 'FAILURE', 'DENIED'] as const;
+export type SecurityEventResult = (typeof SECURITY_EVENT_RESULTS)[number];
+
 /**
  * Maps each CHECK constraint to the values it permits.
  *
@@ -128,4 +218,7 @@ export const CHECK_CONSTRAINT_VALUES: Readonly<
   ck_event_sessions_status: EVENT_SESSION_STATUSES,
   ck_event_assignments_type: EVENT_ASSIGNMENT_TYPES,
   ck_event_assignments_status: EVENT_ASSIGNMENT_STATUSES,
+  ck_security_events_type: SECURITY_EVENT_TYPES,
+  ck_security_events_severity: SECURITY_EVENT_SEVERITIES,
+  ck_security_events_result: SECURITY_EVENT_RESULTS,
 };

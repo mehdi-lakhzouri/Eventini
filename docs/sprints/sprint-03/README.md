@@ -261,11 +261,73 @@ Elle est définie intégralement dans [`DATABASE_SCHEMA.md` §6.1](../../databas
 ## EVT-016 — Audit et security events
 <a id="evt-016"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Migration 8 appliquée, **C-11 résolue** (34 codes, union des quatre catalogues), et l'`APPEND_ONLY` est appliqué **par trigger** — un `UPDATE` ou un `DELETE` applicatif échoue, vérifié contre PostgreSQL réel.
+
 ```
 Branche  feat/EVT-016-audit-schema
 Commit   feat(db): add audit logs and security events
 Tables   security_events, audit_logs                          (migration 8)
 ```
+
+### Structure livrée
+
+```
+backend/prisma/migrations/20260731193504_audit_and_security/migration.sql
+backend/src/infrastructure/database/enums.ts     + 34 types, 5 sévérités, 3 résultats
+backend/src/infrastructure/audit/
+├── audit-redaction.ts     remplace la valeur, ne supprime JAMAIS la clé
+├── audit-redaction.spec.ts
+└── index.ts
+backend/test/database/audit-schema.integration-spec.ts   21 tests
+```
+
+### `APPEND_ONLY` est une contrainte, pas une convention
+
+Le ticket dit « aucun `UPDATE`, aucun `DELETE` applicatif ». Laisser cela à la discipline annulerait l'intérêt des deux tables : **une piste d'audit que l'application peut réécrire ne prouve rien**, et la première personne à vouloir la réécrire est celle qu'elle incrimine. Deux triggers l'imposent, donc un `UPDATE` égaré, un mauvais usage de l'ORM, une migration ou une session console échouent tous de la même façon.
+
+**L'échappatoire de rétention, et pourquoi c'est un drapeau de session.** `security_events` est conservée 12 mois (§8.1) : la suppression doit donc être possible pour la purge et impossible pour tout le reste. Le drapeau est un réglage **local à la transaction** (`SET LOCAL eventini.retention_purge`) plutôt qu'un rôle PostgreSQL distinct — un rôle devrait être accordé quelque part et deviendrait utilisable par tout ce qui détient ces identifiants, alors qu'un `SET LOCAL` **ne peut pas survivre à sa transaction** et ne peut pas être activé par accident. Le job de purge déclare son intention dans la même transaction que la suppression ; rien d'autre ne nomme ce drapeau. Un test vérifie explicitement que le drapeau **ne fuit pas** vers la transaction suivante sur la même connexion du pool.
+
+### `[REDACTED]`, jamais l'omission — et pourquoi ce n'est pas le scrubber des logs
+
+Le §8.2 est explicite : *« les champs sensibles sont remplacés par `[REDACTED]`, jamais omis — l'omission masquerait le fait qu'ils ont changé. »*
+
+C'est l'inverse de la règle du logging. Là-bas, supprimer un champ est un résultat parfaitement acceptable : l'objectif est que le secret n'atteigne pas le magasin de logs. Ici la question posée est « **qu'est-ce qui a changé** ». Si un hash de mot de passe disparaît de `previous_values` et `new_values`, la ligne affirme que le mot de passe **n'a pas changé** — exactement à l'envers, et exactement ce que quelqu'un effaçant ses traces voudrait qu'elle dise.
+
+Les deux fonctions se ressemblent et signifient le contraire, ce qui rendait la réutilisation de `scrubSensitiveKeys` plausible et fausse : elle censure aussi les valeurs, mais son contrat autorise l'omission et son marqueur diffère (`[Redacted]` contre `[REDACTED]`). **Seule la liste de clés est partagée**, c'est-à-dire la partie qui ne doit effectivement pas diverger. `buildAuditDiff` redacte les deux côtés avec les mêmes règles : n'en traiter qu'un laisserait fuiter la valeur tout en donnant à la ligne l'apparence d'être redactée.
+
+### `actor_role` est un instantané textuel, pas une clé étrangère
+
+Une FK ferait **changer la piste d'audit rétroactivement** quand un rôle est renommé, révoqué ou supprimé : l'enregistrement de ce qu'une personne était autorisée à faire serait réécrit par des événements postérieurs. Une piste d'audit qui change après coup n'en est pas une. Un test insère `'A_ROLE_THAT_NO_LONGER_EXISTS'` et vérifie qu'il est conservé tel quel.
+
+### C-11 — les quatre catalogues, réunis
+
+34 codes sur 9 domaines, union des 12 du Document A, des 23 du Document B, et des codes nés des nouveaux domaines. Le Document D exigeait d'enregistrer des types que le plus étroit de ces enums ne pouvait pas stocker : une liste partielle aurait donc **silencieusement perdu précisément les événements qui comptent**.
+
+`DENIED` est distinct de `FAILURE` à dessein — un échec est une tentative qui n'a pas fonctionné, un refus est une tentative rejetée par la politique. Les confondre rend « combien de personnes ont été bloquées par l'autorisation » impossible à répondre.
+
+**Deux espaces de noms, non synchronisés.** `SECURITY_EVENT_TYPES` et `LOG_EVENT_CODES` (EVT-011) partagent des chaînes (`LOGIN_FAILED`, `ROLE_CHANGED`) sans aucune relation, comme le §10 du Document D l'exige : l'un est une ligne dans un magasin de logs conservée quelques semaines, l'autre une ligne PostgreSQL conservée douze mois et traitée comme une **preuve**. Confondre les deux rétentions est la contradiction **C-15**.
+
+### Vérification réelle, pas déclarative
+
+| Scénario | Résultat observé |
+|---|---|
+| `prisma migrate deploy` sur base vierge | les 4 migrations appliquées |
+| `prisma migrate diff --exit-code` | **0** |
+| `UPDATE` d'un `security_events` | rejeté, `APPEND_ONLY` |
+| `DELETE` hors purge | rejeté, `APPEND_ONLY` |
+| `UPDATE` d'un `audit_logs` | rejeté, `APPEND_ONLY` |
+| Mise à `NULL` d'une seule colonne d'audit | rejeté — la façon subtile de falsifier |
+| `DELETE` dans une transaction déclarant la purge | **accepté**, 1 ligne |
+| Le drapeau de purge après `COMMIT` | **expiré** — le `DELETE` suivant échoue |
+| `INSERT` | toujours accepté |
+| `event_type` hors catalogue | rejeté, `ck_security_events_type` |
+| Les 5 codes ajoutés par C-11 testés | acceptés |
+| `actor_role` d'un rôle disparu | conservé tel quel |
+| Secret modifié via `buildAuditDiff` | ni l'ancienne ni la nouvelle valeur présentes, **la clé oui** |
+
+354 tests unitaires (dont 23 pour la redaction d'audit), 51 d'intégration, 34 e2e.
+
+**Limites assumées** — la purge de rétention à 12 mois n'est pas planifiée : le mécanisme existe et est testé, le job qui l'appelle relève de l'exploitation (§34 du Document D) et n'a pas de ticket dans ce sprint. `metadata` n'a pas d'index GIN, conformément au §10 qui n'en ajoute que sur un besoin de requête mesuré. Les triggers `APPEND_ONLY` protègent contre l'application ; ils ne protègent pas contre un superutilisateur PostgreSQL, ce qui relève des privilèges de base et non du schéma.
 
 ### 🔴 Pourquoi cette migration est appliquée maintenant malgré son rang 8
 

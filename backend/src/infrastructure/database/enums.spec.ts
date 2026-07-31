@@ -140,4 +140,33 @@ describe('CHECK constraints match the TypeScript enums', () => {
     expect(sql).toContain('trg_platform_role_scope');
     expect(sql).toContain('INV-09');
   });
+
+  /**
+   * INV-01 and INV-04 keep the denormalised `organization_id` honest. The
+   * denormalisation is what lets the tenant guard skip a join, so a stale or
+   * wrong copy would make the guard admit the wrong tenant by exactly the
+   * mechanism meant to prevent it.
+   */
+  it('enforces tenant coherence on the EVENT-owned tables', () => {
+    expect(sql).toContain('trg_event_session_tenant');
+    expect(sql).toContain('trg_event_assignment_tenant');
+    expect(sql).toContain('INV-04');
+    expect(sql).toContain('INV-01');
+  });
+
+  /**
+   * An audit trail the application can rewrite is not evidence of anything,
+   * so APPEND_ONLY is a trigger rather than a convention.
+   */
+  it('enforces APPEND_ONLY on both audit tables', () => {
+    expect(sql).toContain('trg_security_events_append_only');
+    expect(sql).toContain('trg_audit_logs_append_only');
+    expect(sql).toContain('APPEND_ONLY');
+  });
+
+  it('leaves a retention escape that cannot outlive its transaction', () => {
+    // `SET LOCAL` is what makes the escape safe: it cannot be left switched
+    // on for a later statement on the same pooled connection.
+    expect(sql).toContain('eventini.retention_purge');
+  });
 });
