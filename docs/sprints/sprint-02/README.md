@@ -448,14 +448,80 @@ Les confondre fait **redémarrer en boucle** un service simplement dégradé : R
 ## EVT-013 — Dockerfiles
 <a id="evt-013"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Les deux images sont **réellement construites**, les **5 services démarrent**, et `/health/ready` répond `200` **depuis l'extérieur du conteneur** — le critère de vérification du ticket.
+
 ```
 Branche  feat/EVT-013-dockerfiles
 Commit   feat(infra): add multi-stage Dockerfiles for backend and web
 ```
 
-**État actuel** — il n'existe **aucun** Dockerfile dans tout le dépôt. Seul le `docker-compose.yml` d'infrastructure (postgres, pgadmin, redis) existe, et il fonctionne.
-
 **Scope** — `backend/Dockerfile`, `web/Dockerfile`, `.dockerignore` pour chacun, ajout des deux services au compose.
+
+### Structure livrée
+
+```
+backend/Dockerfile               4 étapes : deps → build → prod-deps → runtime
+backend/.dockerignore
+backend/docker-healthcheck.mjs   sonde /api/v1/health/live en Node pur
+web/Dockerfile                   3 étapes : deps → build → runtime (standalone)
+web/.dockerignore
+web/docker-healthcheck.mjs
+web/next.config.ts               output: "standalone", poweredByHeader: false
+docker/docker-compose.yml        + services backend et web
+docker/.env.example              + API_PORT, WEB_PORT
+```
+
+### Les exigences, et comment chacune est vérifiée
+
+| Exigence | Vérification exécutée |
+|---|---|
+| Multi-étapes, aucune dépendance de build dans l'image finale | `test -d /app/src` → absent · `jest` → absent · `@nestjs/cli` → absent |
+| Utilisateur **non-root** | `docker exec … id` → backend `uid=1000(node)`, web `uid=1001(nextjs)` |
+| `.dockerignore` excluant `.env`, `node_modules`, `.git` | `/app/.env` → **0** occurrence dans les deux images · `/app/.git` → absent |
+| `HEALTHCHECK` sur `/health/live` | `["CMD","node","docker-healthcheck.mjs"]`, les 5 conteneurs rapportent `(healthy)` |
+| `STOPSIGNAL SIGTERM` propagé | `docker stop` → **code de sortie 0 en 0 s**, pas le SIGKILL à 10 s |
+| `docker compose up` démarre les 5 services | `backend`, `web`, `postgres`, `redis`, `pgadmin` tous `(healthy)` |
+| `/health/ready` répond depuis l'extérieur | `200`, `{"database":{"status":"up"},"redis":{"status":"up"}}` |
+
+### Décisions notables
+
+**`bookworm-slim` (glibc) plutôt qu'Alpine (musl).** `argon2` et `sharp` embarquent du code natif et publient des binaires précompilés glibc. Sur musl, ils sont soit compilés depuis les sources — ce qui impose une chaîne de compilation dans l'image — soit résolus via des paquets optionnels `-musl` que npm ignore silencieusement quand la plateforme d'installation et la cible divergent. Le résultat est un module qui s'installe proprement et échoue à la première utilisation : le pire endroit pour l'apprendre.
+
+**`node dist/main`, jamais `npm start`.** npm ne transmet pas SIGTERM à son enfant : `enableShutdownHooks()` (EVT-009) ne serait jamais appelé et chaque arrêt deviendrait un SIGKILL, coupant les transactions en cours. Mesuré : arrêt en 0 s avec code 0.
+
+**Le healthcheck vise `live`, jamais `ready`.** L'action que prend Docker — comme tout orchestrateur — sur un healthcheck en échec est de **tuer et redémarrer**. Le pointer sur `ready` ferait redémarrer en boucle tous les conteneurs pendant une panne Redis : exactement la confusion qu'EVT-012 existe pour éviter.
+
+**Healthcheck écrit en Node, pas en `curl`.** L'image runtime n'a ni `curl` ni `wget`. En installer un ajouterait un client HTTP pilotable depuis un shell à une image qui n'en a aucun — utile à un attaquant, inutile ici.
+
+**`NODE_ENV=development` dans le compose, `production` dans l'image.** L'image vise le déploiement ; la stack locale est en http sur localhost, et `production` **refuserait de démarrer** (règles 2 et 5 : `COOKIE_SECURE=true`, origines https). Surcharger dans le compose est le réglage honnête, plutôt que d'affaiblir les règles.
+
+**`NEXT_PUBLIC_API_BASE_URL` est un `ARG` de build.** Next.js inline les variables `NEXT_PUBLIC_*` dans le bundle client à la construction : elles ne sont pas lues au démarrage. Une image web construite pour un environnement **ne peut donc pas** être promue vers un autre — c'est une propriété de Next.js, pas un choix, et elle est signalée ici plutôt que découverte en production.
+
+### Un point vérifié plutôt que supposé
+
+Les identifiants du compose sont interpolés dans `DATABASE_URL` et `REDIS_URL`. Un `@` dans un mot de passe semblait devoir casser l'analyse ; testé contre les analyseurs réels (`pg-connection-string` et le client `redis`), les deux découpent sur le **dernier** `@` et acceptent la valeur. En revanche `/`, `?` et `#` terminent chacun un composant d'URL : `.env.example` documente cette contrainte réelle, sans en inventer une fausse.
+
+### Taille des images — une dette chiffrée, pas ignorée
+
+| Image | Taille |
+|---|---|
+| `eventini-web:local` | **378 Mo** |
+| `eventini-backend:local` | **1,07 Go** |
+
+Les `node_modules` de production pèsent 576 Mo, dont **302 Mo (52 %) proviennent d'un seul paquet que rien n'importe encore** :
+
+```
+@prisma/client@7.9.1
+├── @prisma            177 Mo
+├── prisma              42 Mo   (le CLI, déclaré en dépendance de runtime)
+├── effect              34 Mo   (via @prisma/config)
+├── @electric-sql       26 Mo   (via @prisma/dev — pglite embarqué)
+└── typescript          23 Mo
+```
+
+`@prisma/client` v7 déclare le CLI `prisma` — et donc `@prisma/dev`, un paquet d'outillage local — comme dépendance de **runtime**. Aucun contournement propre n'existe sans casser ce dont le sprint 03 aura besoin, donc rien n'est bricolé ici : le chiffre est mesuré, publié, et **EVT-014** est le ticket qui configurera Prisma et devra le reprendre.
+
+**Limites assumées** — pas de scan de vulnérabilité d'image (Trivy/Grype) dans la CI ; pas de `docker build` en CI non plus, donc une régression de Dockerfile ne serait pas détectée avant un `up` local. Le tag de base n'est pas épinglé par digest, délibérément : `node:24-bookworm-slim` est reconstruit pour absorber les correctifs de sécurité Debian, et la reproductibilité vient de `package-lock.json`. L'exposition de `/health/*` et `/metrics` hors du cluster reste une affaire d'ingress, non traitée par un compose local.
 
 **Exigences**
 

@@ -1,0 +1,41 @@
+# See backend/.dockerignore for the reasoning: a file excluded here can never
+# reach a layer, and a layer is permanent — deleting a file in a later
+# instruction still leaves it readable in the image history.
+
+# Secrets. Next.js inlines any NEXT_PUBLIC_* variable into the client bundle
+# at build time, so a stray value here would be shipped to every browser, not
+# merely stored in a layer.
+.env
+.env.*
+!.env.example
+
+# Host-built modules, and Next's own caches — all rebuilt inside the image.
+node_modules
+.next
+out
+.turbo
+
+.git
+.gitignore
+
+# Tests and tooling: nothing here runs in the final image.
+tests
+e2e
+playwright-report
+test-results
+coverage
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.*
+playwright.config.*
+eslint.config.mjs
+.prettierrc*
+
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+*.log
