@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import type { Env } from './env.schema';
+import { getValidatedEnv } from './validated-env';
 
 /**
  * Redis holds only temporary state. It is never the source of truth for
@@ -8,7 +8,7 @@ import type { Env } from './env.schema';
  * (REDIS_KEYS_AND_LUA_SCRIPTS.md §1).
  */
 export const redisConfig = registerAs('redis', () => {
-  const env = process.env as unknown as Env;
+  const env = getValidatedEnv();
 
   return {
     url: env.REDIS_URL,

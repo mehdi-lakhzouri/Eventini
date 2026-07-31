@@ -132,14 +132,34 @@ Ce ne sont pas de simples vérifications de présence :
 ## EVT-009 — Bootstrap `main.ts`
 <a id="evt-009"></a>
 
+> ✅ **Fait le 31 juillet 2026.** `main.ts` implémente la séquence complète de [`BACKEND_ARCHITECTURE.md` §4](../../architecture/BACKEND_ARCHITECTURE.md), **vérifiée sur une instance réellement démarrée** (`curl` et une suite e2e), pas seulement relue.
+
 ```
 Branche  feat/EVT-009-secure-bootstrap
 Commit   feat(app): wire security middleware and global pipeline
 ```
 
-**État actuel** — `main.ts` fait **8 lignes**. Vérifié par `grep` sur tout `backend/src` : zéro occurrence de `setGlobalPrefix`, `enableCors`, `useGlobalPipes`, `useGlobalFilters`, `enableShutdownHooks`.
+### Structure livrée
 
-**Scope** — l'ordre exact de [`BACKEND_ARCHITECTURE.md` §4](../../architecture/BACKEND_ARCHITECTURE.md).
+```
+backend/src/bootstrap/
+├── helmet.options.ts               CSP, HSTS, referrer, frame-options, COOP/CORP
+├── permissions-policy.middleware.ts  Helmet 8.3 n'a plus cette option — middleware dédié
+├── cors.options.ts                 origines exactes, jamais un pattern
+├── validation-pipe.factory.ts      whitelist + forbidNonWhitelisted + transform
+├── swagger.setup.ts                gaté par SWAGGER_ENABLED
+└── index.ts
+
+backend/test/bootstrap/security-bootstrap.e2e-spec.ts   les 6 tests négatifs ci-dessous
+```
+
+### Bug critique trouvé en testant : la validation d'environnement se corrompait elle-même
+
+`getValidatedEnv()` (EVT-008) relit `process.env` une seconde fois dans chaque factory `registerAs`, indépendamment du `validate` déjà passé à `ConfigModule.forRoot()`. Or `assignVariablesToProcess()` — une méthode interne de `@nestjs/config`, jamais documentée — **réécrit sa sortie validée dans `process.env`** pour toute clé absente de `process.env` au moment où `validate` s'exécute. Concrètement : une durée `"10m"` devenait la chaîne `"600000"` (les millisecondes, pas le format attendu), et un tableau (`CORS_ALLOWED_ORIGINS`) disparaissait purement et simplement — les tableaux ne survivent pas à `process.env`.
+
+La seconde passe de validation, dans les factories, recevait donc ces valeurs déjà corrompues et échouait — avec 24 erreurs d'un coup. Et l'échec restait **invisible** : `NestFactory.create()` enveloppe l'instanciation des providers dans sa propre `ExceptionsZone`, qui intercepte toute erreur synchrone et appelle `process.exit(1)` **directement**, sans jamais rejeter la promesse que `bootstrap().catch(...)` attend. Diagnostiqué en isolant chaque variable une par une (avec/sans `validate`, avec/sans `load`, règle crypto seule, etc.) jusqu'à reproduire l'échec avec le logger Nest réactivé, qui a fini par imprimer le message que `{ logger: false }` masquait pendant l'investigation.
+
+**Correctif** — `app.module.ts` charge désormais `.env` dans `process.env` lui-même, via `dotenv.config()`, **avant** que le décorateur `@Module` n'évalue `ConfigModule.forRoot(...)`. Chaque clé étant déjà présente, `assignVariablesToProcess()` devient un no-op et la seconde passe voit les mêmes chaînes brutes que la première. Le correctif vit dans `app.module.ts`, pas dans `main.ts`, pour protéger tout consommateur d'`AppModule` — y compris un futur test e2e qui le démarrerait directement.
 
 ### Les cinq points non négociables
 
@@ -151,12 +171,27 @@ Commit   feat(app): wire security middleware and global pipeline
 | `enableShutdownHooks()` | sans lui, un arrêt coupe les transactions en cours et laisse des jobs orphelins |
 | `bufferLogs: true` | sinon les logs de démarrage échappent à Pino **et à la redaction** |
 
-**Tests négatifs obligatoires**
+### Deux défauts trouvés en écrivant `helmet.options.ts`
 
-- `{"status":"ACTIVE"}` dans un corps de création ⇒ rejeté ;
-- `Origin` non autorisé ⇒ `403` ;
-- les 7 en-têtes de sécurité sont présents, `X-Powered-By` absent ;
-- `X-Forwarded-For` forgé sans proxy de confiance ⇒ ignoré.
+Vérifiés contre le code source réel de Helmet 8.3 (`node_modules/helmet`), pas supposés :
+
+- **`permissionsPolicy` n'existe pas** dans `HelmetOptions` — l'option a été retirée du cœur de Helmet il y a plusieurs années. D'où le middleware dédié `permissions-policy.middleware.ts`.
+- **`xPoweredBy: false` a la sémantique inverse de l'intuition.** `true` (ou l'absence de la clé) est ce qui *retire* l'en-tête ; `false` le laisse en place. Confirmé en lisant `index.cjs`, pas en devinant.
+
+### Vérification réelle, pas déclarative
+
+Instance démarrée avec `npx ts-node -T src/main.ts`, sondée avec `curl`, puis reproduite dans `test/bootstrap/security-bootstrap.e2e-spec.ts` (6 tests, tous verts) :
+
+| Scénario | Résultat observé |
+|---|---|
+| Les 7 en-têtes de sécurité | tous présents, `X-Powered-By` **absent** |
+| Origine autorisée (`http://localhost:3000`) | `Access-Control-Allow-Origin` renvoyé |
+| Origine non autorisée (`http://evil.example.com`) | **aucun** en-tête `Access-Control-Allow-Origin` — corrige l'attente initiale d'un `403` : le paquet `cors` ne bloque jamais côté serveur, il omet l'en-tête et laisse le navigateur appliquer le blocage, ce qui est le comportement CORS standard |
+| `{"name":"ok","role":"ADMIN"}` sur un DTO qui ne déclare que `name` | `400`, rejeté |
+| `{"name":"ok"}` | `201`, accepté tel quel |
+| `X-Forwarded-For: 1.1.1.1, 2.2.2.2, 9.9.9.9` avec `TRUSTED_PROXY_HOPS=1` | `req.ip` ≠ `1.1.1.1` — le saut forgé au-delà de la confiance est ignoré |
+
+**Limite assumée** — pas d'endpoint DTO réel n'existe encore dans `IdentityModule` (modules encore vides) ; les tests de whitelist/`req.ip` utilisent un contrôleur `ProbeController` jetable, déclaré uniquement dans le spec, monté à côté d'`AppModule`. Il exerce le pipeline global réel (mêmes fonctions `bootstrap/*`), pas une simulation.
 
 ---
 

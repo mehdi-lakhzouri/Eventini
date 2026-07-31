@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import type { Env } from './env.schema';
+import { getValidatedEnv } from './validated-env';
 
 /**
  * Authentication parameters.
@@ -10,7 +10,7 @@ import type { Env } from './env.schema';
  * security posture. The cross rules refuse the values that would weaken it.
  */
 export const authenticationConfig = registerAs('authentication', () => {
-  const env = process.env as unknown as Env;
+  const env = getValidatedEnv();
 
   return {
     argon2: {
