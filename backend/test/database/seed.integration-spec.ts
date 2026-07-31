@@ -33,6 +33,48 @@ const EXPECTED_GRANTS = ROLES.reduce(
   0,
 );
 
+/**
+ * Removes a bootstrap account created by these tests, as far as INV-10 allows.
+ *
+ * ## Why this can legitimately fail to finish
+ *
+ * EVT-019 added a trigger for INV-10: at least one ACTIVE `SUPER_ADMIN`
+ * platform grant must always exist. A database that has ever had a platform
+ * administrator therefore cannot return to having none — which is the whole
+ * point, since nobody can grant the role back without holding it.
+ *
+ * In CI the seed runs without `BOOTSTRAP_SUPER_ADMIN_EMAIL`, so there are
+ * zero `SUPER_ADMIN` grants and the one these tests create is the only one.
+ * Deleting it is refused, correctly. Locally the seeded bootstrap grant
+ * already exists, so the delete succeeds — which is exactly the kind of
+ * machine-dependent difference that only shows up in CI, and did.
+ *
+ * The cleanup therefore does what it can and leaves behind the single row the
+ * invariant protects. Anything other than INV-10 is a real failure and is
+ * rethrown.
+ */
+async function removeBootstrapAccount(
+  pool: Pool,
+  email: string,
+): Promise<void> {
+  const normalized = email.toLowerCase();
+
+  try {
+    await pool.query(
+      `DELETE FROM platform_role_assignments
+        WHERE user_id IN (SELECT id FROM users WHERE normalized_email = $1)`,
+      [normalized],
+    );
+    await pool.query(`DELETE FROM users WHERE normalized_email = $1`, [
+      normalized,
+    ]);
+  } catch (error: unknown) {
+    if (!/INV-10/.test(String(error))) {
+      throw error;
+    }
+  }
+}
+
 describeWithDatabase('authorization seed', () => {
   let prisma: SeedClient;
   let pool: Pool;
@@ -273,14 +315,7 @@ describeWithDatabase('authorization seed', () => {
         process.env['BOOTSTRAP_SUPER_ADMIN_EMAIL'] = previousEmail;
       }
 
-      await pool.query(
-        `DELETE FROM platform_role_assignments
-          WHERE user_id IN (SELECT id FROM users WHERE normalized_email = $1)`,
-        [email.toLowerCase()],
-      );
-      await pool.query(`DELETE FROM users WHERE normalized_email = $1`, [
-        email.toLowerCase(),
-      ]);
+      await removeBootstrapAccount(pool, email);
     });
 
     it('creates the account PENDING and with no credential at all', async () => {
@@ -369,14 +404,7 @@ describeWithDatabase('authorization seed', () => {
       expect(notice).toContain('CANNOT SIGN IN YET');
       expect(notice.toLowerCase()).not.toMatch(/password[:=]|token[:=]|secret/);
 
-      await pool.query(
-        `DELETE FROM platform_role_assignments
-          WHERE user_id IN (SELECT id FROM users WHERE normalized_email = $1)`,
-        [second.toLowerCase()],
-      );
-      await pool.query(`DELETE FROM users WHERE normalized_email = $1`, [
-        second.toLowerCase(),
-      ]);
+      await removeBootstrapAccount(pool, second);
     });
   });
 });
