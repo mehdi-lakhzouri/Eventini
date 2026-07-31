@@ -106,11 +106,13 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           NODE_ENV: test
 
-      # TODO(EVT-036, sprint 06): remove continue-on-error. This is the job that
-      # proves cross-tenant isolation; it must become blocking.
+      # Blocking since EVT-018. It was advisory while `tenant-isolation.spec.ts`
+      # held two `it.todo`, which is a step that cannot fail and therefore
+      # verifies nothing. It now carries the four checks ADR-0003 §4 asks for —
+      # including that `PrismaModule` does not export the unguarded client —
+      # and every one of them is a rule someone could break by accident.
       - name: Architecture tests
         run: npm test -- --ci --testPathPatterns=__architecture__
-        continue-on-error: true
 
       - name: Build
         run: npm run build

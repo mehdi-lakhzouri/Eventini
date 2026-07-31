@@ -411,6 +411,10 @@ Index : `ix_role_permissions_permission(permission_id, role_id)` — sens invers
 
 **Propriété** `ORGANIZATION-OWNED` (via le membership). **Suppression** `REVOKE_NOT_DELETE`.
 
+> 🔴 **Contradiction avec le §2.4 et [ADR-0003](../adr/0003-tenant-isolation-strategy.md) §1, relevée par [EVT-018](../sprints/sprint-03/README.md#evt-018).** Le §2.4 définit `ORGANIZATION-OWNED` comme « `organization_id NOT NULL` en colonne directe » et l'ADR-0003 §1 ajoute qu'« **aucune** table métier ne dépend d'une jointure transitive pour connaître son tenant ». Cette fiche est la **seule** des 30 à revendiquer la catégorie « via » une autre table, et sa liste de colonnes ne contient effectivement pas `organization_id` — c'est donc ce qu'EVT-014 a construit.
+>
+> En attendant le correctif, la garde tenant traverse la relation `membership` pour cette table plutôt que de l'exempter : c'est ici que vivent les attributions de rôle, et une écriture non scopée y est une escalade de privilège inter-tenant. **Correctif attendu : ajouter `organization_id NOT NULL` dénormalisé dans la vague de migrations d'[EVT-021](../sprints/sprint-04/README.md#evt-021)**, avec le trigger de cohérence correspondant, sur le modèle d'INV-01.
+
 Colonnes : `id`, `membership_id` FK, `role_id` FK, `assigned_at`, `assigned_by`, `revoked_at`, `revoked_by`, `revocation_reason`, `created_at`.
 
 **Index** — `ux_membership_role_active(membership_id, role_id) WHERE revoked_at IS NULL` · `ix_membership_roles_membership(membership_id, revoked_at)` · `ix_membership_roles_role(role_id, revoked_at)`

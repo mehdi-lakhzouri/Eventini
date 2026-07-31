@@ -3,6 +3,10 @@ import { config as loadDotenvFile } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 import { PrismaClient } from '../../src/infrastructure/database/prisma/generated/client';
+import {
+  withTenantScope,
+  type TenantScopedPrismaClient,
+} from '../../src/infrastructure/database/tenant-scope.extension';
 
 /**
  * The `PrismaClient` the seed runs on — sprint-03 EVT-017.
@@ -20,8 +24,21 @@ import { PrismaClient } from '../../src/infrastructure/database/prisma/generated
  * low connection cap, competes with the application that is already running.
  */
 
-/** Only the client type is exported; the seed steps never construct their own. */
-export type SeedClient = PrismaClient;
+/**
+ * Only the client type is exported; the seed steps never construct their own.
+ *
+ * Carries the tenant-scope guard since EVT-018, and deliberately so. Nothing
+ * this seed writes today is tenant-owned — `permissions` and `roles` are
+ * GLOBAL-REFERENCE, the bootstrap administrator is PLATFORM — so the guard
+ * currently allows every query it sees. The point is `05-demo-data.seed.ts`
+ * (MIGRATION_STRATEGY.md §8.3), which creates two organizations with events,
+ * participants and tickets: those *are* tenant-owned, and the guard will make
+ * the seed either scope them or say out loud, through `$unscoped`, that it is
+ * acting as the platform. A seed that quietly wrote unscoped rows would be
+ * the one place in the codebase where the isolation rule did not apply, and
+ * seeds are copied into fixtures.
+ */
+export type SeedClient = TenantScopedPrismaClient;
 
 const SEED_POOL_SIZE = 2;
 const SEED_CONNECT_TIMEOUT_MS = 10_000;
@@ -56,12 +73,14 @@ export function readDatabaseUrl(): string {
 }
 
 export function createSeedClient(url: string): SeedClient {
-  return new PrismaClient({
-    adapter: new PrismaPg({
-      connectionString: url,
-      max: SEED_POOL_SIZE,
-      connectionTimeoutMillis: SEED_CONNECT_TIMEOUT_MS,
-      options: `-c statement_timeout=${SEED_STATEMENT_TIMEOUT_MS}`,
+  return withTenantScope(
+    new PrismaClient({
+      adapter: new PrismaPg({
+        connectionString: url,
+        max: SEED_POOL_SIZE,
+        connectionTimeoutMillis: SEED_CONNECT_TIMEOUT_MS,
+        options: `-c statement_timeout=${SEED_STATEMENT_TIMEOUT_MS}`,
+      }),
     }),
-  });
+  );
 }

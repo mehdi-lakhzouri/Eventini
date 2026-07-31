@@ -51,6 +51,19 @@ export const LOG_EVENT_CODES = {
   CSRF_VALIDATION_FAILED: 'SECURITY',
   TENANT_ACCESS_DENIED: 'SECURITY',
 
+  /**
+   * The tenant guard was bypassed through `prisma.$unscoped` (ADR-0003,
+   * EVT-018).
+   *
+   * Absent from §10's list, and added because ADR-0003 and
+   * BACKEND_ARCHITECTURE.md §6 both mandate logging with exactly this code —
+   * a code the architecture requires and the catalogue omits cannot be
+   * alerted on, which is the entire purpose of the escape hatch being logged.
+   * It already exists as a `SecurityEventType` in `enums.ts`; the two
+   * namespaces are separate (§10, ADR-0008), so it needs declaring in both.
+   */
+  UNSCOPED_QUERY_EXECUTED: 'SECURITY',
+
   // Business and audit
   ROLE_CHANGED: 'AUDIT',
   ORGANIZATION_SUSPENDED: 'AUDIT',

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   HealthIndicatorService,
   type HealthIndicatorResult,
 } from '@nestjs/terminus';
 
-import { PrismaService } from '../database/prisma.service';
+import { TENANT_SCOPED_PRISMA } from '../database/prisma.tokens';
+import type { TenantScopedPrismaClient } from '../database/tenant-scope.extension';
 import { probeDependency } from './dependency-probe';
 import { DATABASE_INDICATOR_KEY } from './health.constants';
 
@@ -34,7 +35,16 @@ import { DATABASE_INDICATOR_KEY } from './health.constants';
 export class DatabaseHealthIndicator {
   constructor(
     private readonly healthIndicatorService: HealthIndicatorService,
-    private readonly prisma: PrismaService,
+    /**
+     * The tenant-scoped client (EVT-018), because `PrismaModule` no longer
+     * exports the raw one — an unguarded client that anything can inject is a
+     * way around ADR-0003, and readiness is not a good enough reason to keep
+     * one. `SELECT 1` is raw SQL, so it never reaches the guard anyway; the
+     * probe still measures the application's real pool, which is the property
+     * EVT-014 bought here.
+     */
+    @Inject(TENANT_SCOPED_PRISMA)
+    private readonly prisma: TenantScopedPrismaClient,
   ) {}
 
   async isHealthy(): Promise<HealthIndicatorResult> {

@@ -492,10 +492,107 @@ Le problème d'amorçage est réel : l'invariant INV-10 exige qu'un `SUPER_ADMIN
 ## EVT-018 — Extension Prisma d'isolation tenant
 <a id="evt-018"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Une requête non scopée sur un modèle tenant-owned lève `TenantScopeViolationError` — **y compris à l'intérieur d'une transaction**, vérifié contre PostgreSQL réel. `tenant-isolation.spec.ts`, que le [`MODULE_DEPENDENCY_MAP.md` §6.3](../../architecture/MODULE_DEPENDENCY_MAP.md) appelle « le test le plus important du dépôt », passe avec **14 assertions réelles** au lieu de 2 `it.todo`, et l'étape CI correspondante devient **bloquante**.
+
 ```
 Branche  feat/EVT-018-tenant-scope-extension
 Commit   feat(db): enforce tenant scope with a failing Prisma extension
 ```
+
+### Structure livrée
+
+```
+backend/src/common/types/tenant-context.ts          TenantContext, PlatformContext
+backend/src/infrastructure/database/
+├── tenant-ownership.ts     + spec    la classification des 14 modèles
+├── organization-scope.ts   + spec    l'analyseur — 72 tests, c'est ici que tout se joue
+├── tenant-scope.error.ts             TenantScopeViolationError
+├── unscoped-context.ts     + spec    AsyncLocalStorage, l'échappatoire
+├── tenant-scope.extension.ts + spec  l'extension et $unscoped
+└── prisma.tokens.ts                  TENANT_SCOPED_PRISMA
+backend/src/__architecture__/tenant-isolation.spec.ts   4 règles, 14 assertions
+backend/test/database/tenant-scope.integration-spec.ts  17 tests contre PostgreSQL
+```
+
+### La liste est une liste d'**exemptions**, pas de protections
+
+L'[ADR-0003](../../adr/0003-tenant-isolation-strategy.md) §3 et le [`BACKEND_ARCHITECTURE.md` §6](../../architecture/BACKEND_ARCHITECTURE.md) écrivent tous deux `TENANT_OWNED_MODELS.has(model)` — une liste d'**inclusion**. Le code l'inverse : **un modèle que personne n'a classé est traité comme tenant-owned, et ses requêtes sont refusées.**
+
+L'inversion découle du principe de l'ADR plutôt qu'elle ne le contredit :
+
+| | oublier de classer une nouvelle table tenant |
+|---|---|
+| liste d'inclusion | la table est **silencieusement non protégée**. Tout passe, aucun test n'échoue, l'écart reste invisible jusqu'à la première lecture cross-tenant |
+| liste d'exemptions | **chaque requête échoue immédiatement**, en nommant le modèle |
+
+« En cas de doute, on refuse » est la phrase de l'ADR. Une liste d'inclusion échoue **ouvert** sur le seul cas qui compte : celui de l'oubli. `tenant-ownership.spec.ts` croise en plus la classification avec `Prisma.ModelName`, donc un modèle non classé fait échouer le build avant même d'atteindre l'exécution.
+
+### 🔴 Une contradiction trouvée dans le schéma, et pourquoi la table reste gardée
+
+L'ADR-0003 §1 exige que « **toute** table tenant-owned porte `organization_id NOT NULL` » et qu'« **aucune** table métier ne dépende d'une jointure transitive ». Le [`DATABASE_SCHEMA.md` §5.6](../../database/DATABASE_SCHEMA.md) classe pourtant `membership_role_assignments` en `ORGANIZATION-OWNED` **« (via le membership) »**, sans colonne `organization_id` dans sa liste. EVT-014 a construit ce que le §5.6 spécifiait. C'est la **seule** table sur 30 décrite ainsi.
+
+Trouvée par la règle 1 du test d'architecture, qui compare la classification au `schema.prisma` réel plutôt qu'à elle-même.
+
+L'exempter aurait été le mauvais arbitrage : c'est la table des attributions de rôle, donc une écriture non scopée y est une **escalade de privilège inter-tenant** — précisément la ligne la plus utile à protéger de tout le schéma. Elle reste donc gardée, et la garde traverse la relation :
+
+```ts
+where: { membership: { organizationId } }   // accepté pour ce modèle
+where: { organization: { id } }             // refusé partout ailleurs
+```
+
+Le `via` vient du registre de propriété, jamais du clause elle-même : c'est ce qui empêche un modèle qui **possède** la colonne d'être scopé par une jointure et de contourner le §2.4. **Correctif attendu : la colonne dénormalisée dans la vague de migrations d'[EVT-021](../sprint-04/README.md#evt-021)**, avec son trigger de cohérence.
+
+### L'analyseur : trois formes qui mentionnent `organizationId` sans scoper
+
+C'est le cœur du ticket. Si `hasOrganizationScope` répond oui à tort, l'isolation n'existe plus et rien en aval ne s'en aperçoit. Un contrôle naïf — « la clause contient-elle `organizationId` ? » — accepte les trois :
+
+| Forme | Ce qu'elle sélectionne réellement |
+|---|---|
+| `{ OR: [{ organizationId }, { id }] }` | **tous les tenants**. `OR` élargit : chaque branche doit scoper, pas une seule |
+| `{ organizationId: { not: X } }` | **tous les tenants sauf le sien** — l'exact inverse d'un scope |
+| `{ NOT: { organizationId: X } }` | idem ; une négation ne peut jamais borner une requête à un tenant |
+
+Sont acceptés : l'identifiant littéral, `{ equals }`, `{ in: [...] }` non vide. Sont refusés en plus : `{ in: [] }`, `null`, `contains`, `startsWith`, et un `where` absent — un `count()` nu lit tous les tenants.
+
+`upsert` est contrôlé **des deux côtés** : c'est la seule opération dont les deux charges utiles peuvent diverger, un `where` scopé ne trouvant rien et le `create` non scopé écrivant alors une ligne sans propriétaire.
+
+### 🔴 Le bug de l'échappatoire, trouvé en la testant
+
+`$unscoped(reason, () => client.event.findMany())` **levait une violation de scope** — sur le seul appel qui existe pour être autorisé.
+
+Une requête Prisma est **paresseuse** : `findMany()` construit une promesse qui n'a encore rien exécuté, et l'extension ne se déclenche qu'au moment où quelque chose l'attend. L'implémentation évidente, `storage.run({ reason }, work)`, renvoyait cette promesse non démarrée, `run` dépilait le contexte, et la requête s'exécutait **hors** de l'exemption.
+
+L'`await` a lieu désormais **à l'intérieur** du contexte. L'erreur était bruyante dans ce sens-là ; son image miroir — une exemption survivant à son callback et désactivant silencieusement la garde pour ce qui suit — ne l'aurait pas été.
+
+### Pourquoi `AsyncLocalStorage` et pas un booléen
+
+Un `let isUnscoped = false` au niveau du module serait partagé entre requêtes concurrentes : une requête dans `$unscoped` exempterait **toutes** les autres pendant sa durée. Une lecture cross-tenant causée par une variable, qui n'apparaît que sous charge et ne se reproduit pas depuis une requête isolée. Le test `does not leak into concurrent work` échoue si quelqu'un simplifie dans ce sens.
+
+### Le client non gardé n'est plus injectable
+
+`$extends` renvoie un **nouveau** client et laisse l'original pleinement fonctionnel — vérifié en instrumentant les deux : une requête émise par le client de base est **invisible** pour l'extension.
+
+`PrismaModule` conserve donc `PrismaService` comme provider, pour ses hooks de cycle de vie, et **ne l'exporte plus**. Ce qu'on injecte est `TENANT_SCOPED_PRISMA`. Sans cela l'isolation aurait eu un contournement d'un seul mot, qui aurait ressemblé à la chose évidente à écrire. La règle 4 du test d'architecture le vérifie sur les fichiers.
+
+`TransactionManager` prend lui aussi le client étendu : `$transaction` dérive son client de celui sur lequel il est appelé, donc partir du service non gardé aurait donné un `tx` non gardé à chaque use case — la garde tenant pour les requêtes simples et cessant silencieusement de tenir pour exactement les écritures multi-étapes qui touchent le plus de données tenant. Prouvé dans les deux sens contre PostgreSQL réel, rollback compris.
+
+### Ce que la garde ne couvre **pas**
+
+| Angle mort | Pourquoi, et ce qui reste |
+|---|---|
+| `$queryRaw` / `$executeRaw` | le SQL brut n'atteint jamais `$allModels` — vérifié, et **asserté** dans la suite d'intégration. Le job `Flag raw SQL for review` de `security.yml` devient porteur au lieu d'indicatif |
+| `include` d'un modèle tenant | une seule opération est émise, celle du parent. Inutile de la contrôler : les lignes reviennent par une clé étrangère depuis une ligne déjà atteinte |
+| Écritures imbriquées | même mécanisme ; les triggers d'INV-01 imposent en base que l'organisation de l'enfant soit celle du parent |
+| Accès SQL direct | psql, un outil BI, un script. L'ADR-0003 dit explicitement que la garantie est applicative et que RLS serait un **ajout**, pas un remplacement |
+
+### Deux ajouts hors périmètre strict, tous deux exigés par l'ADR
+
+- **`UNSCOPED_QUERY_EXECUTED`** manquait au catalogue Pino (`log-event-codes.ts` et [§10](../../observability/PINO_LOGGING_SPECIFICATION.md)) alors que l'ADR-0003 §3 impose de journaliser l'échappatoire avec **exactement** ce code. Un code que l'architecture impose et que le catalogue ne contient pas ne peut pas être alerté.
+- **L'étape CI « Architecture tests » devient bloquante.** Elle était `continue-on-error` tant que `tenant-isolation.spec.ts` ne contenait que des `it.todo` — une étape qui ne peut pas échouer ne vérifie rien.
+
+### Le seed passe désormais par la garde
+
+Rien de ce qu'écrit le seed d'EVT-017 n'est tenant-owned, donc la garde laisse tout passer aujourd'hui. C'est `05-demo-data.seed.ts` ([`MIGRATION_STRATEGY.md` §8.3](../../database/MIGRATION_STRATEGY.md)) qui compte : il crée deux organisations avec événements, participants et tickets. La garde l'obligera à les scoper, ou à dire à voix haute par `$unscoped` qu'il agit en tant que plateforme. Un seed qui écrirait discrètement des lignes non scopées serait le seul endroit du dépôt où la règle ne s'applique pas — et les seeds sont recopiés dans les fixtures.
 
 **Scope** — `tenant-scope.extension.ts`, type `TenantContext`, `TenantScopeViolationError`, échappatoire `$unscoped` journalisée.
 
