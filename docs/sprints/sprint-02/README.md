@@ -340,11 +340,92 @@ Suite `test/logging/logging.e2e-spec.ts` (7 tests) : la sortie est lue comme un 
 ## EVT-012 — Health checks et métriques
 <a id="evt-012"></a>
 
+> ✅ **Fait le 31 juillet 2026.** Les trois sondes et les 11 métriques sont **vérifiées sur une instance réellement démarrée contre le PostgreSQL et le Redis de `docker-compose`** — `/health/ready` répond `200`, ce qui est le critère de sortie du sprint 02 dans [`IMPLEMENTATION_ROADMAP.md`](../IMPLEMENTATION_ROADMAP.md).
+
 ```
 Branche  feat/EVT-012-health-metrics
 Commit   feat(observability): add health checks and Prometheus metrics
 Routes   GET /api/v1/health/live · /health/ready · /health/startup · /metrics
 ```
+
+### Structure livrée
+
+```
+backend/src/infrastructure/health/
+├── health.constants.ts             délai de sonde, clés d'indicateur
+├── dependency-probe.ts             timeout dur + ne lève jamais
+├── database.health-indicator.ts    SELECT 1 sur un pool pg dédié (max: 1)
+├── redis.health-indicator.ts       PING, connexion paresseuse
+├── startup.state.ts                bascule sur onApplicationBootstrap
+├── health.controller.ts            live / ready / startup
+├── health.module.ts
+└── index.ts
+
+backend/src/infrastructure/metrics/
+├── metrics.constants.ts            liste blanche de labels, buckets
+├── assert-allowed-labels.ts        refuse un label non borné au chargement
+├── metric-definitions.ts           les 11 métriques §36
+├── metrics.service.ts              registre isolé + métriques par défaut
+├── http-metrics.middleware.ts      http_requests_total + durée
+├── metrics.controller.ts           GET /metrics, texte Prometheus brut
+├── metrics.module.ts
+└── index.ts
+
+backend/src/common/api/raw-response.decorator.ts   exemption d'enveloppe
+backend/test/observability/health-metrics.e2e-spec.ts   les 15 tests ci-dessous
+```
+
+### `live` et `ready` ne sont pas la même chose — et le code le prouve
+
+`/health/live` ne consulte **aucune** dépendance, ce qu'un test asserte explicitement. Toute dépendance atteignable depuis `live` est une dépendance dont la panne redémarre la flotte entière : Redis tombe, `live` échoue, l'orchestrateur tue le pod, le pod redémarre, Redis est toujours absent, boucle. Le test « Redis down » vérifie les deux moitiés : `live` reste `200`, `ready` passe `503`.
+
+### Un défaut trouvé en testant : le filtre global effaçait le diagnostic
+
+Terminus signale l'échec **en levant**, et son exception porte le détail par indicateur. Laissée telle quelle, cette exception atteignait le `HttpExceptionFilter` global (EVT-010), qui mappe toute exception non reconnue vers un `DEPENDENCY_UNAVAILABLE` nu : statut correct, **détail perdu**. Un opérateur apprenait qu'*une* dépendance manquait, jamais **laquelle** — c'est-à-dire toute la valeur diagnostique de la sonde. Trouvé parce qu'un test e2e assertait sur le corps, pas seulement sur le statut.
+
+Corrigé en traduisant l'échec dans l'enveloppe du projet : un `errors[]` par dépendance tombée, ce qui conserve un contrat de réponse unique (ADR-0008) tout en nommant le coupable :
+
+```json
+"errors": [{ "field": "redis", "code": "DEPENDENCY_DOWN", "message": "redis is unreachable" }]
+```
+
+### Un second défaut : les 404 n'étaient comptés nulle part
+
+`http_requests_total` était d'abord alimenté par un intercepteur global. Or **un intercepteur ne s'exécute pas quand aucune route ne correspond** : chaque `404` sur un chemin inconnu était invisible — et un pic de 404 est précisément le signal utile (client cassé, ou énumération de l'API). Converti en middleware enregistrant sur l'événement `finish` de la réponse, ce qui couvre toutes les requêtes tout en laissant `req.route` peuplé pour celles qui ont matché. C'est l'approche qu'emploie `pino-http`, pour la même raison.
+
+### Cardinalité — la règle est *appliquée*, pas seulement documentée
+
+`assertAllowedLabels` lève au chargement du module si une métrique déclare un label hors liste blanche, avec un message distinguant « non borné » (`userId`, `email`, `sessionId`, `requestId`, `organizationId`) de « pas sur la liste ». Le même raisonnement fail-closed que les règles d'environnement : un démarrage qui refuse coûte peu, un stockage de métriques qui meurt sous la cardinalité coûte cher.
+
+Le piège subtil est ailleurs : le label `route` est *autorisé*, mais une **valeur** de chemin concret (`/events/evt_01/sessions/ses_09`) crée une série par identifiant. Le middleware n'enregistre donc que le **gabarit** Express (`/events/:eventId`), et les requêtes sans route sont regroupées sous un unique `unmatched` — compter les 404 est utile, enregistrer leurs chemins donnerait à un attaquant le contrôle direct du nombre de séries.
+
+### `/metrics` ne peut pas porter l'enveloppe
+
+Prometheus rejette tout ce qui n'est pas son format texte. Envelopper `/metrics` dans `data`/`meta`/`error` n'aurait pas dégradé la supervision, elle l'aurait **éteinte**. D'où `@RawResponse()`, un décorateur délibérément étroit que `ResponseEnvelopeInterceptor` honore — réservé aux cas où un protocole externe impose la forme de la réponse.
+
+### Les 11 métriques existent dès maintenant, même celles que rien n'incrémente
+
+Une alerte sur `rate(login_failures_total[5m])` ne se déclenche pas quand la série est **absente** : elle vaut « pas de données », et une alerte qui ne se déclenche jamais ressemble à un système sain. Les 11 sont donc enregistrées à zéro, et le ticket qui alimentera chacune est nommé à côté de sa définition.
+
+### Vérification réelle, pas déclarative
+
+Instance démarrée contre les conteneurs `docker-compose` réels :
+
+| Scénario | Résultat observé |
+|---|---|
+| `/health/live`, `/health/startup` | `200` |
+| `/health/ready` avec PostgreSQL **et** Redis réels | `200`, `{"database":{"status":"up","durationMs":77},"redis":{"status":"up","durationMs":37}}` |
+| `/health/ready` avec identifiants erronés | `503` nommant **les deux** dépendances, **sans** fuite du mot de passe ni de l'URL |
+| `/metrics` | `Content-Type: text/plain; charset=utf-8; version=0.0.4`, corps Prometheus brut, **pas** d'enveloppe JSON |
+| Les 11 noms §36 | tous présents |
+| Labels interdits (`userId`, `email`, `sessionId`, `requestId`, `organizationId`) | **0 occurrence** |
+| Séries `http_requests_total` | gabarits uniquement : `route="/api/v1/health/live"`, etc. |
+| §19 — `/health/*` et `/metrics` hors logs d'accès | **0 ligne** `HTTP_REQUEST_COMPLETED` les mentionnant |
+| Avertissements au démarrage | **0** |
+
+**Ce que l'échec d'authentification a prouvé au passage** — la première tentative a rapporté les deux dépendances `down` alors que les conteneurs étaient sains : le `.env` local portait des identifiants périmés. `SELECT 1` et `PING` traversent l'authentification ; un simple test de connexion TCP aurait déclaré ces dépendances saines. C'est exactement l'état que la readiness existe pour attraper.
+
+**Limites assumées** — les indicateurs possèdent leurs propres clients (`pg` en pool de 1, client `redis` paresseux) parce que `PrismaService` et le module Redis partagé arrivent en sprint 03 ; les `TODO(EVT-014)` / `TODO(EVT-016)` marquent leur remplacement. La vérification des « migrations compatibles » du §15.2 est reportée avec Prisma. `/health/*` et `/metrics` sont non authentifiés et exempts de CSRF ([ADR-0016](../../adr/0016-pre-session-csrf-binding.md)) ; leur non-exposition hors du cluster relève de l'ingress, donc d'EVT-013.
 
 **Scope** — Terminus avec indicateurs PostgreSQL et Redis ; prom-client avec les 11 métriques nommées du Document D §36.
 

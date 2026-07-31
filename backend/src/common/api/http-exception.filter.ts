@@ -13,6 +13,13 @@ import { buildResponseMeta } from './build-response-meta';
 import { isServerError, mapUnknownException } from './map-unknown-exception';
 import type { ApiEnvelope, ProblemDetails } from './problem-details.types';
 import { stripQueryString } from './strip-query-string';
+// Imported from the file, not the barrel: `infrastructure/metrics`'s barrel
+// pulls in `MetricsController`, which imports `@RawResponse()` from this
+// directory's barrel. Going through both would make `common/api` and
+// `infrastructure/metrics` circular, and TypeScript resolves one side of a
+// cycle to `any` — which is how this arrived as "unsafe member access" rather
+// than as an obvious import error.
+import { MetricsService } from '../../infrastructure/metrics/metrics.service';
 import type { RequestWithId } from '../types/request-with-id';
 
 const PROBLEM_JSON_CONTENT_TYPE = 'application/problem+json';
@@ -38,7 +45,10 @@ const PROBLEM_JSON_CONTENT_TYPE = 'application/problem+json';
 @Injectable()
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  constructor(private readonly logger: PinoLogger) {
+  constructor(
+    private readonly logger: PinoLogger,
+    private readonly metricsService: MetricsService,
+  ) {
     this.logger.setContext('HttpExceptionFilter');
   }
 
@@ -58,6 +68,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         : mapUnknownException(exception, instance);
 
     this.logOnce(problem, request, exception);
+    this.countOnce(problem);
 
     const envelope: ApiEnvelope<null> = {
       data: null,
@@ -69,6 +80,27 @@ export class HttpExceptionFilter implements ExceptionFilter {
       .status(problem.status)
       .contentType(PROBLEM_JSON_CONTENT_TYPE)
       .json(envelope);
+  }
+
+  /**
+   * Drives `application_errors_total` (§36).
+   *
+   * Labelled with `category` and `eventCode` only — both drawn from the same
+   * small closed sets the log line uses, so the series count is bounded by
+   * their product. `errorCode` is deliberately absent even though it would be
+   * useful: the catalogue has 37 entries today and grows with every feature,
+   * and multiplying that across categories is the kind of quiet growth §36
+   * warns about. The log line carries `errorCode`, which is where a specific
+   * failure gets investigated; the metric answers "how many, and is it
+   * getting worse".
+   */
+  private countOnce(problem: ProblemDetails): void {
+    this.metricsService.metrics.applicationErrorsTotal.inc({
+      category: isServerError(problem) ? 'APPLICATION' : 'HTTP_ACCESS',
+      eventCode: isServerError(problem)
+        ? 'UNHANDLED_APPLICATION_ERROR'
+        : 'HTTP_REQUEST_FAILED',
+    });
   }
 
   private logOnce(
