@@ -106,6 +106,64 @@ argon2.hash(password, {
 ## EVT-021 — Migrations sessions, mots de passe, MFA
 <a id="evt-021"></a>
 
+> ✅ **Fait le 1er août 2026.** Migrations 4, 5 et 6 appliquées sur base vierge — 21 tables, 13 triggers. **INV-02, INV-11 et INV-12 passent de « reporté » à « appliqué »**, et le registre d'EVT-019 a signalé lui-même le moment où c'est devenu possible. `prisma migrate diff --exit-code` reste à **0**.
+
+### Structure livrée
+
+```
+prisma/migrations/
+├── 20260801090000_invitations_and_email_verification/   migration 4
+├── 20260801091000_sessions_and_rotations/               migration 5
+└── 20260801092000_password_reset_and_mfa/               migration 6
+```
+
+7 nouveaux modèles Prisma, 9 nouveaux ensembles de statuts dans `enums.ts`, et le registre de propriété tenant étendu aux 7.
+
+### Le registre d'invariants a fait exactement ce pour quoi il a été écrit
+
+EVT-019 refusait d'écrire `it.todo` pour les invariants non testables et affirmait à la place que leurs tables étaient **encore absentes**. À l'apparition de `user_sessions` et `mfa_methods`, trois tests ont échoué en nommant **INV-02, INV-11, INV-12** et le ticket EVT-021. Le report a expiré tout seul.
+
+Le contrôle d'exhaustivité de la propriété tenant a fait de même : les 7 nouveaux modèles ont échoué à la classification avant d'atteindre l'exécution.
+
+### 🔴 INV-11 n'est applicable que si l'utilisateur est `ACTIVE` — arbitrage dérivé
+
+Le §9 énonce l'invariant sans condition : « tout utilisateur portant `SUPER_ADMIN` possède au moins une `mfa_methods` de statut `ACTIVE` ». Appliqué littéralement, il **rend impossible la procédure d'amorçage** du [`MIGRATION_STRATEGY.md` §8.2](../../database/MIGRATION_STRATEGY.md), qui crée l'administrateur plateforme en `PENDING`, **avec l'attribution déjà en place** et sans MFA, et ne passe à `ACTIVE` qu'après enrôlement.
+
+Deux documents du corpus se contredisent donc. La qualification retenue — n'appliquer qu'à partir de `users.status = 'ACTIVE'` — ne coûte rien : un utilisateur `PENDING` ne peut pas s'authentifier, donc ne peut pas se servir de l'attribution. Ce qui compte est que personne ne puisse **utiliser** `SUPER_ADMIN` sans MFA.
+
+**Deux triggers, pas un**, parce qu'il y a deux chemins d'entrée :
+
+| Chemin | Trigger |
+|---|---|
+| accorder le rôle à un utilisateur actif | `trg_super_admin_mfa_on_grant` sur `platform_role_assignments` |
+| activer un utilisateur qui détient déjà le rôle | `trg_super_admin_mfa_on_activation` sur `users` |
+
+Ne garder que le premier laisserait le second comme contournement en deux étapes.
+
+### La colonne qu'EVT-018 avait reportée ici
+
+`membership_role_assignments.organization_id` est ajoutée par la migration 4, en **expand / backfill / contract** : ajouter directement une colonne `NOT NULL` échoue sur toute base qui a déjà des lignes, et l'intérêt de la séquence est précisément de ne pas dépendre du fait que la table est vide.
+
+Conséquence : la catégorie `ORGANIZATION_OWNED_VIA_RELATION` et le chemin de jointure de l'analyseur de scope sont **supprimés**, pas laissés inertes. Ils n'existaient que pour contourner l'absence de la colonne. Un chemin de code mort qui affaiblit le contrat de la garde — accepter un filtre de relation — est pire que pas de chemin du tout.
+
+### Ce que les migrations ajoutent au-delà de ce que Prisma génère
+
+| | |
+|---|---|
+| `ck_sessions_tenant_coherence` | **INV-12**, résout C-29 |
+| `ck_sessions_expiry_order` | une session qui expire par inactivité **après** son expiration absolue rend cette dernière décorative |
+| `ux_refresh_active_per_family` | **AUTH-INV-003**, résout C-27. C'est cet index qui départage deux rotations concurrentes — un verrou Redis coordonne, l'index garantit |
+| `ux_mfa_user_type_pending` / `ux_mfa_user_type_active` | C-28 : l'index combiné du Document A **empêchait tout ré-enrôlement** tant qu'une méthode active existait |
+| `trg_session_membership_coherence` | **INV-02** — chaque décision d'autorisation en aval lit `user_id` et `organization_id` de la session |
+| `trg_rotations_append_only` | la chaîne de rotation **est** la piste d'audit de la session. `DELETE` refusé ; `UPDATE` autorisé sur les statuts, refusé sur le token, la session, la famille et `issued_at` |
+
+`user_sessions.device_id` est créée **sans** clé étrangère : `scanner_devices` arrive avec la migration 7 (EVT-045). La contrainte y sera ajoutée.
+
+### Deux constats en exécutant
+
+- **INV-02 se déclenche avant `ck_sessions_tenant_coherence`** sur « membership sans organisation » : le trigger `BEFORE INSERT` a un membership à comparer, donc il refuse en premier. Les deux interdisent la forme ; le test assertait un nom de contrainte, ce qui n'assertait que l'ordre de déclenchement. L'autre direction — organisation sans membership — atteint bien le `CHECK`, donc les deux sont prouvés.
+- **`BOOTSTRAP_SUPER_ADMIN_EMAIL=` (vide) fait échouer le démarrage** avec « Invalid email address », alors que le seed traite une chaîne vide comme absente. Une variable d'environnement vide se lit conventionnellement comme non définie ; les deux couches ne sont pas d'accord. Constaté en montant une base identique à celle de la CI. Hors périmètre de ce ticket — signalé pour le schéma d'environnement (EVT-008).
+
 ```
 Branche  feat/EVT-021-session-schema
 Commit   feat(db): add sessions, rotations, password and MFA tables

@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 
 /**
  * The twelve cross-table invariants of DATABASE_SCHEMA.md §9 — sprint-03
- * EVT-019.
+ * EVT-019, extended by sprint-04 EVT-021.
  *
  * ## What this file is
  *
@@ -12,23 +12,18 @@ import { Pool } from 'pg';
  * "which invariants are actually enforced" is a question with a readable
  * answer instead of a search across four migrations and three suites.
  *
- * ## 🔴 Eight of the twelve cannot be tested in sprint 03
+ * ## Five of the twelve are still waiting on their tables
  *
- * §9 lists twelve and the sprint's exit criterion asks for twelve failing
- * insertions. Eight of them reference tables that do not exist yet:
- * `user_sessions` and `refresh_token_rotations` arrive with migration 5,
- * `mfa_methods` with 6, `scanner_devices` with 7, and the participant,
- * registration, ticket and attendance tables with 9 through 12. There is
- * nothing to insert into and nothing to reject.
+ * Migrations 4-6 brought INV-02, INV-11 and INV-12 within reach, and the
+ * `DEFERRED` guard below is what said so: it failed the moment `user_sessions`
+ * and `mfa_methods` appeared, naming each invariant and its ticket. That is
+ * the mechanism working exactly once, as intended.
  *
- * Writing `it.todo` for them would be the usual answer and it is a bad one:
- * a todo passes, so the suite stays green when migration 5 lands and INV-02
- * and INV-12 go unenforced. `describe.each` over `DEFERRED` below instead
- * asserts that the tables are still **absent**. The day a migration creates
- * one, that assertion fails, names the invariant, and points whoever wrote
- * the migration at the trigger they owe.
- *
- * A deferral that cannot expire is a deferral nobody will revisit.
+ * The remaining five constrain tables migrations 7 and 9-12 have not created.
+ * They are not `it.todo` — a todo passes, so the suite would stay green while
+ * the invariant went unenforced. The guard asserts those tables are still
+ * absent instead, and a deferral that cannot expire is a deferral nobody
+ * reopens.
  *
  * ## Why against real PostgreSQL and never a mock
  *
@@ -47,14 +42,11 @@ const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
  */
 const DEFERRED: readonly { invariant: string; table: string; owner: string }[] =
   [
-    { invariant: 'INV-02', table: 'user_sessions', owner: 'EVT-021' },
     { invariant: 'INV-03', table: 'scanner_devices', owner: 'EVT-045' },
     { invariant: 'INV-05', table: 'registrations', owner: 'EVT-041' },
     { invariant: 'INV-06', table: 'registration_sessions', owner: 'EVT-041' },
     { invariant: 'INV-07', table: 'tickets', owner: 'EVT-046' },
     { invariant: 'INV-08', table: 'attendance_records', owner: 'EVT-051' },
-    { invariant: 'INV-11', table: 'mfa_methods', owner: 'EVT-021' },
-    { invariant: 'INV-12', table: 'user_sessions', owner: 'EVT-021' },
   ];
 
 describeWithDatabase('database invariants (§9)', () => {
@@ -192,12 +184,27 @@ describeWithDatabase('database invariants (§9)', () => {
                '2027-01-01T09:00:00Z', '2027-01-01T18:00:00Z', now())`,
       [ids.eventA, ids.orgA, `slug-${unique()}`, unique().slice(0, 8)],
     );
+
+    // INV-11 refuses SUPER_ADMIN to an ACTIVE user without MFA, and both users
+    // are ACTIVE, so the INV-10 tests below could not grant it otherwise.
+    await pool.query(
+      `INSERT INTO mfa_methods (id, user_id, type, status, encrypted_secret, enabled_at, updated_at)
+       VALUES ($1, $2, 'TOTP', 'ACTIVE', 'ciphertext', now(), now()),
+              ($3, $4, 'TOTP', 'ACTIVE', 'ciphertext', now(), now())`,
+      [`mfa_a${suffix}`, ids.userA, `mfa_b${suffix}`, ids.userB],
+    );
   });
 
   afterAll(async () => {
     // No `platform_role_assignments` cleanup: every write to that table
     // happens inside a rolled-back transaction, precisely because INV-10 can
     // make those rows undeletable.
+    await pool.query(`DELETE FROM user_sessions WHERE user_id = ANY($1)`, [
+      [ids.userA, ids.userB],
+    ]);
+    await pool.query(`DELETE FROM mfa_methods WHERE user_id = ANY($1)`, [
+      [ids.userA, ids.userB],
+    ]);
     await pool.query(
       `DELETE FROM event_user_assignments WHERE organization_id = ANY($1)`,
       [[ids.orgA, ids.orgB]],
@@ -321,9 +328,14 @@ describeWithDatabase('database invariants (§9)', () => {
     it('rejects a PLATFORM role granted through a membership', async () => {
       await expect(
         pool.query(
-          `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-           VALUES ($1, $2, $3)`,
-          [`asg_${unique()}`, ids.membershipA, await roleId('SUPER_ADMIN')],
+          `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            `asg_${unique()}`,
+            ids.orgA,
+            ids.membershipA,
+            await roleId('SUPER_ADMIN'),
+          ],
         ),
       ).rejects.toThrow(/INV-09/);
     });
@@ -345,9 +357,9 @@ describeWithDatabase('database invariants (§9)', () => {
     it('rejects an UPDATE that swaps in a role of the wrong scope', async () => {
       const id = `asg_${unique()}`;
       await pool.query(
-        `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-         VALUES ($1, $2, $3)`,
-        [id, ids.membershipA, await roleId('CLIENT_ADMIN')],
+        `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+         VALUES ($1, $2, $3, $4)`,
+        [id, ids.orgA, ids.membershipA, await roleId('CLIENT_ADMIN')],
       );
 
       await expect(
@@ -366,9 +378,14 @@ describeWithDatabase('database invariants (§9)', () => {
       // index working and the test asking the wrong question.
       await expect(
         pool.query(
-          `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-           VALUES ($1, $2, $3)`,
-          [`asg_${unique()}`, ids.membershipB, await roleId('CLIENT_ADMIN')],
+          `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            `asg_${unique()}`,
+            ids.orgB,
+            ids.membershipB,
+            await roleId('CLIENT_ADMIN'),
+          ],
         ),
       ).resolves.toBeDefined();
 
@@ -572,7 +589,240 @@ describeWithDatabase('database invariants (§9)', () => {
   });
 
   /**
-   * The deferred eight. These assertions exist to **fail** the day their
+   * INV-02 — the session's user and organization must be the membership's.
+   * Every authorization decision downstream reads those columns, so a session
+   * naming membership X while claiming another user or tenant would be
+   * believed.
+   */
+  describe('INV-02: session and membership agree', () => {
+    async function insertSession(overrides: {
+      userId?: string;
+      organizationId?: string | null;
+      membershipId?: string | null;
+    }): Promise<string> {
+      const id = `ses_${unique()}`;
+
+      await pool.query(
+        `INSERT INTO user_sessions
+           (id, user_id, organization_id, active_membership_id, token_family_id,
+            client_type, status, authentication_level,
+            idle_expires_at, absolute_expires_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'WEB', 'ACTIVE', 'PASSWORD',
+                 now() + interval '12 hours', now() + interval '30 days', now())`,
+        [
+          id,
+          overrides.userId ?? ids.userA,
+          overrides.organizationId === undefined
+            ? ids.orgA
+            : overrides.organizationId,
+          overrides.membershipId === undefined
+            ? ids.membershipA
+            : overrides.membershipId,
+          `fam_${unique()}`,
+        ],
+      );
+
+      return id;
+    }
+
+    it('accepts a session whose membership matches', async () => {
+      await expect(insertSession({})).resolves.toBeDefined();
+    });
+
+    it('accepts a platform session with no membership at all', async () => {
+      await expect(
+        insertSession({ organizationId: null, membershipId: null }),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects a session whose user is not the membership holder', async () => {
+      await expect(insertSession({ userId: ids.userB })).rejects.toThrow(
+        /INV-02[\s\S]*user_id/,
+      );
+    });
+
+    it('rejects a session whose organization is not the membership one', async () => {
+      await expect(
+        insertSession({
+          organizationId: ids.orgB,
+          membershipId: ids.membershipA,
+        }),
+      ).rejects.toThrow(/INV-02[\s\S]*organization_id/);
+    });
+
+    it('rejects an UPDATE that moves the session to another membership', async () => {
+      const id = await insertSession({});
+
+      await expect(
+        pool.query(
+          `UPDATE user_sessions SET active_membership_id = $1 WHERE id = $2`,
+          [ids.membershipB, id],
+        ),
+      ).rejects.toThrow(/INV-02/);
+    });
+  });
+
+  /**
+   * INV-11 — a user carrying SUPER_ADMIN has an ACTIVE MFA method.
+   *
+   * Enforced only once the user is ACTIVE. That qualification is derived, not
+   * quoted: MIGRATION_STRATEGY.md §8.2's bootstrap creates the administrator
+   * PENDING with the grant already in place and no MFA. A PENDING user cannot
+   * authenticate, so it cannot use the grant either.
+   */
+  describe('INV-11: SUPER_ADMIN requires active MFA', () => {
+    it('refuses the grant to an active user with no MFA', async () => {
+      await withRollback(async (client) => {
+        await client.query(`DELETE FROM mfa_methods WHERE user_id = $1`, [
+          ids.userA,
+        ]);
+
+        await expectRejection(
+          client,
+          () => grantPlatformRole(client, ids.userA, 'SUPER_ADMIN'),
+          /INV-11/,
+        );
+      });
+    });
+
+    it('allows the grant once an ACTIVE method exists', async () => {
+      await withRollback(async (client) => {
+        await expect(
+          grantPlatformRole(client, ids.userA, 'SUPER_ADMIN'),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    it('does not accept a PENDING method as MFA', async () => {
+      await withRollback(async (client) => {
+        await client.query(
+          `UPDATE mfa_methods SET status = 'PENDING' WHERE user_id = $1`,
+          [ids.userA],
+        );
+
+        await expectRejection(
+          client,
+          () => grantPlatformRole(client, ids.userA, 'SUPER_ADMIN'),
+          /INV-11/,
+        );
+      });
+    });
+
+    /** The bootstrap path: the grant precedes the MFA, on a PENDING account. */
+    it('allows the grant on a PENDING user with no MFA', async () => {
+      await withRollback(async (client) => {
+        await client.query(`DELETE FROM mfa_methods WHERE user_id = $1`, [
+          ids.userA,
+        ]);
+        await client.query(
+          `UPDATE users SET status = 'PENDING' WHERE id = $1`,
+          [ids.userA],
+        );
+
+        await expect(
+          grantPlatformRole(client, ids.userA, 'SUPER_ADMIN'),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    /**
+     * The second way in. Guarding only the grant would leave activating a
+     * PENDING holder as a two-step bypass.
+     */
+    it('refuses to activate a PENDING holder without MFA', async () => {
+      await withRollback(async (client) => {
+        await client.query(`DELETE FROM mfa_methods WHERE user_id = $1`, [
+          ids.userA,
+        ]);
+        await client.query(
+          `UPDATE users SET status = 'PENDING' WHERE id = $1`,
+          [ids.userA],
+        );
+        await grantPlatformRole(client, ids.userA, 'SUPER_ADMIN');
+
+        await expectRejection(
+          client,
+          () =>
+            client.query(`UPDATE users SET status = 'ACTIVE' WHERE id = $1`, [
+              ids.userA,
+            ]),
+          /INV-11/,
+        );
+      });
+    });
+
+    it('leaves users who hold no platform role alone', async () => {
+      await withRollback(async (client) => {
+        await client.query(`DELETE FROM mfa_methods WHERE user_id = $1`, [
+          ids.userB,
+        ]);
+
+        await expect(
+          client.query(`UPDATE users SET status = 'ACTIVE' WHERE id = $1`, [
+            ids.userB,
+          ]),
+        ).resolves.toBeDefined();
+      });
+    });
+  });
+
+  /**
+   * INV-12 — both tenant columns are set, or neither is. Resolves C-29, which
+   * left them nullable and called them "coherent" without defining the
+   * platform case.
+   */
+  describe('INV-12: session tenant columns are set together', () => {
+    async function insertSession(
+      organizationId: string | null,
+      membershipId: string | null,
+    ): Promise<unknown> {
+      return pool.query(
+        `INSERT INTO user_sessions
+           (id, user_id, organization_id, active_membership_id, token_family_id,
+            client_type, status, authentication_level,
+            idle_expires_at, absolute_expires_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'WEB', 'ACTIVE', 'PASSWORD',
+                 now() + interval '12 hours', now() + interval '30 days', now())`,
+        [
+          `ses_${unique()}`,
+          ids.userA,
+          organizationId,
+          membershipId,
+          `fam_${unique()}`,
+        ],
+      );
+    }
+
+    it('accepts both set', async () => {
+      await expect(
+        insertSession(ids.orgA, ids.membershipA),
+      ).resolves.toBeDefined();
+    });
+
+    it('accepts neither set', async () => {
+      await expect(insertSession(null, null)).resolves.toBeDefined();
+    });
+
+    // INV-02's trigger returns early when there is no membership, so this
+    // direction is caught by the CHECK itself.
+    it('rejects an organization without a membership', async () => {
+      await expect(insertSession(ids.orgA, null)).rejects.toThrow(
+        /ck_sessions_tenant_coherence/,
+      );
+    });
+
+    // The other direction always reaches INV-02's trigger first, since a
+    // membership is present for it to compare against. Both forbid the shape;
+    // asserting on one constraint name would only assert the firing order.
+    it('rejects a membership without an organization', async () => {
+      await expect(insertSession(null, ids.membershipA)).rejects.toThrow(
+        /INV-02|ck_sessions_tenant_coherence/,
+      );
+    });
+  });
+
+  /**
+   * The deferred five. These assertions exist to **fail** the day their
    * table appears — see the note at the top of this file. A passing run here
    * means "not yet applicable", not "verified".
    */
@@ -610,7 +860,15 @@ describeWithDatabase('database invariants (§9)', () => {
     );
 
     it('covers every invariant of §9 exactly once', () => {
-      const tested = ['INV-01', 'INV-04', 'INV-09', 'INV-10'];
+      const tested = [
+        'INV-01',
+        'INV-02',
+        'INV-04',
+        'INV-09',
+        'INV-10',
+        'INV-11',
+        'INV-12',
+      ];
       const deferred = DEFERRED.map((entry) => entry.invariant);
       const all = [...tested, ...deferred].sort();
 

@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 
 /**
  * Every enforced invariant has a trigger, checked against the migration SQL —
- * sprint-03 EVT-019.
+ * sprint-03 EVT-019, extended by sprint-04 EVT-021.
  *
  * `invariants.integration-spec.ts` proves the triggers *behave*, by asking
  * PostgreSQL. This asks a cheaper and different question, in the unit suite
@@ -42,7 +42,7 @@ const sql = statementsOnly(allMigrationSql());
 
 /**
  * The invariants of DATABASE_SCHEMA.md §9 that can be enforced today. The
- * remaining eight constrain tables no migration has created yet, and
+ * remaining five constrain tables no migration has created yet, and
  * `invariants.integration-spec.ts` holds the register that fails the day one
  * of those tables appears.
  */
@@ -53,6 +53,10 @@ const ENFORCED = [
   { invariant: 'INV-09', trigger: 'trg_platform_role_scope' },
   { invariant: 'INV-10', trigger: 'trg_super_admin_floor_update' },
   { invariant: 'INV-10', trigger: 'trg_super_admin_floor_delete' },
+  { invariant: 'INV-02', trigger: 'trg_session_membership_coherence' },
+  { invariant: 'INV-09', trigger: 'trg_membership_role_tenant' },
+  { invariant: 'INV-11', trigger: 'trg_super_admin_mfa_on_grant' },
+  { invariant: 'INV-11', trigger: 'trg_super_admin_mfa_on_activation' },
 ] as const;
 
 describe('invariant triggers exist in the migrations', () => {
@@ -114,6 +118,20 @@ describe('invariant triggers exist in the migrations', () => {
   });
 
   /**
+   * INV-11 has two ways in: grant the role to an active user, or activate a
+   * user who already holds it. Guarding only the first leaves the second as a
+   * two-step bypass, so the activation side watches `users` instead.
+   */
+  it('guards INV-11 on both the grant and the activation', () => {
+    expect(sql).toMatch(
+      /CREATE TRIGGER "trg_super_admin_mfa_on_grant"[\s\S]*?ON "platform_role_assignments"/,
+    );
+    expect(sql).toMatch(
+      /CREATE TRIGGER "trg_super_admin_mfa_on_activation"\s+BEFORE UPDATE OF "status" ON "users"/,
+    );
+  });
+
+  /**
    * A row-level trigger would judge a multi-row revocation on a half-updated
    * table. The transition table is also what lets a database with no
    * `SUPER_ADMIN` at all stay writable, which the bootstrap procedure needs.
@@ -139,6 +157,9 @@ describe('invariant triggers exist in the migrations', () => {
     'trg_event_session_tenant',
     'trg_membership_role_scope',
     'trg_platform_role_scope',
+    'trg_membership_role_tenant',
+    'trg_session_membership_coherence',
+    'trg_super_admin_mfa_on_grant',
   ])('%s fires on UPDATE as well as INSERT', (trigger) => {
     const declaration = new RegExp(
       `CREATE TRIGGER "${trigger}"[\\s\\S]*?;`,

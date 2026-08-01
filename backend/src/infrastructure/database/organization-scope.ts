@@ -94,10 +94,7 @@ export function isScopingConstraint(value: unknown): boolean {
  *   the guard needs no join; honouring a relation filter here would reward
  *   the query shape the schema was designed to make unnecessary.
  */
-export function whereHasOrganizationScope(
-  where: unknown,
-  via?: string,
-): boolean {
+export function whereHasOrganizationScope(where: unknown): boolean {
   if (where === null || typeof where !== 'object' || Array.isArray(where)) {
     return false;
   }
@@ -108,43 +105,17 @@ export function whereHasOrganizationScope(
     return true;
   }
 
-  // The relation form, allowed only for the models that have no column of
-  // their own — `MembershipRoleAssignment` today. `via` is passed in by the
-  // ownership registry rather than sniffed from the clause, so a model that
-  // *does* have the column cannot be scoped this way and dodge §2.4.
-  if (via !== undefined) {
-    const relation = clause[via];
-
-    if (relation !== null && typeof relation === 'object') {
-      const nested = relation as Record<string, unknown>;
-
-      // Prisma writes a to-one relation filter either bare or under `is`.
-      if (isScopingConstraint(nested[SCOPE_FIELD])) {
-        return true;
-      }
-
-      const is = nested['is'];
-      if (
-        is !== null &&
-        typeof is === 'object' &&
-        isScopingConstraint((is as Record<string, unknown>)[SCOPE_FIELD])
-      ) {
-        return true;
-      }
-    }
-  }
-
   const and = clause['AND'];
   if (and !== undefined) {
     const branches = Array.isArray(and) ? and : [and];
-    if (branches.some((branch) => whereHasOrganizationScope(branch, via))) {
+    if (branches.some((branch) => whereHasOrganizationScope(branch))) {
       return true;
     }
   }
 
   const or = clause['OR'];
   if (Array.isArray(or) && or.length > 0) {
-    if (or.every((branch) => whereHasOrganizationScope(branch, via))) {
+    if (or.every((branch) => whereHasOrganizationScope(branch))) {
       return true;
     }
   }
@@ -153,7 +124,7 @@ export function whereHasOrganizationScope(
 }
 
 /** Whether a `data` payload sets the organization on the row being created. */
-export function dataHasOrganizationScope(data: unknown, via?: string): boolean {
+export function dataHasOrganizationScope(data: unknown): boolean {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     return false;
   }
@@ -163,29 +134,6 @@ export function dataHasOrganizationScope(data: unknown, via?: string): boolean {
   const direct = payload[SCOPE_FIELD];
   if (typeof direct === 'string' && direct.length > 0) {
     return true;
-  }
-
-  // A model with no column of its own inherits the tenant from the row it
-  // points at, so naming that row is the strongest statement available at
-  // insert time. INV-09's trigger is what actually holds the two consistent.
-  if (via !== undefined) {
-    const relation = payload[via];
-
-    if (relation !== null && typeof relation === 'object') {
-      const connect = (relation as Record<string, unknown>)['connect'];
-
-      if (connect !== null && typeof connect === 'object') {
-        const id = (connect as Record<string, unknown>)['id'];
-        if (typeof id === 'string' && id.length > 0) {
-          return true;
-        }
-      }
-    }
-
-    const foreignKey = payload[`${via}Id`];
-    if (typeof foreignKey === 'string' && foreignKey.length > 0) {
-      return true;
-    }
   }
 
   // Prisma's relation form: `organization: { connect: { id } }`. Accepted
@@ -215,23 +163,17 @@ export function dataHasOrganizationScope(data: unknown, via?: string): boolean {
 export function hasOrganizationScope(
   operation: string,
   args: unknown,
-  via?: string,
 ): ScopeVerdict {
   const payload =
     args !== null && typeof args === 'object'
       ? (args as Record<string, unknown>)
       : {};
 
-  const expected =
-    via === undefined
-      ? 'constrain organizationId'
-      : `constrain organizationId, directly or through ${via}`;
-
   if (operation === 'upsert') {
-    if (!whereHasOrganizationScope(payload['where'], via)) {
-      return unscoped(`its where clause does not ${expected}`);
+    if (!whereHasOrganizationScope(payload['where'])) {
+      return unscoped('its where clause does not constrain organizationId');
     }
-    if (!dataHasOrganizationScope(payload['create'], via)) {
+    if (!dataHasOrganizationScope(payload['create'])) {
       return unscoped('its create payload does not set organizationId');
     }
     return SCOPED;
@@ -248,12 +190,12 @@ export function hasOrganizationScope(
         return SCOPED;
       }
 
-      return data.every((row) => dataHasOrganizationScope(row, via))
+      return data.every((row) => dataHasOrganizationScope(row))
         ? SCOPED
         : unscoped('at least one row in data does not set organizationId');
     }
 
-    return dataHasOrganizationScope(data, via)
+    return dataHasOrganizationScope(data)
       ? SCOPED
       : unscoped('its data payload does not set organizationId');
   }
@@ -262,7 +204,7 @@ export function hasOrganizationScope(
   // `where`. An operation with no `where` at all (a bare `count()`, a
   // `findMany()`) lands here and is refused, which is correct: it reads every
   // tenant.
-  return whereHasOrganizationScope(payload['where'], via)
+  return whereHasOrganizationScope(payload['where'])
     ? SCOPED
-    : unscoped(`its where clause does not ${expected}`);
+    : unscoped('its where clause does not constrain organizationId');
 }

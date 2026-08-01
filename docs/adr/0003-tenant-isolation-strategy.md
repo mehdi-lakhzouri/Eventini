@@ -72,11 +72,11 @@ Avec une liste d'inclusion, oublier d'y ajouter une nouvelle table tenant la lai
 
 `TENANT_OWNED_MODELS` reste exporté et vaut exactement ce que ce document dit qu'il vaut.
 
-### 2. `membership_role_assignments` est gardé **via une relation**
+### 2. `membership_role_assignments` est gardé **via une relation** — ✅ résolu par EVT-021
 
 Le §1 exige que « toute table tenant-owned porte `organization_id NOT NULL` » et qu'« aucune table métier ne dépende d'une jointure transitive ». [`DATABASE_SCHEMA.md` §5.6](../database/DATABASE_SCHEMA.md) classe pourtant `membership_role_assignments` en `ORGANIZATION-OWNED` **« (via le membership) »** et n'y liste aucune colonne `organization_id`. EVT-014 a construit ce que le §5.6 spécifiait. C'est la **seule** table de l'inventaire décrite ainsi.
 
-L'exempter aurait été le mauvais arbitrage : c'est la table des attributions de rôle, donc une écriture non scopée y est une escalade de privilège inter-tenant. Elle reste gardée et la garde traverse la relation, ce qui coûte une jointure sur exactement une table. **Correctif attendu : la colonne dénormalisée du §2.4, dans la vague de migrations qui touchera ensuite les tables d'identité ([EVT-021](../sprints/sprint-04/README.md#evt-021)).**
+L'exempter aurait été le mauvais arbitrage : c'est la table des attributions de rôle, donc une écriture non scopée y est une escalade de privilège inter-tenant. Elle reste gardée et la garde traverse la relation, ce qui coûte une jointure sur exactement une table. **Correctif livré** — la migration 4 d'[EVT-021](../sprints/sprint-04/README.md#evt-021) ajoute `organization_id NOT NULL` et le trigger `trg_membership_role_tenant`. La table est gardée sur la colonne comme toutes les autres ; la catégorie `ORGANIZATION_OWNED_VIA_RELATION` et le chemin de jointure de l'analyseur sont **supprimés** plutôt que laissés inertes.
 
 ### 3. Le client non gardé n'est plus injectable
 

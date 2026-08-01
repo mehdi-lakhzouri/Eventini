@@ -61,7 +61,7 @@ generator client {
   // cause rather than each tool that trips over it.
   importFileExtension = ""
 
-  output   = "../src/infrastructure/database/prisma/generated"
+  output = "../src/infrastructure/database/prisma/generated"
 }
 
 datasource db {
@@ -101,7 +101,7 @@ model User {
   lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(3)
 
   /// BCP 47.
-  locale String?
+  locale   String?
   /// IANA.
   timezone String?
 
@@ -122,6 +122,11 @@ model User {
   credential              UserCredential?
   memberships             OrganizationMembership[]
   platformRoleAssignments PlatformRoleAssignment[]
+  sessions                UserSession[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  mfaMethods              MfaMethod[]
+  invitations             UserInvitation[]
 
   // `ux_users_normalized_email_active` is partial (WHERE deleted_at IS NULL)
   // and therefore lives in the migration SQL; Prisma cannot express it.
@@ -198,8 +203,11 @@ model Organization {
   deletedBy      String?   @map("deleted_by")
   deletionReason String?   @map("deletion_reason")
 
-  memberships OrganizationMembership[]
-  events      Event[]
+  memberships               OrganizationMembership[]
+  events                    Event[]
+  sessions                  UserSession[]
+  invitations               UserInvitation[]
+  membershipRoleAssignments MembershipRoleAssignment[]
 
   // `ux_organizations_slug_active` is partial; see the migration SQL.
   @@index([status], map: "ix_organizations_status")
@@ -246,6 +254,8 @@ model OrganizationMembership {
 
   roleAssignments  MembershipRoleAssignment[]
   eventAssignments EventUserAssignment[]
+  sessions         UserSession[]
+  invitations      UserInvitation[]
 
   // `ux_membership_user_org_active` is partial; see the migration SQL.
   // Tenant-first ordering on every index (§2.6): `organization_id` appears in
@@ -263,8 +273,8 @@ model OrganizationMembership {
 
 /// GLOBAL-REFERENCE: seeded, never written at runtime, never deleted.
 model Role {
-  id          String    @id
-  code        String    @unique(map: "ux_roles_code")
+  id          String  @id
+  code        String  @unique(map: "ux_roles_code")
   name        String
   /// One of RoleScope (enums.ts). TEXT + ck_roles_scope.
   scope       String
@@ -280,6 +290,7 @@ model Role {
   permissions             RolePermission[]
   membershipAssignments   MembershipRoleAssignment[]
   platformRoleAssignments PlatformRoleAssignment[]
+  invitations             UserInvitation[]
 
   @@index([scope], map: "ix_roles_scope")
   @@index([isSystem], map: "ix_roles_system")
@@ -325,7 +336,12 @@ model RolePermission {
 /// A role granted within one organization, through a membership.
 /// ORGANIZATION-owned, REVOKE_NOT_DELETE.
 model MembershipRoleAssignment {
-  id           String @id
+  id String @id
+
+  /// Denormalised so the tenant guard needs no join (DATABASE_SCHEMA.md §2.4).
+  /// Added by EVT-021; ADR-0003 §1 required it and §5.6 had omitted it.
+  organizationId String @map("organization_id")
+
   membershipId String @map("membership_id")
   roleId       String @map("role_id")
 
@@ -338,8 +354,9 @@ model MembershipRoleAssignment {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  membership OrganizationMembership @relation(fields: [membershipId], references: [id])
-  role       Role                   @relation(fields: [roleId], references: [id])
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  membership   OrganizationMembership @relation(fields: [membershipId], references: [id])
+  role         Role                   @relation(fields: [roleId], references: [id])
 
   // `ux_membership_role_active` is partial (WHERE revoked_at IS NULL) and
   // lives in the migration SQL.
@@ -348,6 +365,7 @@ model MembershipRoleAssignment {
   // privilege-escalation path in the model, so it is enforced by a database
   // trigger as well as in application code (INV-09). Application-only
   // enforcement is not an invariant, it is a convention.
+  @@index([organizationId, revokedAt], map: "ix_membership_roles_org")
   @@index([membershipId, revokedAt], map: "ix_membership_roles_membership")
   @@index([roleId, revokedAt], map: "ix_membership_roles_role")
   @@map("membership_role_assignments")
@@ -395,7 +413,7 @@ model Event {
   id             String @id
   organizationId String @map("organization_id")
 
-  name String
+  name        String
   /// Unique per organization, not globally — two tenants may each run a
   /// "summit-2026".
   slug        String
@@ -485,7 +503,7 @@ model EventSession {
   /// One of EventSessionType (enums.ts). TEXT + ck_event_sessions_type.
   sessionType String @map("session_type")
   /// One of EventSessionStatus (enums.ts). TEXT + ck_event_sessions_status.
-  status String
+  status      String
 
   startsAt DateTime @map("starts_at") @db.Timestamptz(3)
   endsAt   DateTime @map("ends_at") @db.Timestamptz(3)
@@ -597,7 +615,7 @@ model SecurityEvent {
   /// One of SecurityEventSeverity (enums.ts).
   severity String
   /// One of SecurityEventResult (enums.ts).
-  result String
+  result   String
 
   /// Why, in machine-readable form. Free text rather than an enum: the reason
   /// space grows with every feature, and an over-tight CHECK here would push
@@ -683,4 +701,270 @@ model AuditLog {
   @@index([targetType, targetId, occurredAt(sort: Desc)], map: "ix_audit_target")
   @@index([action, occurredAt(sort: Desc)], map: "ix_audit_action_time")
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Migration 4 — invitations and email verification
+// ---------------------------------------------------------------------------
+
+/// ORGANIZATION-owned, REVOKE_NOT_DELETE. §5.8.
+model UserInvitation {
+  id             String @id
+  organizationId String @map("organization_id")
+
+  email           String
+  normalizedEmail String @map("normalized_email")
+
+  invitedUserId String? @map("invited_user_id")
+  membershipId  String? @map("membership_id")
+  roleId        String  @map("role_id")
+
+  /// SHA-256. The token is shown once, in the invitation link.
+  tokenHash String @map("token_hash")
+
+  /// One of InvitationStatus. TEXT + ck_invitations_status.
+  status String
+
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedAt DateTime? @map("accepted_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedBy  String?   @map("revoked_by")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  invitedUser  User?                   @relation(fields: [invitedUserId], references: [id])
+  membership   OrganizationMembership? @relation(fields: [membershipId], references: [id])
+  role         Role                    @relation(fields: [roleId], references: [id])
+
+  @@unique([tokenHash], map: "ux_invitation_token_hash")
+  @@index([organizationId, status], map: "ix_invitations_org_status")
+  @@index([normalizedEmail, status], map: "ix_invitations_email_status")
+  @@map("user_invitations")
+}
+
+/// PLATFORM-owned, REVOKE_NOT_DELETE. §4.6.
+model EmailVerificationToken {
+  id     String @id
+  userId String @map("user_id")
+
+  email           String
+  normalizedEmail String @map("normalized_email")
+
+  tokenHash String @map("token_hash")
+
+  /// One of EmailVerificationStatus. TEXT + ck_email_verification_tokens_status.
+  status String
+
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tokenHash], map: "ux_email_verification_token_hash")
+  @@index([userId, status], map: "ix_email_verification_user_status")
+  @@index([normalizedEmail, status], map: "ix_email_verification_email_status")
+  @@map("email_verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Migration 5 — sessions and refresh token rotation
+// ---------------------------------------------------------------------------
+
+/// The server-side session register. Mixed ownership: PLATFORM when
+/// organizationId is null, ORGANIZATION-owned otherwise. REVOKE_NOT_DELETE.
+///
+/// This table is what makes AUTH-INV-004 possible: a valid JWT is not enough,
+/// the session has to exist and be active.
+///
+/// No currentRefreshTokenHash column — ADR-0014 keeps the hash in
+/// refresh_token_rotations alone, so the rotation invariant has one home.
+model UserSession {
+  /// ses_ prefix. This is the sid claim.
+  id String @id
+
+  userId String @map("user_id")
+
+  /// Null only for a platform session; ck_sessions_tenant_coherence pairs
+  /// this with activeMembershipId.
+  organizationId     String? @map("organization_id")
+  activeMembershipId String? @map("active_membership_id")
+
+  /// Root of the rotation chain.
+  tokenFamilyId String @map("token_family_id")
+
+  /// One of SessionClientType. TEXT + ck_sessions_client_type.
+  clientType String @map("client_type")
+
+  /// One of SessionStatus. TEXT + ck_sessions_status.
+  status String
+
+  /// Gains an FK to scanner_devices once migration 7 creates it (EVT-045).
+  deviceId   String? @map("device_id")
+  deviceName String? @map("device_name")
+
+  /// Normalised, never the raw header.
+  userAgent String? @map("user_agent")
+  /// Truncated per the PII policy.
+  ipAddress String? @map("ip_address") @db.Inet
+
+  /// One of AuthenticationLevel. TEXT + ck_sessions_authentication_level.
+  authenticationLevel String    @map("authentication_level")
+  mfaVerifiedAt       DateTime? @map("mfa_verified_at") @db.Timestamptz(3)
+
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  /// Pushed forward by each rotation.
+  idleExpiresAt     DateTime @map("idle_expires_at") @db.Timestamptz(3)
+  /// Never extended, by anything.
+  absoluteExpiresAt DateTime @map("absolute_expires_at") @db.Timestamptz(3)
+
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedBy        String?   @map("revoked_by")
+  revocationReason String?   @map("revocation_reason")
+
+  createdByRequestId String? @map("created_by_request_id")
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user             User                    @relation(fields: [userId], references: [id])
+  organization     Organization?           @relation(fields: [organizationId], references: [id])
+  activeMembership OrganizationMembership? @relation(fields: [activeMembershipId], references: [id])
+  rotations        RefreshTokenRotation[]
+
+  @@index([userId, status], map: "ix_sessions_user_status")
+  @@index([activeMembershipId, status], map: "ix_sessions_membership_status")
+  @@index([organizationId, status], map: "ix_sessions_org_status")
+  @@index([tokenFamilyId], map: "ix_sessions_family")
+  @@map("user_sessions")
+}
+
+/// The rotation chain and replay detector. APPEND_ONLY — this table is the
+/// audit trail, so it carries no updatedAt.
+model RefreshTokenRotation {
+  id        String @id
+  sessionId String @map("session_id")
+
+  /// Duplicated from the session so a whole family can be revoked without a
+  /// join, which is what the replay path does under time pressure.
+  tokenFamilyId String @map("token_family_id")
+
+  /// HMAC-SHA-256 of a 32-byte opaque token. Never the token itself.
+  tokenHash String @map("token_hash")
+
+  previousTokenId   String? @map("previous_token_id")
+  replacedByTokenId String? @map("replaced_by_token_id")
+
+  /// One of RefreshTokenStatus. TEXT + ck_refresh_rotations_status.
+  status String
+
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  consumedAt      DateTime? @map("consumed_at") @db.Timestamptz(3)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  reuseDetectedAt DateTime? @map("reuse_detected_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  session       UserSession            @relation(fields: [sessionId], references: [id])
+  previousToken RefreshTokenRotation?  @relation("RotationChain", fields: [previousTokenId], references: [id])
+  nextTokens    RefreshTokenRotation[] @relation("RotationChain")
+
+  // ux_refresh_active_per_family is partial (WHERE status='ACTIVE') and lives
+  // in the migration SQL. It is what makes two concurrent rotations mutually
+  // exclusive without an application lock.
+  @@unique([tokenHash], map: "ux_refresh_token_hash")
+  @@index([sessionId, status], map: "ix_refresh_session_status")
+  @@index([tokenFamilyId, status], map: "ix_refresh_family_status")
+  @@map("refresh_token_rotations")
+}
+
+// ---------------------------------------------------------------------------
+// Migration 6 — password reset and MFA
+// ---------------------------------------------------------------------------
+
+/// PLATFORM-owned, REVOKE_NOT_DELETE. §4.5.
+model PasswordResetToken {
+  id     String @id
+  userId String @map("user_id")
+
+  /// SHA-256, never the token.
+  tokenHash String @map("token_hash")
+
+  /// One of PasswordResetStatus. TEXT + ck_password_reset_tokens_status.
+  status String
+
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  requestedIp String? @map("requested_ip") @db.Inet
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tokenHash], map: "ux_password_reset_token_hash")
+  @@index([userId, status], map: "ix_password_reset_user_status")
+  @@map("password_reset_tokens")
+}
+
+/// PLATFORM-owned, REVOKE_NOT_DELETE. §4.7.
+model MfaMethod {
+  id     String @id
+  userId String @map("user_id")
+
+  /// One of MfaMethodType. TEXT + ck_mfa_methods_type.
+  type String
+
+  /// One of MfaMethodStatus. TEXT + ck_mfa_methods_status.
+  status String
+
+  /// AES-256-GCM, not a hash: verifying a TOTP code requires reading it back.
+  /// The only secret in the system stored this way.
+  encryptedSecret String @map("encrypted_secret")
+
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+  enabledAt  DateTime? @map("enabled_at") @db.Timestamptz(3)
+  disabledAt DateTime? @map("disabled_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recoveryCodes MfaRecoveryCode[]
+
+  // ux_mfa_user_type_pending and ux_mfa_user_type_active are partial and live
+  // in the migration SQL. Two separate indexes, not one covering both
+  // statuses: the combined form made re-enrolment impossible while a method
+  // was active (C-28).
+  @@index([userId, status], map: "ix_mfa_user_status")
+  @@map("mfa_methods")
+}
+
+/// PLATFORM-owned. §4.8.
+model MfaRecoveryCode {
+  id          String @id
+  mfaMethodId String @map("mfa_method_id")
+
+  /// SHA-256 of a 10-character Crockford base32 code.
+  codeHash String @map("code_hash")
+
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  mfaMethod MfaMethod @relation(fields: [mfaMethodId], references: [id], onDelete: Cascade)
+
+  @@unique([codeHash], map: "ux_mfa_recovery_code_hash")
+  @@index([mfaMethodId, usedAt, revokedAt], map: "ix_mfa_recovery_method_available")
+  @@map("mfa_recovery_codes")
 }
