@@ -43,6 +43,31 @@ C'est le sprint où les invariants `AUTH-INV-001` à `AUTH-INV-012` du Document 
 ## EVT-020 — Hachage Argon2id
 <a id="evt-020"></a>
 
+> ✅ **Fait le 1er août 2026.** `ArgonPasswordHasher` implémente le profil ADR-0007 avec le pepper natif. 33 tests, dont le rehash sur dérive des **quatre** paramètres et le budget de 150 ms.
+
+### Structure livrée
+
+```
+domain/password.policy.ts        NFKC + bornes, aucun framework
+domain/password-hasher.ts        le port : hash / verify / verifyDecoy
+infrastructure/argon2-profile.ts options, version de profil, détection de dérive
+infrastructure/argon-password-hasher.ts
+```
+
+### Trois comportements d'`argon2@0.45.1` vérifiés, pas supposés
+
+| Constat | Conséquence |
+|---|---|
+| `needsRehash` compare `m`, `t` et `p` — **pas la longueur du hash** | `isStaleHash` décode le dernier segment base64 et compare les octets, sinon un digest raccourci ne serait jamais remonté |
+| Un digest malformé fait **lever** `verify`, il ne renvoie pas `false` | Une ligne corrompue deviendrait un 500 ; elle est traitée comme « mot de passe invalide » |
+| `verify` sans le pepper renvoie **`false`**, sans erreur | Un pepper mal configuré ressemblerait à « tous les mots de passe sont faux ». La règle `secret-hygiene` du sprint 02 le valide déjà (base64, ≥ 32 octets, distinct des 6 autres secrets) |
+
+### Détails d'implémentation
+
+- **Longueur en points de code**, pas en unités UTF-16 : `[...normalized].length`. Sinon 6 emoji passeraient pour 12 caractères.
+- **Mesurée après NFKC** : la normalisation peut allonger la chaîne (`ﬁ` → `fi`).
+- **`verifyDecoy`** — un digest construit une fois à partir d'un mot de passe que personne ne détient, réutilisé à chaque tentative. C'est la primitive de l'étape 7 d'EVT-023 ; la fournir ici la rend difficile à oublier là-bas.
+
 ```
 Branche  feat/EVT-020-argon2-hasher
 Commit   feat(identity): implement Argon2id password hashing with pepper
@@ -68,9 +93,11 @@ argon2.hash(password, {
 
 **Tests**
 
-- les paramètres effectifs sont lisibles dans le hash encodé : `$argon2id$v=19$m=19456,t=2,p=1$…` ;
+- les paramètres effectifs sont lisibles dans le hash encodé : `$argon2id$v=19$m=19456,p=1,t=2$…` ;
 - un hash produit avec d'anciens paramètres est **re-haché à la vérification** et `password_version` incrémenté ;
 - benchmark CI : la vérification reste sous 150 ms — garde-fou contre une régression de paramètre.
+
+> 🔧 **Correction d'ordre.** Ce document annonçait `m=19456,t=2,p=1`. `argon2@0.45.1` sérialise en réalité **`m,p,t`** — constaté en lisant un digest produit, pas supposé. Une assertion écrite sur l'ordre annoncé aurait échoué sans que rien ne soit cassé.
 
 > 🔴 **`PASSWORD_PEPPER` est une donnée de sauvegarde critique.** Le perdre rend **tous** les mots de passe invérifiables : aucun utilisateur ne peut plus se connecter, et aucune restauration de base n'y remédie. À sauvegarder au même titre que la base, et **séparément d'elle**.
 
