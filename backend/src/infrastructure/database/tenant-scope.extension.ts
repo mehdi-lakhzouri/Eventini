@@ -1,7 +1,7 @@
 import { Prisma } from './prisma/generated/client';
 import type { PrismaClient } from './prisma/generated/client';
 import { hasOrganizationScope } from './organization-scope';
-import { scopeRuleFor } from './tenant-ownership';
+import { requiresOrganizationScope } from './tenant-ownership';
 import { TenantScopeViolationError } from './tenant-scope.error';
 import {
   currentUnscopedReason,
@@ -77,9 +77,7 @@ export const tenantScopeExtension = Prisma.defineExtension({
   query: {
     $allModels: {
       $allOperations({ model, operation, args, query }) {
-        const rule = scopeRuleFor(model);
-
-        if (rule === undefined) {
+        if (!requiresOrganizationScope(model)) {
           return query(args);
         }
 
@@ -88,7 +86,7 @@ export const tenantScopeExtension = Prisma.defineExtension({
           return query(args);
         }
 
-        const verdict = hasOrganizationScope(operation, args, rule.via);
+        const verdict = hasOrganizationScope(operation, args);
 
         if (!verdict.scoped) {
           throw new TenantScopeViolationError(model, operation, verdict.reason);

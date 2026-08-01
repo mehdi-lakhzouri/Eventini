@@ -242,15 +242,15 @@ describeWithDatabase('tenant scope against PostgreSQL', () => {
   });
 
   /**
-   * `membership_role_assignments` has no `organization_id` of its own —
-   * DATABASE_SCHEMA.md §5.6 declares it tenant-owned "via le membership".
-   * The guard therefore accepts the relation filter, and this proves the
-   * filter it accepts is one PostgreSQL actually understands.
+   * EVT-021's migration 4 gave `membership_role_assignments` the
+   * `organization_id` column ADR-0003 §1 always required, so it is guarded on
+   * the plain column like every other tenant table and EVT-018's relation
+   * workaround is gone.
    */
-  describe('the model scoped through a relation', () => {
+  describe('the role-grant table', () => {
     const assignmentId = `asg_${unique()}`;
 
-    it('accepts a create that names the membership', async () => {
+    it('accepts a scoped create', async () => {
       const role = await prisma.role.findUniqueOrThrow({
         where: { code: 'CLIENT_ADMIN' },
       });
@@ -258,6 +258,7 @@ describeWithDatabase('tenant scope against PostgreSQL', () => {
       await prisma.membershipRoleAssignment.create({
         data: {
           id: assignmentId,
+          organizationId: ids.orgA,
           membershipId: ids.membershipA,
           roleId: role.id,
         },
@@ -265,7 +266,7 @@ describeWithDatabase('tenant scope against PostgreSQL', () => {
 
       expect(
         await prisma.membershipRoleAssignment.count({
-          where: { membership: { organizationId: ids.orgA } },
+          where: { organizationId: ids.orgA },
         }),
       ).toBe(1);
     });
@@ -273,12 +274,12 @@ describeWithDatabase('tenant scope against PostgreSQL', () => {
     it('returns nothing for the other tenant', async () => {
       expect(
         await prisma.membershipRoleAssignment.count({
-          where: { membership: { organizationId: ids.orgB } },
+          where: { organizationId: ids.orgB },
         }),
       ).toBe(0);
     });
 
-    it('refuses a query with no membership constraint', async () => {
+    it('refuses an unscoped query', async () => {
       await expect(prisma.membershipRoleAssignment.findMany()).rejects.toThrow(
         TenantScopeViolationError,
       );
