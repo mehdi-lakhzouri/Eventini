@@ -152,6 +152,22 @@ describe('repositories take a TenantContext first', () => {
     // user_sessions — mixte (§3, row 15): NULL organization for a platform
     // session, which is exactly what ck_sessions_tenant_coherence encodes.
     join('modules', 'identity', 'sessions', 'domain', 'session.repository.ts'),
+    // Authentication runs before any tenant context exists — resolving which
+    // organization the session belongs to is what login is for (EVT-023).
+    join(
+      'modules',
+      'identity',
+      'authentication',
+      'domain',
+      'authentication.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'authentication',
+      'infrastructure',
+      'prisma-authentication.repository.ts',
+    ),
     join(
       'modules',
       'identity',
