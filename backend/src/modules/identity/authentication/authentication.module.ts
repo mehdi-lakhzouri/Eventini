@@ -11,6 +11,8 @@ import { GetCurrentUserUseCase } from './application/get-current-user.use-case';
 import { LoginUseCase } from './application/login.use-case';
 import { LogoutUseCase } from './application/logout.use-case';
 import { RefreshSessionUseCase } from './application/refresh-session.use-case';
+import { AuthenticationRepository } from './domain/authentication.repository';
+import { PrismaAuthenticationRepository } from './infrastructure/prisma-authentication.repository';
 import { AccessTokenSigner } from './infrastructure/jwt/access-token.signer';
 import { AccessTokenVerifier } from './infrastructure/jwt/access-token.verifier';
 import { SigningKeySet } from './infrastructure/jwt/signing-keys';
@@ -44,6 +46,10 @@ type Auth = ConfigType<typeof authenticationConfig>;
       inject: [SigningKeySet, authenticationConfig.KEY],
       useFactory: (keys: SigningKeySet, auth: Auth) =>
         new AccessTokenVerifier(keys, auth.accessToken),
+    },
+    {
+      provide: AuthenticationRepository,
+      useClass: PrismaAuthenticationRepository,
     },
     GetCurrentUserUseCase,
     LoginUseCase,

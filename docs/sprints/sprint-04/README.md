@@ -272,6 +272,69 @@ L'algorithme attendu est passé **explicitement** à `jwtVerify` — jamais lu d
 ## EVT-023 — Login
 <a id="evt-023"></a>
 
+> ✅ **Fait le 1er août 2026.** `POST /api/v1/auth/sessions` fonctionne de bout en bout contre PostgreSQL réel : 20 tests e2e, dont l'indiscernabilité des refus et l'écriture atomique session + refresh token. **4 étapes sur 20 sont reportées** aux tickets qui les possèdent, listées ci-dessous.
+
+### Structure livrée
+
+```
+sessions/domain/
+├── refresh-token.ts        32 octets opaques, HMAC-SHA-256, comparaison à temps constant
+├── session-profile.ts      profil (WEB/SCANNER × plateforme) → échéances
+└── session.repository.ts   le port ; user_sessions est mixte, donc pas de TenantContext
+authentication/
+├── domain/organization-resolution.ts   l'étape 11, pure
+├── domain/authentication.errors.ts     les motifs de refus, internes
+├── domain/authentication.repository.ts une requête pour les étapes 6 à 13
+├── application/login.use-case.ts       l'orchestration
+├── dto/login.dto.ts                    whitelist stricte
+└── infrastructure/cookies/session-cookies.ts
+```
+
+### Ce qui est livré, et les 4 étapes qui ne peuvent pas l'être
+
+| Étapes | État |
+|---|---|
+| 1, 2, 6, 7, 8, 9, 11, 12, 13, 14, 15, 19, 20 | ✅ livrées |
+| 3, 4 — rate limit et lockout | ⏳ **EVT-030**, qui dépend de Redis (EVT-029) |
+| 5, 16 — CSRF pré-session et token CSRF | ⏳ **EVT-028** |
+| 10 — porte MFA | ⏳ **EVT-027** |
+
+Ces quatre tickets sont **postérieurs** à celui-ci dans le plan de sprint : les étapes ne sont pas oubliées, elles ne sont pas encore constructibles. Deux des trois cookies sont posés ; le troisième est celui du CSRF.
+
+Conséquence assumée et rendue visible dans le code : **toute session naît en `authentication_level = 'PASSWORD'`**, jamais en `MFA`. Un test l'asserte même pour un utilisateur qui possède déjà une méthode MFA active, pour qu'aucun code écrit d'ici EVT-027 ne suppose l'inverse.
+
+### 🔴 L'étape 7, et pourquoi l'ordre des vérifications compte
+
+Sans vérification factice, le chemin « compte inconnu » saute Argon2id et répond un ordre de grandeur plus vite. C'est de l'énumération d'utilisateurs mesurable à distance. `verifyDecoy` (livré par EVT-020) est appelé sur ce chemin, et un test compare les deux durées.
+
+Le même raisonnement dicte un ordre qu'on inverserait naturellement : **le statut de l'utilisateur est vérifié _après_ le hachage**, pas avant. Sortir tôt pour un compte suspendu le ferait répondre sans payer Argon2id — exactement la même fuite, par une autre porte. Un test mesure aussi ce chemin.
+
+### 🔴 Une contradiction dans le §5.1, tranchée
+
+L'étape 11 dit « aucun membership et pas de rôle ⇒ **403** ». Les tests négatifs du ticket disent « organisation `SUSPENDED` ⇒ **réponse générique** ». Ces deux phrases se contredisent pour l'utilisateur qui **a** un membership dont l'organisation est suspendue : c'est à la fois « aucune organisation utilisable » et « organisation suspendue ».
+
+Arbitrage retenu — les deux cas sont distincts et le sont dans le type :
+
+| Situation | Réponse |
+|---|---|
+| Des memberships, mais aucun utilisable | `401 AUTH_INVALID_CREDENTIALS`, générique |
+| Aucun membership, aucun rôle plateforme | `403 AUTH_TENANT_DENIED` |
+
+Dire à un appelant « votre organisation est suspendue » est un fait sur un compte qui n'est peut-être pas le sien. N'avoir aucun accès du tout n'apprend rien à personne.
+
+### Aucune organisation n'est choisie à la place de l'utilisateur
+
+Les organisations inutilisables sont filtrées **avant** le comptage : un utilisateur avec un membership vivant et un suspendu obtient une réponse définie plutôt qu'ambiguë. Avec plusieurs organisations utilisables, la session est créée **sans organisation active** et le client doit appeler l'activation. Choisir « la première » ferait atterrir la connexion dans un tenant que l'utilisateur n'a pas désigné, et tout ce qui suit y serait attribué.
+
+### Deux défauts trouvés en exécutant
+
+| Défaut | Correction |
+|---|---|
+| **`refresh_token_rotations` n'avait aucune échappatoire de rétention.** EVT-021 lui a donné un trigger `APPEND_ONLY` qui refusait `DELETE` sans condition, alors que le §2.5 la place dans le même régime que `security_events` et `audit_logs` — « purge par rétention uniquement » — et que ces deux-là portent l'échappatoire depuis la migration 8. Sans elle la table ne peut que croître, et elle gagne une ligne à **chaque** rafraîchissement | Migration 7 : `reject_rotation_rewrite` honore `SET LOCAL eventini.retention_purge` |
+| **La règle 2 du test d'architecture a refusé mes deux nouveaux repositories.** Correct : ni l'un ni l'autre ne peut prendre un `TenantContext`. L'authentification s'exécute *avant* qu'un contexte tenant existe — le résoudre est précisément le travail du login — et `user_sessions` est de propriété mixte | Ajoutés à la liste d'exemptions, avec leur justification |
+
+Un de mes propres tests était également faux : il affirmait qu'une organisation suspendue donnait `NO_ACCESS`, ce qui était l'arbitrage avant que la contradiction du §5.1 soit tranchée.
+
 ```
 Branche  feat/EVT-023-login
 Commit   feat(identity): implement login with generic errors and MFA gating
