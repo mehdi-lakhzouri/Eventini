@@ -109,10 +109,14 @@ jobs:
       - name: Audit — high (allowlisted exceptions only)
         working-directory: ${{ matrix.project }}
         run: |
+          # GHSA-mh99-v99m-4gvg (brace-expansion) left this list in EVT-022:
+          # patched 1.1.18 and 5.0.9 were published, so RA-10's premise — that
+          # no fix existed for those major lines — stopped being true. An
+          # allowlist entry matching nothing hides the next real advisory.
           if [ "${{ matrix.project }}" = "web" ]; then
-            ALLOWED="GHSA-mh99-v99m-4gvg GHSA-f88m-g3jw-g9cj GHSA-frvp-7c67-39w9"
+            ALLOWED="GHSA-f88m-g3jw-g9cj GHSA-frvp-7c67-39w9"
           else
-            ALLOWED="GHSA-mh99-v99m-4gvg"
+            ALLOWED=""
           fi
 
           npm audit --audit-level=high --json > audit-report.json || true

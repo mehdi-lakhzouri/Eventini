@@ -193,6 +193,52 @@ CONSTRAINT ck_sessions_tenant_coherence CHECK (
 ## EVT-022 — Émission et vérification des access tokens
 <a id="evt-022"></a>
 
+> ✅ **Fait le 1er août 2026.** Signature EdDSA via `jose`, `kid` en en-tête, fenêtre de coexistence. **Les 5 attaques obligatoires sont refusées et testées**, dont la confusion d'algorithme. `@nestjs/jwt`, `passport`, `passport-jwt` et `@nestjs/passport` sont retirés.
+
+### Structure livrée — un fichier, une responsabilité
+
+```
+infrastructure/jwt/
+├── jose.ts                    le seul endroit où `jose` est chargé
+├── access-token.claims.ts     le jeu de claims d'ADR-0005, et rien d'autre
+├── access-token.errors.ts     AccessTokenError + motif interne
+├── signing-keys.ts            une clé de signature, N clés de vérification
+├── token-audience.ts          audience dérivée du type de client
+├── access-token.lifetime.ts   la matrice de durées d'ADR-0009
+├── access-token.signer.ts     issue()
+└── access-token.verifier.ts   verify()
+```
+
+### La ligne qui bloque la confusion d'algorithme
+
+```ts
+const ALLOWED_ALGORITHMS = ['EdDSA'];   // passé à jwtVerify, jamais lu de l'en-tête
+```
+
+La clé publique Ed25519 n'est **pas** un secret. Un vérificateur qui ferait confiance au champ `alg` de l'en-tête traiterait volontiers cette clé publique comme un secret HMAC et accepterait tout ce que l'attaquant signerait avec. Vérifié : `HS256` signé avec la clé publique est refusé, `alg: none` aussi.
+
+Le `kid` est résolu **avant** toute cryptographie, contre un ensemble fixe. Un `kid` inconnu n'atteint jamais la vérification de signature — et c'est aussi ce qui rend la révocation d'urgence immédiate : retirer une clé de l'ensemble tue tous ses tokens sur-le-champ.
+
+### Ce que le token ne peut pas contenir, structurellement
+
+Le signataire ne fait **jamais** de spread d'un objet fourni par l'appelant : il construit la charge utile à partir d'`AccessTokenClaims`. Un mot de passe, un secret MFA, un refresh token ou une liste de permissions ne peut pas fuiter dans un token qui n'a aucun moyen de porter une clé imprévue. Un test asserte que l'ensemble des clés de la charge utile est **exactement** `sub, sid, org, mbr, ver, ct, al` + `iat, exp, iss, aud`.
+
+### 🔴 `jose` 6 est ESM-only, et Jest ne peut pas le charger statiquement
+
+Node 24 sait faire `require()` d'un module ESM, donc un `import` statique **compile et fonctionne** en production. Mais Jest remplace `require` : il passe la source ESM à son compilateur CommonJS, qui échoue sur `export`. Le problème serait apparu en CI, pas en local.
+
+`jose.ts` fait donc un `import()` dynamique mémoïsé — TypeScript le préserve tel quel en sortie CommonJS avec `module: nodenext`, et les scripts de test tournent déjà avec `--experimental-vm-modules` pour le compilateur WASM de Prisma. Un seul fichier connaît cette contrainte.
+
+### Deux vérifications que le corpus n'imposait pas
+
+- **`typ: 'JWT'`** est exigé à la vérification, pas seulement posé à la signature.
+- **Chaque claim est validé, jamais casté.** La chaîne d'autorisation lit `ver`, `sid` et `org` pour décider ; un claim absent doit être un refus, pas un `undefined` comparé à quelque chose. Un token valablement signé mais amputé d'un claim est rejeté — testé pour les cinq claims obligatoires.
+- **`ACCESS_TOKEN_PREVIOUS_KEY_ID` égal à `ACCESS_TOKEN_KEY_ID`** fait échouer le démarrage. Sinon la table de clés contiendrait une seule entrée, l'ancienne clé ne serait acceptée nulle part, et la fenêtre de coexistence serait silencieusement annulée au moment du déploiement.
+
+### Le motif de refus ne sort jamais du serveur
+
+`AccessTokenError` porte un motif interne (`UNKNOWN_KEY`, `BAD_SIGNATURE`, `BAD_AUDIENCE`…). L'appelant reçoit toujours un seul `401 AUTHENTICATION_REQUIRED` : lui dire que la signature était bonne mais l'audience mauvaise, c'est lui dire que sa contrefaçon est à un champ de fonctionner.
+
 ```
 Branche  feat/EVT-022-access-tokens
 Commit   feat(identity): issue and verify EdDSA access tokens with key rotation
