@@ -82,24 +82,29 @@ export function rulesFor(
     });
   }
 
-  // The route decides, not the value: the id is part of the path this pattern
-  // just matched, so there is no caller-controlled way to skip the window.
-  const challengeId = mfaChallengeIdOf(facts);
-
-  if (challengeId !== null) {
+  // The branch is a route predicate, never the extracted value: matching the
+  // route is what decides, and an id that somehow did not come back falls into
+  // a bucket rather than removing the window.
+  if (isMfaVerification(facts)) {
     rules.push({
-      key: redisKeys.rateLimit.mfaVerify(challengeId),
+      key: redisKeys.rateLimit.mfaVerify(
+        mfaChallengeIdOf(facts) ?? UNUSABLE_BUCKET,
+      ),
       limit: settings.mfaVerify,
       windowMs: 5 * MINUTE,
     });
   }
 
-  if (
-    facts.sessionId !== null &&
-    isRoute(facts, 'POST', '/auth/sessions/current/rotation')
-  ) {
+  if (isRoute(facts, 'POST', '/auth/sessions/current/rotation')) {
+    // 🟡 Bucketed, not per-session. Resolving the session would mean verifying
+    // the refresh token, and this guard runs before authentication by design
+    // (§7.5) — doing it here would be the ordering inversion the whole ticket
+    // exists to avoid. Rotation is therefore covered by the global IP window
+    // and this shared one until the authorization guard of EVT-036 can hand a
+    // resolved session to the limiter. Stated rather than left looking
+    // per-session, which the key name would otherwise imply.
     rules.push({
-      key: redisKeys.rateLimit.refresh(facts.sessionId),
+      key: redisKeys.rateLimit.refresh(facts.sessionId ?? UNUSABLE_BUCKET),
       limit: settings.refresh,
       windowMs: HOUR,
     });
@@ -152,23 +157,29 @@ function isRoute(facts: RequestFacts, method: string, path: string): boolean {
 }
 
 /**
- * A stable bucket for a request whose address is missing or not even a string.
+ * The bucket a request lands in when the value that would normally key its
+ * window is missing or unusable.
  *
- * It cannot collide with a real address: `@` is required in anything that
- * would reach a successful login, and this value contains none.
+ * It cannot collide with a real address — anything reaching a successful login
+ * contains `@` and this does not — nor with a real identifier, which is a
+ * prefixed base32 string.
  */
-const UNUSABLE_EMAIL_BUCKET = 'unusable-address';
+const UNUSABLE_BUCKET = 'unusable';
 
 function emailBucket(email: string | null): string {
-  return email !== null && email.trim() !== '' ? email : UNUSABLE_EMAIL_BUCKET;
+  return email !== null && email.trim() !== '' ? email : UNUSABLE_BUCKET;
 }
 
-/** The id out of `/auth/mfa/challenges/{id}/verification`, or null. */
-function mfaChallengeIdOf(facts: RequestFacts): string | null {
-  if (facts.method !== 'POST') {
-    return null;
-  }
+/** `/auth/mfa/challenges/{id}/verification`, whatever the id. */
+function isMfaVerification(facts: RequestFacts): boolean {
+  return (
+    facts.method === 'POST' &&
+    /^\/auth\/mfa\/challenges\/[^/]+\/verification$/.test(normalize(facts.path))
+  );
+}
 
+/** The id out of that path, or null when it is not that route. */
+function mfaChallengeIdOf(facts: RequestFacts): string | null {
   const match = /^\/auth\/mfa\/challenges\/([^/]+)\/verification$/.exec(
     normalize(facts.path),
   );

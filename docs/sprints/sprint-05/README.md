@@ -257,6 +257,12 @@ CodeQL a signalé deux `js/user-controlled-bypass` de sévérité haute, et il a
 
 La fenêtre est maintenant inconditionnelle : une adresse inutilisable tombe dans un seau commun. Ces tentatives ne peuvent de toute façon pas s'authentifier, et les regrouper les **compte** au lieu de les laisser passer sans compteur. Même correction pour le reset de mot de passe, et l'identifiant de challenge MFA est désormais extrait du chemin plutôt que testé, donc aucune valeur fournie par l'appelant ne garde une action sensible.
 
+### 🟡 La fenêtre par session sur la rotation n'est pas encore par session
+
+Résoudre la session demanderait de vérifier le refresh token, et cette garde s'exécute **avant l'authentification** par construction (§7.5) — le faire ici serait exactement l'inversion d'ordre que ce ticket existe pour éviter. La rotation est donc couverte par la fenêtre globale par IP et par une fenêtre partagée, jusqu'à ce que la garde d'autorisation d'EVT-036 puisse fournir une session déjà résolue au limiteur.
+
+C'est écrit ici plutôt que laissé ressembler à une limite par session, ce que le nom de la clé laisserait autrement croire.
+
 ### 🟡 Ce que le limiteur a coûté à la suite e2e, et pourquoi c'est correct
 
 Six suites e2e se sont mises à échouer : elles se connectent des dizaines de fois, toutes depuis `127.0.0.1`, et épuisaient donc légitimement la fenêtre de login par IP. **Du point de vue du limiteur, la suite entière est un seul client très insistant** — c'est le limiteur qui fonctionne, pas un défaut.
