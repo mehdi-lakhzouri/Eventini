@@ -175,6 +175,16 @@ describe('repositories take a TenantContext first', () => {
       'infrastructure',
       'prisma-session.repository.ts',
     ),
+    // refresh_token_rotations follows its session, and rotation is driven by
+    // a cookie before any tenant context is built (EVT-024).
+    join('modules', 'identity', 'sessions', 'domain', 'rotation.repository.ts'),
+    join(
+      'modules',
+      'identity',
+      'sessions',
+      'infrastructure',
+      'prisma-rotation.repository.ts',
+    ),
   ]);
 
   const allRepositories = sourceFiles
@@ -190,7 +200,7 @@ describe('repositories take a TenantContext first', () => {
    * `protected`, not the constructor.
    */
   const publicMethod =
-    /^ {2}(?!private |protected |constructor|\/)(?:async )?(\w+)\s*\(([^)]*)\)/gm;
+    /^ {2}(?!private |protected |constructor|return |if |for |while |switch |catch |\/)(?:async )?(\w+)\s*\(([^)]*)\)/gm;
 
   function offendingMethods(filePath: string): string[] {
     const source = executableCodeOf(read(filePath));
