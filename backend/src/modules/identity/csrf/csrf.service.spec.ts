@@ -8,9 +8,14 @@ import { CsrfTokenService } from './csrf-token.service';
 
 const CONTEXT_COOKIE = '__Host-eventini_csrf_ctx';
 const TOKEN_COOKIE = '__Host-eventini_csrf';
+const ACCESS_COOKIE = '__Host-eventini_access';
 
 const COOKIES = {
   secure: true,
+  // `access` is read by `validate`, which refuses a request that carries a
+  // session cookie but only a pre-session CSRF context. Omitting it here
+  // would make the fixture, not the service, decide the outcome.
+  access: { name: ACCESS_COOKIE, httpOnly: true, sameSite: 'lax', path: '/' },
   csrf: { name: TOKEN_COOKIE, httpOnly: false, sameSite: 'lax', path: '/' },
   csrfContext: {
     name: CONTEXT_COOKIE,
@@ -39,7 +44,10 @@ function recorder() {
   return { response, jar, cleared };
 }
 
-function requestWith(cookies: Record<string, string>, header?: string): Request {
+function requestWith(
+  cookies: Record<string, string>,
+  header?: string,
+): Request {
   return {
     cookies,
     headers: header === undefined ? {} : { 'x-csrf-token': header },
@@ -102,8 +110,10 @@ describe('CsrfService', () => {
       subject.bindToSession(response, 'ses_01JABC');
 
       const replay = requestWith(
-        { [CONTEXT_COOKIE]: jar.get(CONTEXT_COOKIE) as string,
-          [TOKEN_COOKIE]: before.token },
+        {
+          [CONTEXT_COOKIE]: jar.get(CONTEXT_COOKIE) as string,
+          [TOKEN_COOKIE]: before.token,
+        },
         before.token,
       );
 

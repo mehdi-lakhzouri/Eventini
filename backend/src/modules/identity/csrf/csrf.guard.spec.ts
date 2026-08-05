@@ -20,15 +20,19 @@ function contextFor(request: Partial<Request>): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-function guard(options: { originAllowed?: boolean; tokenValid?: boolean } = {}) {
-  const csrf = {
-    validate: jest.fn(() => options.tokenValid ?? true),
-  } as unknown as CsrfService;
-  const origins = {
-    isAllowed: jest.fn(() => options.originAllowed ?? true),
-  } as unknown as OriginValidatorService;
+function guard(
+  options: { originAllowed?: boolean; tokenValid?: boolean } = {},
+) {
+  // Kept as typed references rather than read back off the cast objects: the
+  // `as unknown as` needed to satisfy the constructor erases the mock type,
+  // and `expect(...).not.toHaveBeenCalled()` then has nothing to work with.
+  const validate = jest.fn(() => options.tokenValid ?? true);
+  const isAllowed = jest.fn(() => options.originAllowed ?? true);
 
-  return { guard: new CsrfGuard(csrf, origins, CONFIG), csrf, origins };
+  const csrf = { validate } as unknown as CsrfService;
+  const origins = { isAllowed } as unknown as OriginValidatorService;
+
+  return { guard: new CsrfGuard(csrf, origins, CONFIG), validate, isAllowed };
 }
 
 function request(overrides: Partial<Request> = {}): Partial<Request> {
@@ -50,10 +54,10 @@ describe('CsrfGuard', () => {
   it.each([['GET'], ['HEAD'], ['OPTIONS']])(
     'does not challenge %s',
     (method) => {
-      const { guard: subject, origins } = guard({ originAllowed: false });
+      const { guard: subject, isAllowed } = guard({ originAllowed: false });
 
       expect(subject.canActivate(contextFor(request({ method })))).toBe(true);
-      expect(origins.isAllowed).not.toHaveBeenCalled();
+      expect(isAllowed).not.toHaveBeenCalled();
     },
   );
 
@@ -101,23 +105,23 @@ describe('CsrfGuard', () => {
           }),
         ),
       ),
-    ).toThrow(expect.objectContaining({ code: 'AUTH_CSRF_INVALID' }));
+    ).toThrow(expect.objectContaining({ code: 'AUTH_CSRF_INVALID' }) as Error);
   });
 
   it('refuses a denied origin before looking at the token', () => {
-    const { guard: subject, csrf } = guard({ originAllowed: false });
+    const { guard: subject, validate } = guard({ originAllowed: false });
 
     expect(() => subject.canActivate(contextFor(request()))).toThrow(
-      expect.objectContaining({ code: 'AUTH_ORIGIN_DENIED' }),
+      expect.objectContaining({ code: 'AUTH_ORIGIN_DENIED' }) as Error,
     );
-    expect(csrf.validate).not.toHaveBeenCalled();
+    expect(validate).not.toHaveBeenCalled();
   });
 
   it('refuses an invalid token', () => {
     const { guard: subject } = guard({ tokenValid: false });
 
     expect(() => subject.canActivate(contextFor(request()))).toThrow(
-      expect.objectContaining({ code: 'AUTH_CSRF_INVALID' }),
+      expect.objectContaining({ code: 'AUTH_CSRF_INVALID' }) as Error,
     );
   });
 });

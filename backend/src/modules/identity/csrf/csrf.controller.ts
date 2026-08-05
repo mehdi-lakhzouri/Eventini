@@ -16,7 +16,10 @@ export class CsrfController {
   constructor(private readonly csrf: CsrfService) {}
 
   @Get('csrf-token')
-  issue(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  issue(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     const issued = this.csrf.issue(request, response);
 
     // Returned in the body as well as the cookie: a client on a different

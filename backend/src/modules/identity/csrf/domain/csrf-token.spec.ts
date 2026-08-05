@@ -27,7 +27,10 @@ describe('csrf token', () => {
   });
 
   it('refuses a token signed with another secret', () => {
-    const token = issueCsrfToken('another-secret-entirely-different', 'anon:ctx');
+    const token = issueCsrfToken(
+      'another-secret-entirely-different',
+      'anon:ctx',
+    );
 
     expect(csrfTokenMatches(SECRET, 'anon:ctx', token)).toBe(false);
   });
@@ -56,7 +59,9 @@ describe('csrf token', () => {
   it('refuses a truncated signature without throwing', () => {
     const token = issueCsrfToken(SECRET, 'anon:ctx');
 
-    expect(csrfTokenMatches(SECRET, 'anon:ctx', token.slice(0, -4))).toBe(false);
+    expect(csrfTokenMatches(SECRET, 'anon:ctx', token.slice(0, -4))).toBe(
+      false,
+    );
   });
 
   /**

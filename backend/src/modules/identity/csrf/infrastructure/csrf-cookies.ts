@@ -36,8 +36,7 @@ export function setCsrfCookies(
   settings: CsrfCookieSettings,
   issued: { context: string; token: string; expiresAt: Date | null },
 ): void {
-  const expiry =
-    issued.expiresAt === null ? {} : { expires: issued.expiresAt };
+  const expiry = issued.expiresAt === null ? {} : { expires: issued.expiresAt };
 
   response.cookie(settings.context.name, issued.context, {
     ...optionsFor(settings.context, settings.secure),

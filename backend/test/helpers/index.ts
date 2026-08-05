@@ -21,9 +21,10 @@ export interface Csrf {
 
 /** The pre-session handshake: `GET /auth/csrf-token` with nothing in hand. */
 export async function preSessionCsrf(app: INestApplication): Promise<Csrf> {
-  const response = await request(app.getHttpServer()).get(
-    '/api/v1/auth/csrf-token',
-  );
+  // `getHttpServer()` is typed `any`; naming the shape supertest wants keeps
+  // the strict no-unsafe-argument rule satisfied without widening anything.
+  const server = app.getHttpServer() as Parameters<typeof request>[0];
+  const response = await request(server).get('/api/v1/auth/csrf-token');
 
   return csrfOf(app, response);
 }
@@ -32,7 +33,10 @@ export async function preSessionCsrf(app: INestApplication): Promise<Csrf> {
  * The pair carried by any response that issued one — in practice the login
  * and MFA verification responses, which rebind the token to the new session.
  */
-export function csrfOf(app: INestApplication, response: request.Response): Csrf {
+export function csrfOf(
+  app: INestApplication,
+  response: request.Response,
+): Csrf {
   const cookies = app.get<ConfigType<typeof cookiesConfig>>(cookiesConfig.KEY);
   const origin = app.get<ConfigType<typeof applicationConfig>>(
     applicationConfig.KEY,
