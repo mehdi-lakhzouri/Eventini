@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Tickets** | EVT-042 → EVT-047 |
+| **Tickets** | EVT-042 → EVT-047 · **EVT-032** (reporté du sprint 05) |
 | **Prérequis** | Sprint 06 (et 07 pour l'UI) |
 | **Migrations** | aucune |
 | **Parallélisable avec** | Sprint 07 |
@@ -33,6 +33,7 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 | [EVT-045](#evt-045) | Suspension et révocation de membership | `users.manage_roles` |
 | [EVT-046](#evt-046) | UI d'administration d'organisation | — |
 | [EVT-047](#evt-047) | i18n complet | — |
+| [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` | — |
 
 ---
 
@@ -177,6 +178,36 @@ web/messages/fr.json · en.json
 **Stratégie** — préfixe de locale sur les routes non par défaut (`/en/dashboard`, `/dashboard` pour le français). `users.locale` porte la préférence de l'utilisateur connecté.
 
 **Ce qui n'est jamais traduit** — les codes d'erreur (`AUTH_TENANT_DENIED`), les event codes, les noms de permissions. Ce sont des identifiants, pas du texte. Seuls les **messages** le sont.
+
+---
+
+## EVT-032 — Concurrence optimiste (reporté du sprint 05)
+<a id="evt-032"></a>
+
+```
+Branche  feat/EVT-032-optimistic-concurrency
+Commit   feat(api): add optimistic concurrency with ETag and If-Match
+```
+
+**Pourquoi ici et pas au sprint 05** — le ticket exige `If-Match` sur des ressources qui, au sprint 05, n'avaient **aucun contrôleur**. Le mécanisme aurait été livré sans appelant et sans test e2e possible. [EVT-042](#evt-042) crée `PATCH /organizations/{organizationId}` : c'est le premier consommateur réel, et il arrive dans ce sprint.
+
+**À implémenter avec EVT-042, pas après** — une route de mutation livrée sans `If-Match` est une route qu'il faudra reprendre, et entre-temps deux administrateurs qui éditent la même organisation s'écrasent silencieusement.
+
+```sql
+UPDATE organizations SET name = $1, version = version + 1
+WHERE id = $2 AND organization_id = $3 AND version = $4;
+-- 0 ligne affectée ⇒ 409 VERSION_CONFLICT
+```
+
+Le filtre `organization_id` est présent **même avec un `id` de clé primaire** : c'est la règle de la garde Prisma, sans exception pour les lectures par identifiant.
+
+**Obligatoire sur** — `organizations` et `organization_memberships` dès ce sprint. `events` et `event_sessions` au sprint 09, `participants` et `registrations` au sprint 10, à mesure que leurs contrôleurs apparaissent.
+
+`If-Match` absent ⇒ **`428 PRECONDITION_REQUIRED`**. Délibérément strict : sur une organisation éditée simultanément par deux administrateurs, une écriture aveugle écrase silencieusement le travail de l'autre.
+
+**Les colonnes `version` existent déjà** sur les quatre tables — le report n'a coûté aucune migration.
+
+**Tests** — sans `If-Match` ⇒ `428` · `If-Match` périmé ⇒ `412` · deux `PATCH` concurrents ⇒ un `409`.
 
 ---
 
