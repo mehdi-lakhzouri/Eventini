@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Tickets** | EVT-028 → EVT-032 |
+| **Tickets** | EVT-028 → EVT-031 · EVT-032 **reporté au sprint 08** |
 | **Prérequis** | Sprint 04 |
 | **Migrations** | **13** |
 | **Jalon** | — |
@@ -34,7 +34,7 @@ Invariant **O-4** : le rate limiting précède l'exposition publique du login. A
 | [EVT-029](#evt-029) | Infrastructure Redis et registre Lua | — |
 | [EVT-030](#evt-030) | Rate limiting et verrouillage | — |
 | [EVT-031](#evt-031) | Idempotence | 13 |
-| [EVT-032](#evt-032) | Concurrence optimiste | — |
+| [EVT-032](#evt-032) | Concurrence optimiste | — · ⏭ **reporté au sprint 08** |
 
 ---
 
@@ -214,6 +214,23 @@ Le dernier test prouve que le choix de stockage était le bon : une idempotence 
 ## EVT-032 — Concurrence optimiste
 <a id="evt-032"></a>
 
+> ⏭ **Reporté au [sprint 08](../sprint-08/README.md#evt-032), le 5 août 2026. Aucune ligne n'en a été écrite.**
+>
+> **La raison : ce ticket n'a rien à garder.** L'audit du dépôt au moment d'attaquer le sprint donne :
+>
+> | Ressource visée par « Obligatoire sur » | État réel |
+> |---|---|
+> | `events`, `event_sessions` | table et colonne `version` présentes, **aucun contrôleur** |
+> | `organizations`, `organization_memberships` | table et colonne `version` présentes, **aucun contrôleur** |
+> | `participants`, `registrations` | **la table n'existe pas** (sprint 10) |
+>
+> Les seuls contrôleurs du dépôt sont ceux de l'authentification. Il n'existe donc **aucune route de mutation** sur laquelle poser `If-Match`, et par conséquent aucun test e2e capable de prouver que le mécanisme fonctionne. Livrer l'intercepteur ici, c'était livrer du code que rien n'appelle et que rien ne vérifie — la définition d'un contrôle de sécurité qu'on croit avoir.
+>
+> Le sprint 08 amène **EVT-042 — CRUD organisation contrôlé**, donc `PATCH /organizations/{id}` : le premier vrai consommateur. `If-Match` y arrive avec une route à protéger et un test de conflit réel à écrire.
+>
+> Ce qui rendait le report sûr : les colonnes `version` **existent déjà** sur les quatre tables concernées. Le report ne coûte aucune migration et ne bloque rien.
+
+
 ```
 Branche  feat/EVT-032-optimistic-concurrency
 Commit   feat(api): add optimistic concurrency with ETag and If-Match
@@ -245,3 +262,4 @@ Le filtre `organization_id` est présent **même avec un `id` de clé primaire**
 | `@nestjs/throttler` utilisé pour aller vite | Ne couvre pas le multi-dimension ; à retirer dans ce sprint |
 | Idempotence mise en Redis pour la performance | Test `FLUSHALL` bloquant |
 | Clés Redis construites à la main hors du builder | Revue + le builder est la seule source |
+| Un mécanisme livré sans route qui le consomme | EVT-032 reporté au sprint 08 plutôt que livré à vide |
