@@ -371,6 +371,49 @@ Tables   user_sessions, refresh_token_rotations, security_events
 ## EVT-024 — Rotation et détection de rejeu
 <a id="evt-024"></a>
 
+> ✅ **Fait le 1er août 2026.** `POST /api/v1/auth/sessions/current/rotation`. Les **quatre tests négatifs obligatoires** passent contre PostgreSQL réel, dont « deux rotations concurrentes, exactement un succès » — départagées par l'index, pas par un verrou.
+
+### Structure livrée
+
+```
+sessions/domain/
+├── session-state.ts        les deux échéances, pur
+└── rotation.repository.ts  le port + RotationConflictError
+sessions/infrastructure/prisma-rotation.repository.ts
+authentication/
+├── domain/rotation.errors.ts
+└── application/refresh-session.use-case.ts
+```
+
+### 🔴 Le rejeu et la course sont deux choses différentes
+
+C'est l'arbitrage central du ticket, et le confondre coûte cher dans les deux sens : traiter une course comme une attaque déconnecte des utilisateurs légitimes à chaque double-clic ; traiter un rejeu comme une course laisse l'attaquant continuer.
+
+| Signal observé | Interprétation | Réponse |
+|---|---|---|
+| La **recherche** trouve une ligne dont le statut ≠ `ACTIVE` | Le token a déjà été dépensé : quelqu'un en détient une copie | **Rejeu.** Famille entière révoquée, session `COMPROMISED`, aucun token émis, `401` |
+| La recherche voit `ACTIVE`, puis l'**écriture** perd | Une autre rotation a gagné dans le même instant | **Course.** `409`, rien n'est révoqué, le cookie du gagnant est déjà dans le navigateur |
+
+C'est exactement ce que l'index unique partiel achète : il rend les deux cas distinguables sans verrou applicatif. La distinction est prouvée par un test qui asserte que la session reste `ACTIVE` après une course — un rejeu l'aurait passée en `COMPROMISED`.
+
+### Pourquoi la famille entière tombe
+
+On ne sait pas lequel des deux porteurs est légitime. Les deux perdent l'accès : la victime se reconnecte, l'attaquant ne peut pas. Un test le vérifie du point de vue de la victime — **le token successeur, celui que l'attaquant n'avait pas, est mort lui aussi**.
+
+### Deux échéances, une seule bouge
+
+`idle_expires_at` est repoussée à chaque rotation ; `absolute_expires_at` ne l'est **jamais**. Sans cela une session se prolongerait indéfiniment en étant simplement utilisée, et la borne absolue serait décorative. Le test mesure les deux colonnes avant et après une rotation réelle.
+
+`sessionUnusableReason` vérifie l'absolue **avant** l'idle : une session qui se rafraîchit en continu garde toujours son échéance d'inactivité dans le futur, donc rapporter celle-là nommerait la mauvaise borne.
+
+### Ce qui reste aux tickets suivants
+
+Les étapes 2 (CSRF + Origin) et 3 (rate limit 30/h par session) appartiennent à EVT-028 et EVT-030. L'invalidation du cache Redis (§5.3 étape 4) attend EVT-029, et les security events attendent leur module. Le reste des étapes 5.2 et 5.3 est livré.
+
+### Un défaut trouvé dans mon propre test d'architecture
+
+La règle 2 a refusé le repository de rotation — correctement, `refresh_token_rotations` suit sa session et la rotation part d'un cookie avant tout contexte tenant. Mais elle a aussi signalé une méthode nommée **`return`** : son expression régulière lisait `  return (…)` en début de corps de classe comme une déclaration de méthode. Les mots-clés d'instruction sont désormais exclus, ce qui supprime toute cette famille de faux positifs.
+
 ```
 Branche  feat/EVT-024-refresh-token-rotation
 Commit   feat(identity): rotate refresh tokens with reuse detection

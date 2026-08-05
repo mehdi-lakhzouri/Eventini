@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 
+import { RotationRepository } from './domain/rotation.repository';
 import { SessionRepository } from './domain/session.repository';
+import { PrismaRotationRepository } from './infrastructure/prisma-rotation.repository';
 import { PrismaSessionRepository } from './infrastructure/prisma-session.repository';
 import { CreateSessionUseCase } from './application/create-session.use-case';
 import { ListUserSessionsUseCase } from './application/list-user-sessions.use-case';
@@ -11,6 +13,7 @@ import { RotateSessionUseCase } from './application/rotate-session.use-case';
 @Module({
   providers: [
     { provide: SessionRepository, useClass: PrismaSessionRepository },
+    { provide: RotationRepository, useClass: PrismaRotationRepository },
     CreateSessionUseCase,
     ListUserSessionsUseCase,
     RevokeAllSessionsUseCase,
@@ -19,6 +22,7 @@ import { RotateSessionUseCase } from './application/rotate-session.use-case';
   ],
   exports: [
     SessionRepository,
+    RotationRepository,
     CreateSessionUseCase,
     ListUserSessionsUseCase,
     RevokeAllSessionsUseCase,
