@@ -14,6 +14,26 @@ export interface AuthenticationCandidate {
   readonly memberships: readonly ActiveMembership[];
 }
 
+/**
+ * What `GET /auth/me` shows the caller about themselves.
+ *
+ * Deliberately not `AuthenticationCandidate`: that shape carries a password
+ * hash and every membership, because login needs it to decide something. A
+ * profile read decides nothing — it has no reason to pull a credential into
+ * memory at all, let alone hand it to whatever renders the response.
+ */
+export interface CurrentUserProfile {
+  readonly userId: string;
+  readonly email: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly displayName: string | null;
+  readonly status: string;
+  readonly emailVerifiedAt: Date | null;
+  readonly lastLoginAt: Date | null;
+  readonly hasActiveMfa: boolean;
+}
+
 export abstract class AuthenticationRepository {
   /**
    * One query for everything steps 6 to 13 need. Splitting it would make the
@@ -35,4 +55,12 @@ export abstract class AuthenticationRepository {
   abstract findCandidateById(
     userId: string,
   ): Promise<AuthenticationCandidate | null>;
+
+  /**
+   * The profile read, keyed by the same id as `findCandidateById` but
+   * deliberately a different query. That one exists to decide an
+   * authentication outcome and must see a password hash; this one renders a
+   * response and must not.
+   */
+  abstract findProfileById(userId: string): Promise<CurrentUserProfile | null>;
 }

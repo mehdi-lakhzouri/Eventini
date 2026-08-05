@@ -5,6 +5,7 @@ import type { TenantScopedPrismaClient } from '../../../../infrastructure/databa
 import {
   AuthenticationRepository,
   type AuthenticationCandidate,
+  type CurrentUserProfile,
 } from '../domain/authentication.repository';
 
 /**
@@ -78,6 +79,39 @@ export class PrismaAuthenticationRepository extends AuthenticationRepository {
     });
 
     return user === null ? null : toCandidate(user);
+  }
+
+  async findProfileById(userId: string): Promise<CurrentUserProfile | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        primaryEmail: true,
+        firstName: true,
+        lastName: true,
+        displayName: true,
+        status: true,
+        emailVerifiedAt: true,
+        lastLoginAt: true,
+        mfaMethods: { where: { status: 'ACTIVE' }, select: { id: true } },
+      },
+    });
+
+    if (user === null) {
+      return null;
+    }
+
+    return {
+      userId: user.id,
+      email: user.primaryEmail,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      displayName: user.displayName,
+      status: user.status,
+      emailVerifiedAt: user.emailVerifiedAt,
+      lastLoginAt: user.lastLoginAt,
+      hasActiveMfa: user.mfaMethods.length > 0,
+    };
   }
 }
 
