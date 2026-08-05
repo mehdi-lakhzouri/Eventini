@@ -20,7 +20,9 @@ describeWithRedis('RedisScriptRegistry against a live Redis', () => {
   let admin: ReturnType<typeof createClient>;
   let registry: RedisScriptRegistry;
 
-  const key = redisKeys.rateLimit.loginIp(`198.51.100.${String(Date.now() % 200)}`);
+  const key = redisKeys.rateLimit.loginIp(
+    `198.51.100.${String(Date.now() % 200)}`,
+  );
 
   beforeAll(async () => {
     connection = await createRedisConnection({
@@ -59,8 +61,12 @@ describeWithRedis('RedisScriptRegistry against a live Redis', () => {
   }
 
   it('loads every script and remembers a SHA for each', () => {
-    expect(registry.shaOf('RATE_LIMIT_SLIDING_WINDOW')).toMatch(/^[0-9a-f]{40}$/);
-    expect(registry.shaOf('LOCKOUT_REGISTER_FAILURE')).toMatch(/^[0-9a-f]{40}$/);
+    expect(registry.shaOf('RATE_LIMIT_SLIDING_WINDOW')).toMatch(
+      /^[0-9a-f]{40}$/,
+    );
+    expect(registry.shaOf('LOCKOUT_REGISTER_FAILURE')).toMatch(
+      /^[0-9a-f]{40}$/,
+    );
     expect(registry.shaOf('ANTI_REPLAY_CLAIM')).toMatch(/^[0-9a-f]{40}$/);
     expect(registry.shaOf('DISTRIBUTED_LOCK')).toMatch(/^[0-9a-f]{40}$/);
   });
