@@ -48,6 +48,23 @@ export abstract class RevocationRepository {
    * version as `ver`, so every one already in circulation stops matching
    * without waiting for its own expiry.
    */
+  /**
+   * Revokes every session except one, and does **not** touch
+   * `users.version`.
+   *
+   * A version bump would invalidate the surviving session's own access token
+   * too, which is the opposite of "keep me signed in here". The other
+   * sessions die by status, and step 2 of the chain catches each of them on
+   * its next request.
+   */
+  abstract revokeOtherSessions(input: {
+    readonly userId: string;
+    readonly keepSessionId: string;
+    readonly revokedBy: string;
+    readonly reason: string;
+    readonly now: Date;
+  }): Promise<number>;
+
   abstract revokeAllSessions(input: {
     readonly userId: string;
     readonly revokedBy: string;

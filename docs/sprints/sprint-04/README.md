@@ -520,6 +520,56 @@ L'incrément de `users.version` invalide **immédiatement** tous les access toke
 ## EVT-026 — Reset de mot de passe et vérification d'email
 <a id="evt-026"></a>
 
+> ✅ **Fait le 1er août 2026.** Les trois routes de mot de passe fonctionnent contre PostgreSQL réel, 17 tests e2e. La **vérification d'email n'a aucune route dans le corpus** et n'est donc pas inventée ici — voir la note en fin de section.
+
+### Structure livrée
+
+```
+passwords/domain/
+├── reset-token.ts                     32 octets opaques + HMAC dédié
+├── password-reset-token.repository.ts le port
+└── password.errors.ts
+passwords/infrastructure/prisma-password-reset-token.repository.ts
+passwords/application/{request-password-reset,reset-password,change-password}.use-case.ts
+passwords/controllers/passwords.controller.ts
+```
+
+### 🔴 Une contradiction du corpus sur le hachage du token
+
+| Source | Dit |
+|---|---|
+| §4.5, note de colonne | « SHA-256, jamais le token en clair » |
+| §9, table de gestion des clés | « Reset de mot de passe \| **HMAC-SHA-256** \| fenêtre 30 min » |
+
+Le §9 l'emporte : c'est la section qui possède la gestion des clés, `PASSWORD_RESET_TOKEN_SECRET` existe dans l'environnement pour exactement cet usage, et un hachage à clé signifie qu'une base volée ne permet pas de **fabriquer** un lien de reset valide. Un test vérifie au passage que ce secret est bien distinct de celui du refresh.
+
+### L'anti-énumération, et où elle s'arrête honnêtement
+
+`202` est retourné systématiquement, avec le **même corps**. Le token est généré et haché sur les deux chemins, pour que le travail cryptographique ne dépende pas de l'existence du compte.
+
+**Ce qui reste** : un `INSERT` de plus sur le chemin « compte connu ». C'est un écart réel, très inférieur à celui qu'aurait un chemin sans hachage, et il se referme définitivement avec le rate limiting d'EVT-030. Le noter vaut mieux que prétendre l'inverse.
+
+### Deux arbitrages sur les sessions, opposés et voulus
+
+| Opération | Sessions | `users.version` |
+|---|---|---|
+| **Reset** | **toutes**, y compris celle qui a demandé | **incrémenté** |
+| **Changement** | les **autres** seulement | **non incrémenté** |
+
+Le reset révoque tout parce qu'on ne sait pas qui a forcé la procédure : celui qui l'a déclenchée peut détenir une session, et c'est le seul moment où on est certain de la retirer.
+
+Le changement garde la session courante, donc l'incrément est exclu — il invaliderait l'access token de cette session-là, ce qui est l'inverse de « changer mon mot de passe depuis mon navigateur de confiance ». Les autres sessions meurent par statut, et l'étape 2 de la chaîne les attrape à leur prochaine requête.
+
+### Le mot de passe est validé **avant** que le token soit consommé
+
+Sinon un mot de passe refusé brûlerait le lien, et l'utilisateur se retrouverait sans l'un ni l'autre. Un test l'exige : après un refus de politique, le même token fonctionne encore.
+
+### Ce qui n'est pas livré, et pourquoi
+
+- **La vérification d'email n'a aucune route dans le corpus.** Le titre du ticket la nomme, mais ni le §5, ni l'`API_CONVENTIONS.md`, ni ce document n'en spécifient une. La table `email_verification_tokens` existe depuis EVT-021 ; inventer un contrat HTTP pour elle ferait un choix que personne n'a fait. À spécifier avant d'implémenter.
+- **L'envoi de l'email** appartient au module de messagerie (EVT-033). Le token n'est donc joignable par personne aujourd'hui, ce qui est le bon sens dans lequel être incomplet.
+- La réauthentification comme alternative au mot de passe courant (§6.5) attend le guard qui sait la prouver ; d'ici là le mot de passe courant est **exigé**, pas optionnel.
+
 ```
 Branche  feat/EVT-026-password-reset
 Routes   POST /auth/password-reset-requests · POST /auth/password-resets
@@ -539,6 +589,20 @@ Routes   POST /auth/password-reset-requests · POST /auth/password-resets
 
 ## EVT-027 — MFA TOTP
 <a id="evt-027"></a>
+
+> 🔴 **Critère d'acceptation explicite, ajouté à la demande du propriétaire du produit.**
+>
+> **Le gating MFA à la connexion fait partie du périmètre de ce ticket, pas d'un suivi.** Lorsqu'un utilisateur a le MFA activé, l'étape 10 du §5.1 doit refuser d'émettre **quoi que ce soit d'utilisable** avant la vérification d'un code TOTP ou d'un code de récupération :
+>
+> | Ne doit **pas** être émis avant la vérification | |
+> |---|---|
+> | Session finale | `user_sessions` ne reçoit aucune ligne exploitable |
+> | Access token | aucun |
+> | Refresh token | aucun |
+>
+> Seul un challenge MFA (5 min, 5 tentatives) est créé, et la réponse est `AUTH_MFA_REQUIRED`.
+>
+> **État actuel à surveiller** — [EVT-023](#evt-023) crée aujourd'hui toute session en `authentication_level = 'PASSWORD'`, et un test l'asserte même pour un utilisateur possédant déjà une méthode MFA active. Ce test devra être **inversé** par EVT-027 : il existe précisément pour que ce ticket ne puisse pas être considéré terminé sans avoir traité le cas.
 
 ```
 Branche  feat/EVT-027-mfa-totp
