@@ -461,6 +461,44 @@ Deux rotations simultanées avec le même token sont départagées par **`ux_ref
 ## EVT-025 — Déconnexion et révocation
 <a id="evt-025"></a>
 
+> ✅ **Fait le 1er août 2026.** Les trois opérations de révocation et la liste des sessions, contre PostgreSQL réel. Les **tests négatifs 11 et 12 du §11** passent : un access token encore valide sur une session révoquée reçoit `401`, immédiatement.
+
+### Structure livrée
+
+```
+sessions/domain/revocation.repository.ts        le port
+sessions/infrastructure/prisma-revocation.repository.ts
+sessions/application/{revoke-session,revoke-all-sessions,list-user-sessions}.use-case.ts
+authentication/infrastructure/caller.resolver.ts   étapes 1 à 3 de la chaîne
+authentication/controllers/sessions.controller.ts
+```
+
+### 🔴 L'incrément de `users.version` est ce qui rend la révocation globale immédiate
+
+Sans lui, « se déconnecter partout » signifie « dans dix minutes, partout » : chaque access token déjà émis reste valide jusqu'à sa propre expiration. L'incrément fait que le claim `ver` ne correspond plus, et l'étape 3 de la chaîne refuse.
+
+Il est fait **dans la même transaction** que les révocations. Un incrément qui committerait séparément laisserait une fenêtre où les sessions sont mortes et les tokens encore valides, ou l'inverse.
+
+Un test le prouve du point de vue qui compte : un token émis pour une session que l'appelant **n'a jamais touchée** est refusé après la déconnexion globale.
+
+### La propriété est dans le `WHERE`, pas dans une vérification qui la précède
+
+`revokeSession` filtre sur `user_id = <appelant>`. Révoquer la session de quelqu'un d'autre ne trouve rien à révoquer, et la réponse est **identique** à celle d'un identifiant qui n'a jamais existé — c'est BOLA, et distinguer les deux confirmerait qu'un identifiant est réel. Deux tests l'exigent, l'un avec une session étrangère bien réelle.
+
+### Le `CallerResolver`, et pourquoi il s'arrête à l'étape 3
+
+Ces routes portent sur les sessions **de l'appelant lui-même** : il n'y a aucune ressource tenant à vérifier, donc les étapes 4 à 8 n'ont rien à dire ici. Le résolveur fait l'étape 1 (le token), l'étape 2 (la session : `ACTIVE`, échéances) et l'étape 3 (l'utilisateur : `ACTIVE`, `version` = claim `ver`).
+
+C'est la couture qu'EVT-036 remplacera par le guard global — il le **remplacera**, il ne l'enveloppera pas.
+
+### `HttpOnly` est rejoué à la suppression (C-19)
+
+Le Document B §14.4 l'omettait. Certains navigateurs ne reconnaissent alors pas le cookie à supprimer et le laissent en place : une déconnexion qui ne déconnecte personne. Un test vérifie que les deux cookies supprimés portent bien `HttpOnly`.
+
+### Ce qui reste aux tickets suivants
+
+`GET /auth/me` attend la couche de présentation utilisateur ; l'invalidation du cache Redis attend EVT-029 ; les security events (`SESSION_REVOKED`, `ALL_SESSIONS_REVOKED`) attendent leur module. Les 12 déclencheurs de révocation automatique du §5.5 arrivent avec les fonctionnalités qui les déclenchent.
+
 ```
 Branche  feat/EVT-025-logout-revocation
 Routes   DELETE /auth/sessions/current   ·  DELETE /auth/sessions

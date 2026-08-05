@@ -7,6 +7,7 @@ import { PasswordsModule } from '../passwords';
 import { SecurityEventsModule } from '../security-events';
 import { IdentitySessionsModule } from '../sessions';
 import { AuthenticationController } from './controllers/authentication.controller';
+import { SessionsController } from './controllers/sessions.controller';
 import { GetCurrentUserUseCase } from './application/get-current-user.use-case';
 import { LoginUseCase } from './application/login.use-case';
 import { LogoutUseCase } from './application/logout.use-case';
@@ -15,6 +16,7 @@ import { AuthenticationRepository } from './domain/authentication.repository';
 import { PrismaAuthenticationRepository } from './infrastructure/prisma-authentication.repository';
 import { AccessTokenSigner } from './infrastructure/jwt/access-token.signer';
 import { AccessTokenVerifier } from './infrastructure/jwt/access-token.verifier';
+import { CallerResolver } from './infrastructure/caller.resolver';
 import { SigningKeySet } from './infrastructure/jwt/signing-keys';
 
 type Auth = ConfigType<typeof authenticationConfig>;
@@ -26,7 +28,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
     MfaModule,
     SecurityEventsModule,
   ],
-  controllers: [AuthenticationController],
+  controllers: [AuthenticationController, SessionsController],
   providers: [
     {
       // Built once at boot: `createPrivateKey` throws on malformed PEM, so a
@@ -51,6 +53,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
       provide: AuthenticationRepository,
       useClass: PrismaAuthenticationRepository,
     },
+    CallerResolver,
     GetCurrentUserUseCase,
     LoginUseCase,
     LogoutUseCase,
