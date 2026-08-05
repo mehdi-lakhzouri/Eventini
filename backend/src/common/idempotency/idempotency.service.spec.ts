@@ -72,25 +72,29 @@ class FakeRepository extends IdempotencyRepository {
   readonly reclaims: ReclaimInput[] = [];
   readonly settlements: SettleInput[] = [];
 
-  async claim(_context: TenantContext, _input: ClaimInput): Promise<string | null> {
-    return this.claimResults.shift() ?? null;
+  // Synchronous bodies behind an async port: the port is shaped for
+  // PostgreSQL, and an in-memory stand-in needs no await to honour it.
+  claim(_context: TenantContext, _input: ClaimInput): Promise<string | null> {
+    return Promise.resolve(this.claimResults.shift() ?? null);
   }
 
-  async find(
+  find(
     _context: TenantContext,
     _scope: IdempotencyScope,
   ): Promise<IdempotencyRecordView | null> {
-    return this.existing;
+    return Promise.resolve(this.existing);
   }
 
-  async reclaim(_context: TenantContext, input: ReclaimInput): Promise<boolean> {
+  reclaim(_context: TenantContext, input: ReclaimInput): Promise<boolean> {
     this.reclaims.push(input);
 
-    return this.reclaimResult;
+    return Promise.resolve(this.reclaimResult);
   }
 
-  async settle(_context: TenantContext, input: SettleInput): Promise<void> {
+  settle(_context: TenantContext, input: SettleInput): Promise<void> {
     this.settlements.push(input);
+
+    return Promise.resolve();
   }
 }
 

@@ -25,7 +25,11 @@ export type IdempotencyDecision =
   /** The claim is ours; run the handler and settle the record afterwards. */
   | { readonly kind: 'EXECUTE'; readonly recordId: string }
   /** A previous attempt already answered; return that answer. */
-  | { readonly kind: 'REPLAY'; readonly response: StoredResponse; readonly status: number }
+  | {
+      readonly kind: 'REPLAY';
+      readonly response: StoredResponse;
+      readonly status: number;
+    }
   /** Someone else holds the claim right now. */
   | { readonly kind: 'IN_FLIGHT' }
   /** Same key, different request. */
@@ -183,7 +187,8 @@ export class IdempotencyService {
   /** `PENDING` and still within its lock — someone is running it right now. */
   private holdsClaim(record: IdempotencyRecordView, now: Date): boolean {
     return (
-      record.lockedUntil !== null && record.lockedUntil.getTime() > now.getTime()
+      record.lockedUntil !== null &&
+      record.lockedUntil.getTime() > now.getTime()
     );
   }
 
@@ -210,7 +215,9 @@ export class IdempotencyService {
 }
 
 function expiryOf(now: Date, retention: IdempotencyRetention): Date {
-  return new Date(now.getTime() + IDEMPOTENCY_RETENTION_SECONDS[retention] * 1000);
+  return new Date(
+    now.getTime() + IDEMPOTENCY_RETENTION_SECONDS[retention] * 1000,
+  );
 }
 
 function lockUntil(now: Date): Date {

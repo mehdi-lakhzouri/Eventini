@@ -101,7 +101,10 @@ export abstract class IdempotencyRepository {
    * got there first, and the caller must treat the key as in flight instead of
    * executing alongside it.
    */
-  abstract reclaim(context: TenantContext, input: ReclaimInput): Promise<boolean>;
+  abstract reclaim(
+    context: TenantContext,
+    input: ReclaimInput,
+  ): Promise<boolean>;
 
   /** Records the outcome and the response to replay. */
   abstract settle(context: TenantContext, input: SettleInput): Promise<void>;

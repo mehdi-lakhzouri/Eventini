@@ -33,7 +33,7 @@ Invariant **O-4** : le rate limiting précède l'exposition publique du login. A
 | [EVT-028](#evt-028) | Protection CSRF avec liaison pré-session | — · ✅ |
 | [EVT-029](#evt-029) | Infrastructure Redis et registre Lua | — · ✅ |
 | [EVT-030](#evt-030) | Rate limiting et verrouillage | — · ✅ |
-| [EVT-031](#evt-031) | Idempotence | 13 |
+| [EVT-031](#evt-031) | Idempotence | 13 · ✅ |
 | [EVT-032](#evt-032) | Concurrence optimiste | — · ⏭ **reporté au sprint 08** |
 
 ---
@@ -329,6 +329,53 @@ Les administrateurs se connectent **depuis le lieu de l'événement**, donc derr
 
 ## EVT-031 — Idempotence
 <a id="evt-031"></a>
+
+> ✅ **Fait le 5 août 2026.** Migration 13 appliquée, 77 tests unitaires, 17 tests e2e contre PostgreSQL et Redis réels.
+
+### L'index unique **est** le mécanisme, il n'y a pas de `find`
+
+```sql
+INSERT INTO idempotency_records (...) VALUES (...)
+ON CONFLICT (organization_id, actor_id, method, route, idempotency_key)
+DO NOTHING RETURNING id;
+```
+
+Le Document C §19.6 disait qu'« un simple `find then insert` est vulnérable ». La réponse n'est pas de verrouiller autour du `find` : c'est de **supprimer le `find`**. Une ligne revient, ou elle ne revient pas, et cette réponse est déjà la décision.
+
+Deux index, pas un : `ux_idempotency_scope` pour le cas tenant, et `ux_idempotency_scope_platform` **partiel** sur `WHERE organization_id IS NULL` — parce qu'en SQL deux `NULL` ne sont pas égaux, donc l'index composite ne contraint rien pour une session plateforme.
+
+### Ce que l'empreinte inclut, et surtout ce qu'elle exclut
+
+L'empreinte est un SHA-256 de la méthode, du **gabarit** de route, de l'organisation, de l'acteur, du corps canonicalisé et des paramètres. Les en-têtes volatils (`traceparent`, `User-Agent`, `X-Request-Id`) en sont **exclus** : les inclure ferait diverger l'empreinte à chaque réessai et transformerait un rejeu légitime en `409`.
+
+Le **gabarit** de route et non l'URI concrète : l'identifiant est déjà parmi les paramètres de chemin, et le compter deux fois ferait hacher différemment deux écritures de la même intention.
+
+### `409 + Retry-After`, jamais une attente
+
+Une requête déjà en vol reçoit `409` immédiatement. Un client bloqué retient une connexion serveur ; sous synchronisation offline — des dizaines de scanners qui rejouent des lots après une coupure — cela épuise le pool bien avant tout le reste. Le `409` déplace l'attente côté client, où elle est gratuite.
+
+### Le test qui justifie le choix de stockage
+
+**`FLUSHALL` sur Redis, puis rejeu ⇒ aucun doublon.** C'est le test qui prouve qu'ADR-0012 avait raison : une idempotence Redis-only produirait ici un second enregistrement. Redis n'est qu'un court-circuit ; PostgreSQL fait foi.
+
+### 🟡 Pas encore de consommateur métier, et c'est assumé
+
+Aucune route métier n'existe pour porter `@Idempotent()` : les événements arrivent au sprint 09, les participants au sprint 10. Le mécanisme est donc prouvé par une **route sonde** montée uniquement dans la suite e2e (`test/fixtures/idempotency-probe.*`), qui écrit une ligne d'audit à chaque exécution réelle — ce qui rend « le handler a-t-il tourné une fois ou deux ? » observable.
+
+Livrer l'intercepteur sans consommateur **et sans preuve** aurait été le cas qu'EVT-032 a fait reporter. Ici la preuve existe, sans inventer de route de production que personne n'a spécifiée.
+
+### Structure livrée
+
+```
+common/idempotency/   request-fingerprint.ts · canonical-json.ts · route-template.ts
+                      idempotency.service.ts · idempotency.interceptor.ts
+                      idempotency.decorator.ts · idempotency.repository.ts
+                      prisma-idempotency.repository.ts · stored-response.ts
+                      idempotency-retention.ts
+prisma/migrations/20260805120000_idempotency_core/
+```
+
+`meta.idempotency.originalRequestId` accompagne tout rejeu : `meta.requestId` désigne la requête **courante**, donc sans lui rien ne permet de retrouver dans les logs l'exécution qui a réellement eu lieu.
 
 ```
 Branche  feat/EVT-031-idempotency

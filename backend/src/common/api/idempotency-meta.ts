@@ -27,6 +27,8 @@ export function attachIdempotencyMeta(
   (request as Carrier)[IDEMPOTENCY_META] = meta;
 }
 
-export function idempotencyMetaOf(request: object): IdempotencyMeta | undefined {
+export function idempotencyMetaOf(
+  request: object,
+): IdempotencyMeta | undefined {
   return (request as Carrier)[IDEMPOTENCY_META];
 }

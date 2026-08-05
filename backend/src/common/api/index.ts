@@ -7,10 +7,7 @@ export type {
   ProblemExtensions,
   ResponseMeta,
 } from './problem-details.types';
-export {
-  attachIdempotencyMeta,
-  idempotencyMetaOf,
-} from './idempotency-meta';
+export { attachIdempotencyMeta, idempotencyMetaOf } from './idempotency-meta';
 export { AppException, type AppExceptionOptions } from './app-exception';
 export { buildProblemDetails } from './build-problem-details';
 export { buildResponseMeta } from './build-response-meta';

@@ -79,8 +79,12 @@ function makeReflector(settings: IdempotencySettings | undefined): Reflector {
   } as unknown as Reflector;
 }
 
-function makeResolver(context: TenantContext | null): IdempotencyContextResolver {
-  return { resolve: async () => context } as IdempotencyContextResolver;
+function makeResolver(
+  context: TenantContext | null,
+): IdempotencyContextResolver {
+  return {
+    resolve: () => Promise.resolve(context),
+  };
 }
 
 class RecordingService {
@@ -91,34 +95,42 @@ class RecordingService {
 
   constructor(private readonly decision: IdempotencyDecision) {}
 
-  async begin(
+  // Synchronous recorders behind an async port; no await is needed to honour
+  // a contract shaped for a database.
+  begin(
     _context: TenantContext,
     input: BeginInput,
   ): Promise<IdempotencyDecision> {
     this.begins.push(input);
 
-    return this.decision;
+    return Promise.resolve(this.decision);
   }
 
-  async complete(
+  complete(
     _context: TenantContext,
     input: { recordId: string; responseStatus: number },
   ): Promise<void> {
     this.completions.push(input);
+
+    return Promise.resolve();
   }
 
-  async failFinal(
+  failFinal(
     _context: TenantContext,
     input: { recordId: string; response: StoredResponse },
   ): Promise<void> {
     this.finals.push(input);
+
+    return Promise.resolve();
   }
 
-  async failRetryable(
+  failRetryable(
     _context: TenantContext,
     input: { recordId: string; responseStatus: number },
   ): Promise<void> {
     this.retryables.push(input);
+
+    return Promise.resolve();
   }
 }
 
@@ -178,7 +190,10 @@ describe('IdempotencyInterceptor', () => {
     it.each([
       ['absent', {}],
       ['too short', { 'idempotency-key': 'short' }],
-      ['carrying a character outside the class', { 'idempotency-key': `${KEY}!` }],
+      [
+        'carrying a character outside the class',
+        { 'idempotency-key': `${KEY}!` },
+      ],
     ])('rejects a key that is %s', async (_label, headers) => {
       const { interceptor, harness } = build(
         { kind: 'EXECUTE', recordId: 'idm_01' },
@@ -239,9 +254,14 @@ describe('IdempotencyInterceptor', () => {
           interceptor.intercept(harness.context, handlerOf({ id: 'att_01' })),
         ),
       ).resolves.toEqual({ id: 'att_01' });
-      expect(service.completions).toEqual([
-        { recordId: 'idm_01', responseStatus: 201, response: expect.anything() },
-      ]);
+      expect(service.completions).toHaveLength(1);
+      expect(service.completions[0]).toMatchObject({
+        recordId: 'idm_01',
+        responseStatus: 201,
+      });
+      // Asserted separately: `expect.anything()` is typed `any`, and inlining
+      // it into the array literal widens the whole comparison.
+      expect(service.completions[0]).toHaveProperty('response');
     });
 
     it('memorises a definitive refusal', async () => {
@@ -342,7 +362,7 @@ describe('IdempotencyInterceptor', () => {
         firstValueFrom(
           interceptor.intercept(harness.context, {
             handle,
-          } as unknown as CallHandler<unknown>),
+          }),
         ),
       );
 
@@ -369,7 +389,7 @@ describe('IdempotencyInterceptor', () => {
         firstValueFrom(
           interceptor.intercept(harness.context, {
             handle,
-          } as unknown as CallHandler<unknown>),
+          }),
         ),
       ).resolves.toEqual({ id: 'att_01' });
       expect(handle).not.toHaveBeenCalled();

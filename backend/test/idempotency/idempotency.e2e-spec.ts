@@ -15,6 +15,7 @@ import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
 import { IdempotencyProbeModule, PROBE_TARGET_TYPE } from '../fixtures';
+import { csrfOf, preSessionCsrf, type Csrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -25,7 +26,9 @@ const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
  * that points the suite somewhere else.
  */
 const REDIS_URL =
-  process.env.REDIS_E2E_URL ?? process.env.REDIS_URL ?? 'redis://localhost:6380';
+  process.env.REDIS_E2E_URL ??
+  process.env.REDIS_URL ??
+  'redis://localhost:6380';
 const PASSWORD = 'correct horse battery staple';
 
 /** The e2e root: the real application plus the probe route, nothing else. */
@@ -61,6 +64,7 @@ describeWithDatabase('idempotency', () => {
     userId: `usr_${letter}${suffix}`,
     email: `probe.${letter}.${suffix}@eventini.test`,
     cookies: '',
+    csrf: undefined as Csrf | undefined,
   }));
 
   const [tenantA, tenantB] = tenants as [
@@ -82,24 +86,45 @@ describeWithDatabase('idempotency', () => {
       .find((value): value is string => value !== undefined) as string;
   }
 
-  async function signIn(email: string): Promise<string> {
+  /**
+   * Login is a mutation like any other since EVT-028: the pre-session
+   * handshake first, then the pair the login rebound to the new session. The
+   * probe routes below are mutations too, so they carry that rebound pair.
+   */
+  async function signIn(
+    email: string,
+  ): Promise<{ cookies: string; csrf: Csrf }> {
+    const handshake = await preSessionCsrf(app);
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/sessions')
+      .set(handshake.headers())
       .send({ email, password: PASSWORD, clientType: 'WEB' });
 
-    return `${names.access}=${cookieValue(response, names.access)}`;
+    return {
+      cookies: `${names.access}=${cookieValue(response, names.access)}`,
+      csrf: csrfOf(app, response),
+    };
   }
 
   function probe(options: {
     readonly cookies: string;
+    readonly csrf?: Csrf;
     readonly probeId: string;
     readonly key?: string;
     readonly body?: Record<string, unknown>;
     readonly headers?: Record<string, string>;
   }) {
-    const call = request(app.getHttpServer())
-      .post(`/api/v1/idempotency-probes/${options.probeId}/executions`)
-      .set('Cookie', options.cookies);
+    const call = request(app.getHttpServer()).post(
+      `/api/v1/idempotency-probes/${options.probeId}/executions`,
+    );
+
+    // Merged rather than set beside: a bare `.set('Cookie', ...)` would
+    // replace the header wholesale and drop the CSRF context.
+    if (options.csrf === undefined) {
+      call.set('Cookie', options.cookies);
+    } else {
+      call.set(options.csrf.headers(options.cookies));
+    }
 
     if (options.key !== undefined) {
       call.set('Idempotency-Key', options.key);
@@ -146,7 +171,9 @@ describeWithDatabase('idempotency', () => {
       logger: false,
     });
 
-    const cookies = app.get<ConfigType<typeof cookiesConfig>>(cookiesConfig.KEY);
+    const cookies = app.get<ConfigType<typeof cookiesConfig>>(
+      cookiesConfig.KEY,
+    );
     names = { access: cookies.access.name, refresh: cookies.refresh.name };
 
     app.use(cookieParser(cookies.secret));
@@ -154,7 +181,9 @@ describeWithDatabase('idempotency', () => {
     app.useGlobalPipes(buildValidationPipe());
     await app.init();
 
-    const hash = await app.get(PasswordHasher, { strict: false }).hash(PASSWORD);
+    const hash = await app
+      .get(PasswordHasher, { strict: false })
+      .hash(PASSWORD);
 
     pool = new Pool({ connectionString: DATABASE_URL, max: 5 });
     pool.on('error', () => undefined);
@@ -181,7 +210,9 @@ describeWithDatabase('idempotency', () => {
         [`mbr_${index}${suffix}`, tenant.userId, tenant.organizationId],
       );
 
-      tenant.cookies = await signIn(tenant.email);
+      const session = await signIn(tenant.email);
+      tenant.cookies = session.cookies;
+      tenant.csrf = session.csrf;
     }
   });
 
@@ -211,12 +242,18 @@ describeWithDatabase('idempotency', () => {
     const userIds = tenants.map((tenant) => tenant.userId);
     const organizationIds = tenants.map((tenant) => tenant.organizationId);
 
-    await pool.query(`DELETE FROM user_sessions WHERE user_id = ANY($1::text[])`, [userIds]);
+    await pool.query(
+      `DELETE FROM user_sessions WHERE user_id = ANY($1::text[])`,
+      [userIds],
+    );
     await pool.query(
       `DELETE FROM organization_memberships WHERE user_id = ANY($1::text[])`,
       [userIds],
     );
-    await pool.query(`DELETE FROM user_credentials WHERE user_id = ANY($1::text[])`, [userIds]);
+    await pool.query(
+      `DELETE FROM user_credentials WHERE user_id = ANY($1::text[])`,
+      [userIds],
+    );
     await pool.query(`DELETE FROM users WHERE id = ANY($1::text[])`, [userIds]);
     await pool.query(`DELETE FROM organizations WHERE id = ANY($1::text[])`, [
       organizationIds,
@@ -230,7 +267,12 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    const response = await probe({ cookies: tenantA.cookies, probeId, key });
+    const response = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
 
     expect(response.status).toBe(201);
     expect(await executionCount(probeId)).toBe(1);
@@ -249,8 +291,18 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    const first = await probe({ cookies: tenantA.cookies, probeId, key });
-    const second = await probe({ cookies: tenantA.cookies, probeId, key });
+    const first = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
+    const second = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
 
     const firstBody = first.body as ApiEnvelope<ProbeData>;
     const secondBody = second.body as ApiEnvelope<ProbeData>;
@@ -269,6 +321,7 @@ describeWithDatabase('idempotency', () => {
   it('leaves meta.idempotency off a first execution', async () => {
     const response = await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId: newProbeId(),
       key: newKey(),
     });
@@ -283,9 +336,16 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    await probe({ cookies: tenantA.cookies, probeId, key, body: { a: 1 } });
+    await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+      body: { a: 1 },
+    });
     const clash = await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId,
       key,
       body: { a: 2 },
@@ -306,8 +366,18 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    const first = await probe({ cookies: tenantA.cookies, probeId, key });
-    const second = await probe({ cookies: tenantB.cookies, probeId, key });
+    const first = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
+    const second = await probe({
+      cookies: tenantB.cookies,
+      csrf: tenantB.csrf,
+      probeId,
+      key,
+    });
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
@@ -330,12 +400,14 @@ describeWithDatabase('idempotency', () => {
 
     await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId,
       key,
       body: { a: 1, b: 2 },
     });
     const replay = await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId,
       key,
       body: { b: 2, a: 1 },
@@ -359,6 +431,7 @@ describeWithDatabase('idempotency', () => {
 
     await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId,
       key,
       headers: {
@@ -369,6 +442,7 @@ describeWithDatabase('idempotency', () => {
     });
     const replay = await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId,
       key,
       headers: {
@@ -387,7 +461,11 @@ describeWithDatabase('idempotency', () => {
   describe('the key itself', () => {
     it('refuses a request without one', async () => {
       const probeId = newProbeId();
-      const response = await probe({ cookies: tenantA.cookies, probeId });
+      const response = await probe({
+        cookies: tenantA.cookies,
+        csrf: tenantA.csrf,
+        probeId,
+      });
 
       expect(response.status).toBe(400);
       expect((response.body as ApiEnvelope<null>).error?.code).toBe(
@@ -399,6 +477,7 @@ describeWithDatabase('idempotency', () => {
     it('refuses a key outside the documented format', async () => {
       const response = await probe({
         cookies: tenantA.cookies,
+        csrf: tenantA.csrf,
         probeId: newProbeId(),
         key: 'too-short',
       });
@@ -416,7 +495,7 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    await probe({ cookies: tenantA.cookies, probeId, key });
+    await probe({ cookies: tenantA.cookies, csrf: tenantA.csrf, probeId, key });
     await pool.query(
       `UPDATE idempotency_records
           SET status = 'PENDING', locked_until = now() + interval '1 minute'
@@ -424,7 +503,12 @@ describeWithDatabase('idempotency', () => {
       [key],
     );
 
-    const inFlight = await probe({ cookies: tenantA.cookies, probeId, key });
+    const inFlight = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
 
     expect(inFlight.status).toBe(409);
     expect(inFlight.headers['retry-after']).toBe('2');
@@ -437,7 +521,7 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    await probe({ cookies: tenantA.cookies, probeId, key });
+    await probe({ cookies: tenantA.cookies, csrf: tenantA.csrf, probeId, key });
     await pool.query(
       `UPDATE idempotency_records
           SET status = 'PENDING', locked_until = now() - interval '1 minute'
@@ -445,7 +529,12 @@ describeWithDatabase('idempotency', () => {
       [key],
     );
 
-    const retry = await probe({ cookies: tenantA.cookies, probeId, key });
+    const retry = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
 
     expect(retry.status).toBe(201);
     expect(await executionCount(probeId)).toBe(2);
@@ -456,7 +545,13 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    await probe({ cookies: tenantA.cookies, probeId, key, body: { a: 1 } });
+    await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+      body: { a: 1 },
+    });
     await pool.query(
       `UPDATE idempotency_records SET expires_at = now() - interval '1 second'
         WHERE idempotency_key = $1`,
@@ -465,6 +560,7 @@ describeWithDatabase('idempotency', () => {
 
     const again = await probe({
       cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
       probeId,
       key,
       body: { a: 2 },
@@ -483,17 +579,29 @@ describeWithDatabase('idempotency', () => {
     const probeId = newProbeId();
     const body = { refuse: true };
 
-    const first = await probe({ cookies: tenantA.cookies, probeId, key, body });
-    const second = await probe({ cookies: tenantA.cookies, probeId, key, body });
+    const first = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+      body,
+    });
+    const second = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+      body,
+    });
 
     expect(first.status).toBe(409);
     expect(second.status).toBe(409);
     expect((second.body as ApiEnvelope<null>).error?.code).toBe(
       'EVENT_NOT_ACTIVE',
     );
-    expect(
-      (second.body as ApiEnvelope<null>).meta.idempotency?.replayed,
-    ).toBe(true);
+    expect((second.body as ApiEnvelope<null>).meta.idempotency?.replayed).toBe(
+      true,
+    );
 
     const [record] = await storedRecords(key);
     expect(record?.status).toBe('FAILED_FINAL');
@@ -511,14 +619,19 @@ describeWithDatabase('idempotency', () => {
     const key = newKey();
     const probeId = newProbeId();
 
-    await probe({ cookies: tenantA.cookies, probeId, key });
+    await probe({ cookies: tenantA.cookies, csrf: tenantA.csrf, probeId, key });
 
     const redis = createClient({ url: REDIS_URL });
     await redis.connect();
     await redis.flushAll();
     await redis.quit();
 
-    const replay = await probe({ cookies: tenantA.cookies, probeId, key });
+    const replay = await probe({
+      cookies: tenantA.cookies,
+      csrf: tenantA.csrf,
+      probeId,
+      key,
+    });
 
     expect(replay.status).toBe(201);
     expect(
@@ -533,10 +646,17 @@ describeWithDatabase('idempotency', () => {
       const key = newKey();
       const probeId = newProbeId();
 
-      await probe({ cookies: tenantA.cookies, probeId, key });
+      await probe({
+        cookies: tenantA.cookies,
+        csrf: tenantA.csrf,
+        probeId,
+        key,
+      });
 
       const [record] = await storedRecords(key);
-      expect(record?.route).toBe('/api/v1/idempotency-probes/:probeId/executions');
+      expect(record?.route).toBe(
+        '/api/v1/idempotency-probes/:probeId/executions',
+      );
       expect(record?.route).not.toContain(probeId);
     });
 
@@ -544,7 +664,12 @@ describeWithDatabase('idempotency', () => {
     it('honours the 7-day retention the route asked for', async () => {
       const key = newKey();
 
-      await probe({ cookies: tenantA.cookies, probeId: newProbeId(), key });
+      await probe({
+        cookies: tenantA.cookies,
+        csrf: tenantA.csrf,
+        probeId: newProbeId(),
+        key,
+      });
 
       const [record] = await storedRecords(key);
       const days =
@@ -554,9 +679,20 @@ describeWithDatabase('idempotency', () => {
       expect(days).toBeLessThan(7.1);
     });
 
+    /**
+     * A valid pre-session CSRF pair is supplied so the refusal is about the
+     * missing session. `CsrfGuard` runs ahead of authentication, so a request
+     * carrying neither would stop at 403 and prove nothing about what an
+     * unauthenticated caller leaves behind — which is the point here.
+     */
     it('never stores a response body for an unauthenticated caller', async () => {
       const key = newKey();
-      const response = await probe({ cookies: '', probeId: newProbeId(), key });
+      const response = await probe({
+        cookies: '',
+        csrf: await preSessionCsrf(app),
+        probeId: newProbeId(),
+        key,
+      });
 
       expect(response.status).toBe(401);
       expect(await storedRecords(key)).toHaveLength(0);

@@ -22,9 +22,11 @@ export class CallerIdempotencyContextResolver extends IdempotencyContextResolver
   }
 
   async resolve(request: Request): Promise<TenantContext | null> {
-    const caller = await this.caller.resolve(request).catch((error: unknown) => {
-      throw toCallerException(error);
-    });
+    const caller = await this.caller
+      .resolve(request)
+      .catch((error: unknown) => {
+        throw toCallerException(error);
+      });
 
     // A platform session (ADR-0002) carries neither, and
     // `ck_sessions_tenant_coherence` guarantees the two move together.

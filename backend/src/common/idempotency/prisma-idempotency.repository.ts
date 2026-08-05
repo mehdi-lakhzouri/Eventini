@@ -1,10 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import type { IdempotencyStatus } from '../../infrastructure/database/enums';
-import {
-  ID_PREFIXES,
-  newId,
-} from '../../infrastructure/database/identifiers';
+import { ID_PREFIXES, newId } from '../../infrastructure/database/identifiers';
 import { Prisma } from '../../infrastructure/database/prisma/generated/client';
 import { TENANT_SCOPED_PRISMA } from '../../infrastructure/database/prisma.tokens';
 import type { TenantScopedPrismaClient } from '../../infrastructure/database/tenant-scope.extension';
@@ -45,7 +42,10 @@ export class PrismaIdempotencyRepository extends IdempotencyRepository {
    * untargeted `DO NOTHING` is their union, which is what "the key is already
    * taken" means.
    */
-  async claim(context: TenantContext, input: ClaimInput): Promise<string | null> {
+  async claim(
+    context: TenantContext,
+    input: ClaimInput,
+  ): Promise<string | null> {
     const id = newId(ID_PREFIXES.idempotency);
 
     const inserted = await this.prisma.idempotencyRecord.createMany({

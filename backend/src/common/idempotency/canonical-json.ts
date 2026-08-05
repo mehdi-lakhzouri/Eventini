@@ -72,9 +72,7 @@ function canonicalNumber(value: number): string {
 
   const text = String(value);
 
-  return text.includes('e') || text.includes('E')
-    ? expandExponent(text)
-    : text;
+  return text.includes('e') || text.includes('E') ? expandExponent(text) : text;
 }
 
 /** `1e+21` → `1000000000000000000000`, `1.5e-7` → `0.00000015`. */

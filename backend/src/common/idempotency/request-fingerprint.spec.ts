@@ -23,7 +23,9 @@ describe('requestFingerprint', () => {
 
   it('ignores the order of body keys', () => {
     expect(
-      hash({ body: { eventSessionId: 'esn_01', ticketReference: 'tkt_pub_a1' } }),
+      hash({
+        body: { eventSessionId: 'esn_01', ticketReference: 'tkt_pub_a1' },
+      }),
     ).toBe(hash());
   });
 
@@ -47,7 +49,10 @@ describe('requestFingerprint', () => {
     ['a different body', { body: { ticketReference: 'tkt_pub_b2' } }],
     ['a different tenant', { organizationId: 'org_02' }],
     ['a different actor', { actorId: 'usr_02' }],
-    ['a different route', { routeTemplate: '/api/v1/events/:eventId/check-outs' }],
+    [
+      'a different route',
+      { routeTemplate: '/api/v1/events/:eventId/check-outs' },
+    ],
     ['a different method', { method: 'DELETE' }],
     ['a different path parameter', { pathParams: { eventId: 'evt_02' } }],
   ])('changes for %s', (_label, overrides) => {

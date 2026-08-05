@@ -6,7 +6,14 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Response } from 'express';
-import { catchError, concatMap, from, of, throwError, type Observable } from 'rxjs';
+import {
+  catchError,
+  concatMap,
+  from,
+  of,
+  throwError,
+  type Observable,
+} from 'rxjs';
 
 import { AppException } from '../api/app-exception';
 import { attachIdempotencyMeta } from '../api/idempotency-meta';
@@ -150,7 +157,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
         // ADR-0012's decision, and the only place it is visible: the wait
         // happens on the client, which costs nothing, instead of on a held
         // server connection, which under offline sync costs the pool.
-        response.setHeader('Retry-After', String(IN_FLIGHT_RETRY_AFTER_SECONDS));
+        response.setHeader(
+          'Retry-After',
+          String(IN_FLIGHT_RETRY_AFTER_SECONDS),
+        );
 
         return throwError(
           () =>

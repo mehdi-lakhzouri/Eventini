@@ -43,7 +43,10 @@ export class IdempotencyRetentionPurger {
    * casually. `SET LOCAL` is transaction-scoped, so it cannot leak onto
    * another statement sharing the pooled connection.
    */
-  async purgeExpired(now: Date, batchSize = DEFAULT_BATCH_SIZE): Promise<number> {
+  async purgeExpired(
+    now: Date,
+    batchSize = DEFAULT_BATCH_SIZE,
+  ): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
       const expired = await tx.idempotencyRecord.findMany({
         where: { expiresAt: { lte: now } },
