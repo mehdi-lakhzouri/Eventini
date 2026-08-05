@@ -20,6 +20,7 @@ import {
   type LoginResult,
   type SessionEstablished,
 } from './login.use-case';
+import type { LockoutStore } from '../../../rate-limiting';
 import { SessionIssuer } from './session-issuer';
 
 const PASSWORD = 'correct horse battery staple';
@@ -183,9 +184,40 @@ function build(found: AuthenticationCandidate | null) {
     CONFIG as never,
   );
 
-  const useCase = new LoginUseCase(users, hasher, challenges, issuer);
+  const lockoutCalls: string[] = [];
+  let locked = false;
 
-  return { useCase, lookups, created, challengesOpened };
+  const lockouts = {
+    isLocked: () => Promise.resolve(locked),
+    registerFailure: (ip: string | null, email: string) => {
+      lockoutCalls.push(`fail:${ip ?? 'none'}:${email}`);
+
+      return Promise.resolve({ locked: false, attempts: 1 });
+    },
+    countEmailFailure: (email: string) => {
+      lockoutCalls.push(`detect:${email}`);
+
+      return Promise.resolve(1);
+    },
+    clear: (ip: string | null, email: string) => {
+      lockoutCalls.push(`clear:${ip ?? 'none'}:${email}`);
+
+      return Promise.resolve();
+    },
+  } as unknown as LockoutStore;
+
+  const useCase = new LoginUseCase(users, hasher, challenges, issuer, lockouts);
+
+  return {
+    useCase,
+    lookups,
+    created,
+    challengesOpened,
+    lockoutCalls,
+    lock: () => {
+      locked = true;
+    },
+  };
 }
 
 describe('login', () => {
@@ -419,6 +451,69 @@ describe('login', () => {
       await expect(useCase.execute(command())).rejects.toThrow();
 
       expect(performance.now() - started).toBeGreaterThan(1);
+    });
+  });
+
+  /**
+   * 🔴 §5.2. The ladder is keyed on ip+email, and the tests that matter are
+   * about what it refuses to do: it must not become a way to lock someone out.
+   */
+  describe('the lockout ladder', () => {
+    it('records a failure on both counters for a wrong password', async () => {
+      const { useCase, lockoutCalls } = build(await candidate());
+
+      await expect(
+        useCase.execute(command({ password: 'wrong' })),
+      ).rejects.toThrow();
+
+      expect(lockoutCalls).toEqual([
+        'fail:127.0.0.1:admin@example.com',
+        'detect:admin@example.com',
+      ]);
+    });
+
+    /**
+     * If only real accounts accumulated failures, whether a lockout ever
+     * appeared would answer "does this address exist?" — the exact question
+     * step 7 spends a decoy hash refusing to answer.
+     */
+    it('records a failure for an account that does not exist', async () => {
+      const { useCase, lockoutCalls } = build(null);
+
+      await expect(useCase.execute(command())).rejects.toThrow();
+
+      expect(lockoutCalls).toEqual([
+        'fail:127.0.0.1:admin@example.com',
+        'detect:admin@example.com',
+      ]);
+    });
+
+    it('clears the streak on a correct password', async () => {
+      const { useCase, lockoutCalls } = build(await candidate());
+
+      await useCase.execute(command());
+
+      expect(lockoutCalls).toEqual(['clear:127.0.0.1:admin@example.com']);
+    });
+
+    /** §5.3: a locked pair is told nothing a wrong password would not be. */
+    it('refuses a locked pair exactly like a wrong password', async () => {
+      const { useCase, lock } = build(await candidate());
+      lock();
+
+      await expect(useCase.execute(command())).rejects.toMatchObject({
+        rejection: 'BAD_PASSWORD',
+      });
+    });
+
+    /** The lockout is consulted before 19 MiB of Argon2id is spent on it. */
+    it('does not look the account up at all when the pair is locked', async () => {
+      const { useCase, lookups, lock } = build(await candidate());
+      lock();
+
+      await expect(useCase.execute(command())).rejects.toThrow();
+
+      expect(lookups).toEqual([]);
     });
   });
 

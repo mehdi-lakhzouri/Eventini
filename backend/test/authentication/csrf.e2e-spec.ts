@@ -13,7 +13,12 @@ import type { ApiEnvelope } from '../../src/common/api';
 import { applicationConfig } from '../../src/config/application.config';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
-import { cookieValue, csrfOf, preSessionCsrf } from '../helpers';
+import {
+  cookieValue,
+  csrfOf,
+  preSessionCsrf,
+  resetRateLimits,
+} from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -87,6 +92,13 @@ describeWithDatabase('CSRF protection', () => {
        VALUES ($1, $2, $3, 'ACTIVE', now())`,
       [`mbr_${unique()}`, ids.user, ids.org],
     );
+  });
+
+  // The limiter is shared state: without this a suite that signs in many times
+  // exhausts the per-IP login window and fails for a reason that has nothing
+  // to do with what it is testing. See `resetRateLimits`.
+  beforeEach(async () => {
+    await resetRateLimits();
   });
 
   afterAll(async () => {

@@ -32,7 +32,7 @@ Invariant **O-4** : le rate limiting précède l'exposition publique du login. A
 |---|---|---|
 | [EVT-028](#evt-028) | Protection CSRF avec liaison pré-session | — · ✅ |
 | [EVT-029](#evt-029) | Infrastructure Redis et registre Lua | — · ✅ |
-| [EVT-030](#evt-030) | Rate limiting et verrouillage | — |
+| [EVT-030](#evt-030) | Rate limiting et verrouillage | — · ✅ |
 | [EVT-031](#evt-031) | Idempotence | 13 |
 | [EVT-032](#evt-032) | Concurrence optimiste | — · ⏭ **reporté au sprint 08** |
 
@@ -214,6 +214,62 @@ Le builder applique aussi le **hachage d'email** : les clés apparaissent dans `
 
 ## EVT-030 — Rate limiting et verrouillage
 <a id="evt-030"></a>
+
+> ✅ **Fait le 5 août 2026.** 33 tests unitaires, 6 tests e2e contre PostgreSQL et Redis réels. `@nestjs/throttler` est **retiré** de `package.json`.
+
+### 🔴 `ip+email`, et le test qui le prouve
+
+Le test qui compte n'est pas « la 6ᵉ tentative reçoit un 429 » — c'est celui qui vérifie que **la victime garde son accès** :
+
+```
+1. l'attaquant échoue 10 fois contre l'adresse de la victime, depuis son IP
+2. l'attaquant est bien bloqué                        → 429
+3. la victime se connecte depuis sa propre IP         → 201
+```
+
+Les **deux** assertions sont nécessaires. Sans la deuxième, un limiteur qui ne ferait rien du tout laisserait aussi passer la victime et le test serait vert pour la mauvaise raison. Sans la première, on ne saurait pas que le mécanisme s'est déclenché.
+
+Le compteur par email existe et **ne verrouille jamais** : il est incrémenté à chaque échec pour la détection, sans effet de blocage. Détection et blocage sont deux mécanismes séparés ici, délibérément.
+
+### Le verrouillage est consulté **avant** Argon2id
+
+Une paire verrouillée ne doit pas pouvoir dépenser 19 MiB et ~60 ms de serveur par tentative. Le contrôle est donc placé avant même la recherche du compte — un test l'exige en vérifiant qu'**aucune requête base de données n'a lieu** quand la paire est verrouillée.
+
+Ce que le client voit d'un verrouillage : `401 AUTH_INVALID_CREDENTIALS`, exactement comme un mot de passe faux. `AUTH_ACCOUNT_LOCKED` reste absent du catalogue. L'annoncer confirmerait l'existence du compte **et** signalerait à l'attaquant que son déni de service a fonctionné.
+
+### L'échec sur un compte inexistant compte aussi
+
+Sinon la présence ou l'absence d'un verrouillage répondrait à « cette adresse existe-t-elle ? » — précisément la question à laquelle l'étape 7 dépense un hachage factice pour ne pas répondre.
+
+### L'ordre des gardes est le contrôle
+
+`RateLimitGuard` est enregistré **avant** `CsrfGuard`, en plaçant `RateLimitingModule` avant `IdentityModule` dans `AppModule` : Nest exécute les `APP_GUARD` dans l'ordre d'enregistrement. C'est l'invariant O-4 — un endpoint de login qui hache d'abord et compte ensuite est son propre vecteur de déni de service mémoire.
+
+### La couche la plus restrictive gagne, et le `Retry-After` le plus long avec elle
+
+Parmi les refus, c'est la **plus longue** attente qui est retournée. Retourner la plus courte ferait revenir un client respectueux du `Retry-After` juste à temps pour être refusé par une couche plus lente qu'il avait aussi dépassée.
+
+Le `429` ne nomme **jamais** la dimension dépassée, et un test vérifie que le corps ne contient ni `email`, ni `ip`, ni l'adresse essayée.
+
+### 🟡 Ce que le limiteur a coûté à la suite e2e, et pourquoi c'est correct
+
+Six suites e2e se sont mises à échouer : elles se connectent des dizaines de fois, toutes depuis `127.0.0.1`, et épuisaient donc légitimement la fenêtre de login par IP. **Du point de vue du limiteur, la suite entière est un seul client très insistant** — c'est le limiteur qui fonctionne, pas un défaut.
+
+La correction est l'isolation, pas une limite plus lâche :
+
+- un helper `resetRateLimits()` efface `rl:*` et `lockout:*` entre les tests — pas un `FLUSHDB`, qui emporterait les challenges MFA et les contextes CSRF d'autres suites ;
+- la suite e2e passe en **`maxWorkers: 1`**. Les lignes PostgreSQL se partitionnent par suffixe unique ; les compteurs de rate limiting sont indexés par IP et ne se partitionnent pas. Des suites parallèles se supprimaient mutuellement leurs compteurs en plein test.
+
+### Structure livrée
+
+```
+rate-limiting/domain/       rate-limit.policy.ts (les 11 endpoints + 4 dimensions)
+                            rate-limit.decision.ts · retry-after.ts · client-ip.ts
+rate-limiting/infrastructure/  sliding-window.limiter.ts · lockout.store.ts
+rate-limiting/              rate-limit.guard.ts (APP_GUARD)
+```
+
+`client-ip.ts` lit `req.ip` et **jamais** `X-Forwarded-For` directement : Express applique déjà `trust proxy` avec un nombre de sauts explicite. Lire l'en-tête à cette couche annulerait ce réglage, et n'importe qui contournerait toute limite par IP en le forgeant — le §7.6 en fait l'erreur la plus courante des implémentations de rate limiting.
 
 ```
 Branche  feat/EVT-030-rate-limiting

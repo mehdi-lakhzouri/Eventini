@@ -12,7 +12,7 @@ import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
-import { csrfOf, preSessionCsrf, type Csrf } from '../helpers';
+import { csrfOf, preSessionCsrf, resetRateLimits, type Csrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -126,6 +126,13 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
        VALUES ($1, $2, $3, 'ACTIVE', now())`,
       [`mbr_${suffix}`, ids.user, ids.org],
     );
+  });
+
+  // The limiter is shared state: without this a suite that signs in many times
+  // exhausts the per-IP login window and fails for a reason that has nothing
+  // to do with what it is testing. See `resetRateLimits`.
+  beforeEach(async () => {
+    await resetRateLimits();
   });
 
   afterAll(async () => {

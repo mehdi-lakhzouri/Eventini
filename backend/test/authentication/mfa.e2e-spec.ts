@@ -15,7 +15,7 @@ import { cookiesConfig } from '../../src/config/cookies.config';
 import { currentTotpCode } from '../../src/modules/identity/mfa/domain/totp';
 import { MfaSecretCipher } from '../../src/modules/identity/mfa/infrastructure/mfa-secret.cipher';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
-import { csrfOf, preSessionCsrf, type Csrf } from '../helpers';
+import { csrfOf, preSessionCsrf, resetRateLimits, type Csrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -241,6 +241,13 @@ describeWithDatabase('multi-factor authentication', () => {
 
     await createUser(ids.plain, emailOf('plain'), passwordHash);
     await createUser(ids.enrolled, emailOf('enrolled'), passwordHash);
+  });
+
+  // The limiter is shared state: without this a suite that signs in many times
+  // exhausts the per-IP login window and fails for a reason that has nothing
+  // to do with what it is testing. See `resetRateLimits`.
+  beforeEach(async () => {
+    await resetRateLimits();
   });
 
   afterAll(async () => {

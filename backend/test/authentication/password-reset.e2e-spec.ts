@@ -14,7 +14,7 @@ import { authenticationConfig } from '../../src/config/authentication.config';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
 import { RequestPasswordResetUseCase } from '../../src/modules/identity/passwords/application/request-password-reset.use-case';
-import { csrfOf, preSessionCsrf } from '../helpers';
+import { csrfOf, preSessionCsrf, resetRateLimits } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -136,6 +136,13 @@ describeWithDatabase('password reset and change', () => {
       .get(PasswordHasher, { strict: false })
       .hash(PASSWORD);
     await resetPassword(hash);
+  });
+
+  // The limiter is shared state: without this a suite that signs in many times
+  // exhausts the per-IP login window and fails for a reason that has nothing
+  // to do with what it is testing. See `resetRateLimits`.
+  beforeEach(async () => {
+    await resetRateLimits();
   });
 
   afterAll(async () => {

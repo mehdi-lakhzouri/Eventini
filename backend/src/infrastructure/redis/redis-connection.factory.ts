@@ -9,6 +9,14 @@ import { createClient } from 'redis';
  * keeping it small is what lets those services be unit-tested against a fake
  * that fits in a dozen lines instead of a container and a live server.
  */
+/**
+ * Deliberately narrow: the surface a caller can reach is the surface a caller
+ * can misuse, and anything that touches several keys atomically belongs in a
+ * Lua script rather than in a sequence of calls from here.
+ *
+ * The plain commands below exist for the lockout store's single-key reads and
+ * its detection counter, which have no atomicity requirement across keys.
+ */
 export interface RedisConnection {
   readonly isReady: boolean;
   scriptLoad(script: string): Promise<string>;
@@ -22,6 +30,10 @@ export interface RedisConnection {
   ): Promise<unknown>;
   ping(): Promise<string>;
   configGet(parameter: string): Promise<unknown>;
+  get(key: string): Promise<string | null>;
+  incr(key: string): Promise<number>;
+  pExpire(key: string, milliseconds: number): Promise<unknown>;
+  del(keys: string[]): Promise<number>;
   destroy(): void;
 }
 

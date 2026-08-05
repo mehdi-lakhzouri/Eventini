@@ -9,6 +9,12 @@ function connectionAnswering(reply: unknown): RedisConnection {
     eval: () => Promise.resolve([]),
     ping: () => Promise.resolve('PONG'),
     configGet: () => Promise.resolve(reply),
+    // Unused here; present so the fake satisfies the whole port rather than
+    // the slice this file happens to exercise.
+    get: () => Promise.resolve(null),
+    incr: () => Promise.resolve(1),
+    pExpire: () => Promise.resolve(1),
+    del: () => Promise.resolve(0),
     destroy: () => undefined,
   };
 }
