@@ -97,12 +97,29 @@ describe('rulesFor', () => {
       expect(perEmail?.key).not.toContain('ada');
     });
 
-    /** Falling back to an IP-only key would merge unrelated accounts. */
-    it('adds no per-email window when the body carried no address', () => {
+    /**
+     * 🔴 The window is applied even with no usable address.
+     *
+     * This runs before the validation pipe, so `email` is whatever arrived on
+     * the wire. Making the window conditional on it would let a caller delete
+     * their own rate limit by omitting or malforming the field — the
+     * user-controlled bypass CodeQL flags, and a real one.
+     */
+    it('still applies a per-email window when the body carried no address', () => {
       expect(keysOf(login(null))).toEqual([
         expect.stringContaining('rl:global_ip:'),
         expect.stringContaining('rl:login_ip:'),
+        expect.stringContaining('rl:login_ip_email:'),
       ]);
+    });
+
+    it('buckets every unusable address together, apart from real ones', () => {
+      const absent = rulesFor(login(null), SETTINGS)[2];
+      const blank = rulesFor(login('   '), SETTINGS)[2];
+      const real = rulesFor(login('ada@example.com'), SETTINGS)[2];
+
+      expect(absent?.key).toBe(blank?.key);
+      expect(absent?.key).not.toBe(real?.key);
     });
   });
 
@@ -132,21 +149,24 @@ describe('rulesFor', () => {
     expect(rules[1]).toMatchObject({ limit: 30, windowMs: 3_600_000 });
   });
 
-  it('limits password reset requests by IP and by address', () => {
-    expect(
-      keysOf(
-        facts({
-          method: 'POST',
-          path: '/auth/password-reset-requests',
-          email: 'ada@example.com',
-        }),
-      ),
-    ).toEqual([
-      expect.stringContaining('rl:global_ip:'),
-      expect.stringContaining('rl:pwd_reset_ip:'),
-      expect.stringContaining('rl:pwd_reset_email:'),
-    ]);
-  });
+  it.each([['ada@example.com'], [null]])(
+    'limits password reset requests by IP and by address (email: %s)',
+    (email) => {
+      expect(
+        keysOf(
+          facts({
+            method: 'POST',
+            path: '/auth/password-reset-requests',
+            email,
+          }),
+        ),
+      ).toEqual([
+        expect.stringContaining('rl:global_ip:'),
+        expect.stringContaining('rl:pwd_reset_ip:'),
+        expect.stringContaining('rl:pwd_reset_email:'),
+      ]);
+    },
+  );
 
   it('ignores a trailing slash when matching a route', () => {
     expect(

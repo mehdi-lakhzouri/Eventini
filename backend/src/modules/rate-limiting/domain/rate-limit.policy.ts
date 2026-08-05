@@ -66,21 +66,29 @@ export function rulesFor(
       windowMs: settings.loginWindowMs,
     });
 
-    // Only when the body actually carried an address. A missing email must not
-    // silently fall back to an IP-only key, or two different accounts behind
-    // one NAT would share a counter — the exact collapse §5.2 warns about.
-    if (facts.email !== null) {
-      rules.push({
-        key: redisKeys.rateLimit.loginIpEmail(facts.ip, facts.email),
-        limit: settings.loginPerIpAndEmail,
-        windowMs: settings.loginWindowMs,
-      });
-    }
+    // Unconditional, and that is the point. This guard runs *before* the
+    // validation pipe, so `email` here is whatever the caller sent — a number,
+    // an array, or nothing at all. Making the window conditional on it would
+    // let a caller delete their own rate limit by malforming the field, which
+    // is why CodeQL flags a user-controlled value guarding a sensitive action.
+    //
+    // An unusable address falls into one shared bucket instead. Those attempts
+    // cannot authenticate anyway, and bucketing them together still counts
+    // them rather than letting them through uncounted.
+    rules.push({
+      key: redisKeys.rateLimit.loginIpEmail(facts.ip, emailBucket(facts.email)),
+      limit: settings.loginPerIpAndEmail,
+      windowMs: settings.loginWindowMs,
+    });
   }
 
-  if (facts.challengeId !== null && isMfaVerification(facts)) {
+  // The route decides, not the value: the id is part of the path this pattern
+  // just matched, so there is no caller-controlled way to skip the window.
+  const challengeId = mfaChallengeIdOf(facts);
+
+  if (challengeId !== null) {
     rules.push({
-      key: redisKeys.rateLimit.mfaVerify(facts.challengeId),
+      key: redisKeys.rateLimit.mfaVerify(challengeId),
       limit: settings.mfaVerify,
       windowMs: 5 * MINUTE,
     });
@@ -104,13 +112,12 @@ export function rulesFor(
       windowMs: HOUR,
     });
 
-    if (facts.email !== null) {
-      rules.push({
-        key: redisKeys.rateLimit.passwordResetEmail(facts.email),
-        limit: settings.passwordResetPerEmail,
-        windowMs: HOUR,
-      });
-    }
+    // Unconditional for the same reason as the login window above.
+    rules.push({
+      key: redisKeys.rateLimit.passwordResetEmail(emailBucket(facts.email)),
+      limit: settings.passwordResetPerEmail,
+      windowMs: HOUR,
+    });
   }
 
   if (isRoute(facts, 'POST', '/auth/password-resets')) {
@@ -144,12 +151,29 @@ function isRoute(facts: RequestFacts, method: string, path: string): boolean {
   return facts.method === method && normalize(facts.path) === path;
 }
 
-/** `/auth/mfa/challenges/{id}/verification`, whatever the id. */
-function isMfaVerification(facts: RequestFacts): boolean {
-  return (
-    facts.method === 'POST' &&
-    /^\/auth\/mfa\/challenges\/[^/]+\/verification$/.test(normalize(facts.path))
+/**
+ * A stable bucket for a request whose address is missing or not even a string.
+ *
+ * It cannot collide with a real address: `@` is required in anything that
+ * would reach a successful login, and this value contains none.
+ */
+const UNUSABLE_EMAIL_BUCKET = 'unusable-address';
+
+function emailBucket(email: string | null): string {
+  return email !== null && email.trim() !== '' ? email : UNUSABLE_EMAIL_BUCKET;
+}
+
+/** The id out of `/auth/mfa/challenges/{id}/verification`, or null. */
+function mfaChallengeIdOf(facts: RequestFacts): string | null {
+  if (facts.method !== 'POST') {
+    return null;
+  }
+
+  const match = /^\/auth\/mfa\/challenges\/([^/]+)\/verification$/.exec(
+    normalize(facts.path),
   );
+
+  return match?.[1] ?? null;
 }
 
 /** Trailing slashes would otherwise make `/auth/sessions/` a different route. */
