@@ -178,6 +178,23 @@ describe('repositories take a TenantContext first', () => {
     // refresh_token_rotations follows its session, and rotation is driven by
     // a cookie before any tenant context is built (EVT-024).
     join('modules', 'identity', 'sessions', 'domain', 'rotation.repository.ts'),
+    // Revocation acts on the caller's own sessions, which are mixed-ownership
+    // and may be platform sessions with no organization at all (EVT-025).
+    // Ownership is enforced by the WHERE clause on user_id instead.
+    join(
+      'modules',
+      'identity',
+      'sessions',
+      'domain',
+      'revocation.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'sessions',
+      'infrastructure',
+      'prisma-revocation.repository.ts',
+    ),
     join(
       'modules',
       'identity',
