@@ -341,7 +341,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', session.cookies)
+        .set(session.csrf.headers(session.cookies))
         .send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(204);
@@ -359,7 +359,7 @@ describeWithDatabase('password reset and change', () => {
 
       await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', current.cookies)
+        .set(current.csrf.headers(current.cookies))
         .send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
 
       const statuses = await pool.query<{ id: string; status: string }>(
@@ -377,7 +377,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', session.cookies)
+        .set(session.csrf.headers(session.cookies))
         .send({ currentPassword: 'wrong', newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(401);
@@ -397,7 +397,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', session.cookies)
+        .set(session.csrf.headers(session.cookies))
         .send({ currentPassword: PASSWORD, newPassword: 'tooshort' });
 
       expect(response.status).toBe(400);

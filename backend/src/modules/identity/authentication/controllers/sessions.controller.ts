@@ -13,6 +13,7 @@ import type { Request, Response } from 'express';
 
 import { AppException } from '../../../../common/api/app-exception';
 import { cookiesConfig } from '../../../../config/cookies.config';
+import { CsrfService } from '../../csrf';
 import { ListUserSessionsUseCase } from '../../sessions/application/list-user-sessions.use-case';
 import { RevokeAllSessionsUseCase } from '../../sessions/application/revoke-all-sessions.use-case';
 import { RevokeSessionUseCase } from '../../sessions/application/revoke-session.use-case';
@@ -32,6 +33,7 @@ export class SessionsController {
     private readonly listSessions: ListUserSessionsUseCase,
     private readonly revokeSession: RevokeSessionUseCase,
     private readonly revokeAll: RevokeAllSessionsUseCase,
+    private readonly csrf: CsrfService,
     @Inject(cookiesConfig.KEY)
     private readonly cookies: ConfigType<typeof cookiesConfig>,
   ) {}
@@ -118,11 +120,18 @@ export class SessionsController {
     });
   }
 
+  /**
+   * The CSRF pair goes with them: its context names a session that no longer
+   * exists, so leaving it behind only guarantees a 403 on the next mutation
+   * instead of the 401 the caller deserves. The next `GET /auth/csrf-token`
+   * starts a fresh pre-session context.
+   */
   private clearCookies(response: Response): void {
     clearSessionCookies(response, {
       secure: this.cookies.secure,
       access: this.cookies.access,
       refresh: this.cookies.refresh,
     });
+    this.csrf.clear(response);
   }
 }
