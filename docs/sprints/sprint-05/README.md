@@ -31,7 +31,7 @@ Invariant **O-4** : le rate limiting précède l'exposition publique du login. A
 | # | Titre | Migration |
 |---|---|---|
 | [EVT-028](#evt-028) | Protection CSRF avec liaison pré-session | — · ✅ |
-| [EVT-029](#evt-029) | Infrastructure Redis et registre Lua | — |
+| [EVT-029](#evt-029) | Infrastructure Redis et registre Lua | — · ✅ |
 | [EVT-030](#evt-030) | Rate limiting et verrouillage | — |
 | [EVT-031](#evt-031) | Idempotence | 13 |
 | [EVT-032](#evt-032) | Concurrence optimiste | — · ⏭ **reporté au sprint 08** |
@@ -143,6 +143,44 @@ Le `Path` du refresh, **jamais nommé** dans le Document B (C-17), est fixé : l
 
 ## EVT-029 — Infrastructure Redis et registre Lua
 <a id="evt-029"></a>
+
+> ✅ **Fait le 5 août 2026.** 68 tests unitaires, 4 tests d'intégration contre le Redis 8.8 réel de `docker-compose`. Comme annoncé, ce ticket **câble** les 4 scripts Lua, il ne les réécrit pas.
+
+### `redis-key.builder.ts` est la seule source de clés, et le hachage y est forcé
+
+Le builder ne se contente pas de centraliser : il rend la faute **impossible plutôt que déconseillée**. Le hachage d'email vit dans les primitives (`redis-key.segments.ts`), donc aucun appelant ne peut placer une adresse en clair dans une clé en oubliant une étape.
+
+Deux détails qui valaient d'être écrits :
+
+- **La normalisation est faite dans le hachage**, pas au point d'appel. Sans cela `A@x.com` et `a@x.com` sont deux compteurs, et un attaquant échappe à une limite par email en changeant la casse.
+- **Le segment IP est injectif.** IPv6 s'écrit avec des `:`, qui est le séparateur de clés ; ils deviennent des `-`, et aucune IP textuelle ne contient de `-`. Deux adresses distinctes ne peuvent donc pas retomber sur le même compteur — ce qui reviendrait à limiter deux clients comme s'ils n'en étaient qu'un. La forme `::ffff:a.b.c.d` est ramenée à sa forme v4, sinon le même client compte sous deux clés selon la façon dont le socket est lié.
+
+### Échec de chargement au démarrage ⇒ fatal
+
+`RedisScriptRegistry.onModuleInit` lève, ce qui interrompt `NestFactory.create` et tombe dans le `exitFatal` de `main.ts`. Démarrer sans ces scripts, c'est servir `/auth/sessions` **sans aucun rate limiting** — précisément la condition que l'invariant O-4 existe pour empêcher.
+
+En fonctionnement, `NOSCRIPT` après un `SCRIPT FLUSH` est rattrapé : le script est rechargé et l'appel en cours rejoué en ligne, donc l'appelant ne voit jamais le manque. Le test d'intégration provoque un vrai flush pour vérifier que Redis se comporte comme le fake du test unitaire le suppose.
+
+### 🟡 `maxmemory-policy` : signalé, pas fatal — et c'est délibéré
+
+Sous `allkeys-lru`, Redis choisit ses victimes par ancienneté d'accès, ce qui **sélectionne presque parfaitement les mauvaises clés** : un compteur de lockout est écrit une fois et lu rarement, un verrou distribué est écrit une fois et jamais relu. Ce sont les premières choses qu'un LRU jette, et les jeter désactive silencieusement le contrôle. La mémoire est bornée par les TTL, pas par l'éviction.
+
+Le contrôle lit la politique au démarrage mais **ne fait pas échouer le boot** si elle est mauvaise, parce que le §8 demande que `CONFIG` soit renommée ou désactivée en production : un serveur durci refuse cette lecture. Un démarrage qui n'échouerait que sur les serveurs où le contrôle fonctionne serait pire qu'un log bruyant. `UNKNOWN` est donc une réponse normale, pas une erreur.
+
+`docker-compose.yml` fixe la politique explicitement, bien qu'elle soit déjà le défaut de Redis — un défaut sur lequel on s'appuie mérite d'être écrit.
+
+### Structure livrée
+
+```
+infrastructure/redis/
+├── redis-key.builder.ts        le catalogue complet des clés
+├── redis-key.segments.ts       hachage d'email, segment IP, segment d'identifiant
+├── redis-script.registry.ts    SCRIPT LOAD au boot, cache des SHA, repli NOSCRIPT
+├── redis-connection.factory.ts
+├── redis.module.ts             les connexions nommées
+├── eviction-policy.check.ts
+└── lua-scripts.ts
+```
 
 ```
 Branche  feat/EVT-029-redis-infrastructure
