@@ -12,6 +12,7 @@ import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
+import { csrfOf, preSessionCsrf, type Csrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -62,16 +63,25 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
       .find((value): value is string => value !== undefined) as string;
   }
 
-  async function signIn(): Promise<string> {
+  /**
+   * Returns the session cookies and the CSRF pair the login rebound to them.
+   * The pre-session pair used to get in is spent by that point: presenting it
+   * again alongside a session cookie is exactly what ADR-0016 refuses.
+   */
+  async function signIn(): Promise<{ jar: string; csrf: Csrf }> {
     const response = await request(server())
       .post('/api/v1/auth/sessions')
+      .set((await preSessionCsrf(app)).headers())
       .send({ email, password: PASSWORD, clientType: 'WEB' })
       .expect(201);
 
     const access = cookieValue(response, names.access);
     const refresh = cookieValue(response, names.refresh);
 
-    return `${names.access}=${access}; ${names.refresh}=${refresh}`;
+    return {
+      jar: `${names.access}=${access}; ${names.refresh}=${refresh}`,
+      csrf: csrfOf(app, response),
+    };
   }
 
   beforeAll(async () => {
@@ -161,11 +171,11 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
   });
 
   it('refuses a cookie for a session that was revoked', async () => {
-    const jar = await signIn();
+    const { jar, csrf } = await signIn();
 
     await request(server())
       .delete('/api/v1/auth/sessions/current')
-      .set('Cookie', jar)
+      .set(csrf.headers(jar))
       .expect(204);
 
     const response = await request(server())
@@ -177,7 +187,7 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
 
   describe('for a signed-in caller', () => {
     it('reports the profile, the active session and the client type', async () => {
-      const jar = await signIn();
+      const { jar } = await signIn();
 
       const response = await request(server())
         .get('/api/v1/auth/me')
@@ -201,7 +211,7 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
     });
 
     it('never exposes a password hash or any credential material', async () => {
-      const jar = await signIn();
+      const { jar } = await signIn();
 
       const response = await request(server())
         .get('/api/v1/auth/me')
@@ -222,7 +232,7 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
      * this test reads `mfaEnabled` from the session the user already held.
      */
     it('reflects an active MFA method once one exists', async () => {
-      const jar = await signIn();
+      const { jar } = await signIn();
 
       await pool.query(
         `INSERT INTO mfa_methods (id, user_id, type, status, encrypted_secret, enabled_at, updated_at)
@@ -248,6 +258,7 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
     it('is unreachable by password alone once MFA is active', async () => {
       const response = await request(server())
         .post('/api/v1/auth/sessions')
+        .set((await preSessionCsrf(app)).headers())
         .send({ email, password: PASSWORD, clientType: 'WEB' })
         .expect(401);
 

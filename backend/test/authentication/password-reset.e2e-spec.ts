@@ -14,6 +14,7 @@ import { authenticationConfig } from '../../src/config/authentication.config';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
 import { RequestPasswordResetUseCase } from '../../src/modules/identity/passwords/application/request-password-reset.use-case';
+import { csrfOf, preSessionCsrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -49,9 +50,17 @@ describeWithDatabase('password reset and change', () => {
       .find((value): value is string => value !== undefined) as string;
   }
 
+  /**
+   * Login is a `POST`, so since EVT-028 it goes through `CsrfGuard` like any
+   * other mutation: the pre-session handshake first, then the credentials.
+   * The returned pair is read back off the login response, which rebinds it to
+   * the new session — using the pre-session pair afterwards would 403.
+   */
   async function signIn(password = PASSWORD) {
+    const handshake = await preSessionCsrf(app);
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/sessions')
+      .set(handshake.headers())
       .send({ email, password, clientType: 'WEB' });
 
     return {
@@ -59,6 +68,7 @@ describeWithDatabase('password reset and change', () => {
       sessionId: (response.body as ApiEnvelope<{ sessionId: string }>).data
         ?.sessionId as string,
       cookies: `${names.access}=${cookieValue(response, names.access)}; ${names.refresh}=${cookieValue(response, names.refresh)}`,
+      csrf: csrfOf(app, response),
     };
   }
 
@@ -171,6 +181,7 @@ describeWithDatabase('password reset and change', () => {
     ])('answers 202 with the same body for %s', async (_label, address) => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/password-reset-requests')
+        .set((await preSessionCsrf(app)).headers())
         .send({ email: address() });
 
       expect(response.status).toBe(202);
@@ -182,6 +193,7 @@ describeWithDatabase('password reset and change', () => {
     it('never returns the token', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/password-reset-requests')
+        .set((await preSessionCsrf(app)).headers())
         .send({ email });
 
       const stored = await pool.query<{ token_hash: string }>(
@@ -231,6 +243,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token: first, newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(401);
@@ -243,6 +256,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(204);
@@ -253,10 +267,12 @@ describeWithDatabase('password reset and change', () => {
       const token = await freshResetToken();
       await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: NEW_PASSWORD });
 
       const second = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: 'yet another passphrase here' });
 
       expect(second.status).toBe(401);
@@ -273,6 +289,7 @@ describeWithDatabase('password reset and change', () => {
       const token = await freshResetToken();
       await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: NEW_PASSWORD });
 
       const status = await pool.query<{ status: string }>(
@@ -304,6 +321,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(401);
@@ -312,6 +330,7 @@ describeWithDatabase('password reset and change', () => {
     it('refuses a token nobody issued', async () => {
       const response = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token: 'not-a-token', newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(401);
@@ -323,12 +342,14 @@ describeWithDatabase('password reset and change', () => {
 
       const rejected = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: 'short' });
 
       expect(rejected.status).toBe(400);
 
       const accepted = await request(app.getHttpServer())
         .post('/api/v1/auth/password-resets')
+        .set((await preSessionCsrf(app)).headers())
         .send({ token, newPassword: NEW_PASSWORD });
 
       expect(accepted.status).toBe(204);
@@ -341,7 +362,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', session.cookies)
+        .set(session.csrf.headers(session.cookies))
         .send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(204);
@@ -359,7 +380,7 @@ describeWithDatabase('password reset and change', () => {
 
       await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', current.cookies)
+        .set(current.csrf.headers(current.cookies))
         .send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
 
       const statuses = await pool.query<{ id: string; status: string }>(
@@ -377,19 +398,37 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', session.cookies)
+        .set(session.csrf.headers(session.cookies))
         .send({ currentPassword: 'wrong', newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(401);
       expect((await signIn()).status).toBe(201);
     });
 
+    /**
+     * A valid pre-session CSRF pair is supplied deliberately. `CsrfGuard` runs
+     * *before* authentication (§5.1's ordering), so a request carrying neither
+     * would be refused at 403 for the missing token and prove nothing about
+     * authentication. Clearing CSRF first isolates the 401.
+     */
     it('refuses an unauthenticated request', async () => {
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
+        .set((await preSessionCsrf(app)).headers())
         .send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
 
       expect(response.status).toBe(401);
+    });
+
+    it('refuses a mutation with no CSRF token before it looks at the session', async () => {
+      const { Origin } = (await preSessionCsrf(app)).headers();
+
+      const response = await request(app.getHttpServer())
+        .put('/api/v1/auth/password')
+        .set('Origin', Origin as string)
+        .send({ currentPassword: PASSWORD, newPassword: NEW_PASSWORD });
+
+      expect(response.status).toBe(403);
     });
 
     it('applies the password policy', async () => {
@@ -397,7 +436,7 @@ describeWithDatabase('password reset and change', () => {
 
       const response = await request(app.getHttpServer())
         .put('/api/v1/auth/password')
-        .set('Cookie', session.cookies)
+        .set(session.csrf.headers(session.cookies))
         .send({ currentPassword: PASSWORD, newPassword: 'tooshort' });
 
       expect(response.status).toBe(400);

@@ -15,6 +15,7 @@ import { cookiesConfig } from '../../src/config/cookies.config';
 import { currentTotpCode } from '../../src/modules/identity/mfa/domain/totp';
 import { MfaSecretCipher } from '../../src/modules/identity/mfa/infrastructure/mfa-secret.cipher';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
+import { csrfOf, preSessionCsrf, type Csrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -80,9 +81,18 @@ describeWithDatabase('multi-factor authentication', () => {
 
   const server = () => app.getHttpServer();
 
+  /**
+   * One anonymous CSRF pair, reused by every unauthenticated call in this
+   * suite. The context is stateless, so it stays valid as long as it is not
+   * presented alongside a session cookie — which is the one thing ADR-0016
+   * refuses, and which `csrf.e2e-spec.ts` covers directly.
+   */
+  let anon: Csrf;
+
   const login = (email: string) =>
     request(server())
       .post('/api/v1/auth/sessions')
+      .set(anon.headers())
       .send({ email, password: PASSWORD, clientType: 'WEB' });
 
   function cookieValue(
@@ -109,10 +119,14 @@ describeWithDatabase('multi-factor authentication', () => {
   ): Promise<{ secret: string; recoveryCodes: string[] }> {
     const session = await login(email).expect(201);
     const access = cookieValue(session, cookieNames.access);
+    // Enrolment is a mutation on an established session, so it carries the
+    // pair the login rebound — the anonymous one would now be refused.
+    const bound = csrfOf(app, session);
+    const jar = `${cookieNames.access}=${access}`;
 
     const begun = await request(server())
       .post('/api/v1/auth/mfa/enrollments')
-      .set('Cookie', `${cookieNames.access}=${access}`)
+      .set(bound.headers(jar))
       .expect(201);
 
     const { enrollmentId, secret } = (
@@ -121,7 +135,7 @@ describeWithDatabase('multi-factor authentication', () => {
 
     const confirmed = await request(server())
       .post(`/api/v1/auth/mfa/enrollments/${enrollmentId}/confirmation`)
-      .set('Cookie', `${cookieNames.access}=${access}`)
+      .set(bound.headers(jar))
       .send({ code: await currentTotpCode(secret, totpSettings) })
       .expect(201);
 
@@ -142,9 +156,16 @@ describeWithDatabase('multi-factor authentication', () => {
     return error.extensions.challengeId;
   }
 
+  /**
+   * The anonymous pair, deliberately: a gated login does not rebind CSRF,
+   * because there is no session yet and the caller still has a second leg to
+   * post. Verification carries no session cookie, so pre-session is the
+   * correct mode here.
+   */
   const verify = (challengeId: string, code: string) =>
     request(server())
       .post(`/api/v1/auth/mfa/challenges/${challengeId}/verification`)
+      .set(anon.headers())
       .send({ code });
 
   async function countSessions(userId: string): Promise<number> {
@@ -193,6 +214,8 @@ describeWithDatabase('multi-factor authentication', () => {
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(buildValidationPipe());
     await app.init();
+
+    anon = await preSessionCsrf(app);
 
     const auth = app.get<ConfigType<typeof authenticationConfig>>(
       authenticationConfig.KEY,
@@ -302,8 +325,13 @@ describeWithDatabase('multi-factor authentication', () => {
       }
     });
 
+    // A valid CSRF pair, so the 401 is about the missing session rather than
+    // the guard that runs ahead of authentication.
     it('refuses to enrol without a session', async () => {
-      await request(server()).post('/api/v1/auth/mfa/enrollments').expect(401);
+      await request(server())
+        .post('/api/v1/auth/mfa/enrollments')
+        .set(anon.headers())
+        .expect(401);
     });
   });
 
@@ -442,7 +470,7 @@ describeWithDatabase('multi-factor authentication', () => {
 
       const regenerated = await request(server())
         .post('/api/v1/auth/mfa/recovery-codes')
-        .set('Cookie', `${cookieNames.access}=${access}`)
+        .set(csrfOf(app, session).headers(`${cookieNames.access}=${access}`))
         .expect(201);
 
       const fresh = (

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { ConfigType } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import cookieParser from 'cookie-parser';
 import { Pool } from 'pg';
 import request from 'supertest';
 
@@ -11,6 +12,7 @@ import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
+import { preSessionCsrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -21,6 +23,7 @@ describeWithDatabase('POST /api/v1/auth/sessions', () => {
   let app: NestExpressApplication;
   let pool: Pool;
   let cookieNames: { access: string; refresh: string };
+  let csrfNames: { token: string; context: string };
 
   const unique = (): string => randomUUID().replaceAll('-', '').slice(0, 12);
   const suffix = unique();
@@ -66,9 +69,13 @@ describeWithDatabase('POST /api/v1/auth/sessions', () => {
     );
   }
 
-  function login(body: Record<string, unknown>) {
+  /** Login is never exempt from CSRF, so every call does the handshake first. */
+  async function login(body: Record<string, unknown>) {
+    const csrf = await preSessionCsrf(app);
+
     return request(app.getHttpServer())
       .post('/api/v1/auth/sessions')
+      .set(csrf.headers())
       .send(body);
   }
 
@@ -94,17 +101,22 @@ describeWithDatabase('POST /api/v1/auth/sessions', () => {
     app = await NestFactory.create<NestExpressApplication>(AppModule, {
       logger: false,
     });
+    const cookies = app.get<ConfigType<typeof cookiesConfig>>(
+      cookiesConfig.KEY,
+    );
+
+    // Without the parser every cookie-reading route refuses the request for
+    // the wrong reason — `request.cookies` would simply not exist.
+    app.use(cookieParser(cookies.secret));
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(buildValidationPipe());
     await app.init();
 
-    const cookies = app.get<ConfigType<typeof cookiesConfig>>(
-      cookiesConfig.KEY,
-    );
     cookieNames = {
       access: cookies.access.name,
       refresh: cookies.refresh.name,
     };
+    csrfNames = { token: cookies.csrf.name, context: cookies.csrfContext.name };
 
     const hash = await app
       .get(PasswordHasher, { strict: false })
@@ -236,11 +248,15 @@ describeWithDatabase('POST /api/v1/auth/sessions', () => {
         clientType: 'WEB',
       });
       const cookies = response.headers['set-cookie'] as unknown as string[];
+      const of = (name: string) =>
+        cookies.find((cookie) => cookie.startsWith(`${name}=`)) ?? '';
 
-      expect(cookies).toHaveLength(2);
-      for (const cookie of cookies) {
-        expect(cookie).toContain('HttpOnly');
-      }
+      expect(of(cookieNames.access)).toContain('HttpOnly');
+      expect(of(cookieNames.refresh)).toContain('HttpOnly');
+      // The rebound CSRF token is the one cookie JavaScript may read, and it
+      // authorizes nothing on its own.
+      expect(of(csrfNames.token)).not.toContain('HttpOnly');
+      expect(of(csrfNames.context)).toContain('HttpOnly');
 
       // A JWT always starts eyJ; finding one in the body would mean a token
       // that JavaScript can read.

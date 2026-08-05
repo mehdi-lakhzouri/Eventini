@@ -16,6 +16,7 @@ import {
   buildValidationPipe,
   permissionsPolicyMiddleware,
 } from '../../src/bootstrap';
+import { preSessionCsrf } from '../helpers';
 
 /**
  * Route-free otherwise: `AppModule`'s own controllers don't yet expose a body
@@ -120,6 +121,7 @@ describe('security bootstrap (EVT-009)', () => {
   it('rejects a body carrying a field the DTO does not declare', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/probe/echo')
+      .set((await preSessionCsrf(app)).headers())
       .send({ name: 'ok', role: 'ADMIN' });
 
     expect(response.status).toBe(400);
@@ -128,6 +130,7 @@ describe('security bootstrap (EVT-009)', () => {
   it('accepts a body matching the DTO exactly', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/probe/echo')
+      .set((await preSessionCsrf(app)).headers())
       .send({ name: 'ok' });
 
     expect(response.status).toBe(201);

@@ -30,7 +30,7 @@ Invariant **O-4** : le rate limiting précède l'exposition publique du login. A
 
 | # | Titre | Migration |
 |---|---|---|
-| [EVT-028](#evt-028) | Protection CSRF avec liaison pré-session | — |
+| [EVT-028](#evt-028) | Protection CSRF avec liaison pré-session | — · ✅ |
 | [EVT-029](#evt-029) | Infrastructure Redis et registre Lua | — |
 | [EVT-030](#evt-030) | Rate limiting et verrouillage | — |
 | [EVT-031](#evt-031) | Idempotence | 13 |
@@ -40,6 +40,55 @@ Invariant **O-4** : le rate limiting précède l'exposition publique du login. A
 
 ## EVT-028 — Protection CSRF avec liaison pré-session
 <a id="evt-028"></a>
+
+> ✅ **Fait le 5 août 2026.** Garde globale, 52 tests unitaires, 12 tests e2e contre PostgreSQL réel. La suite e2e complète passe : 13 suites, 134 tests.
+
+### Ce que la liaison résout, prouvé par un test
+
+Le rejeu d'un token pré-session après login est **le** test de ce ticket : `refuses the pre-session token once it has been spent on a login`. Sans lui, le mode pré-session serait un moyen d'armer à l'avance un token pour une victime authentifiée — exactement l'inverse du but.
+
+| Test obligatoire | Résultat |
+|---|---|
+| `POST` sans `X-CSRF-Token` | `403 AUTH_CSRF_INVALID` |
+| Token lié à un **autre** contexte | `403 AUTH_CSRF_INVALID` |
+| **Token pré-session rejoué après login** | **`403`** |
+| `Origin` absent ou refusé | `403 AUTH_ORIGIN_DENIED` |
+
+### 🔴 L'ordre garde-avant-authentification a un coût qu'il faut assumer
+
+`CsrfGuard` s'exécute **avant** l'authentification. Une requête sans token *et* sans session répond donc `403`, pas `401`. Trois tests existants demandaient `401` et avaient raison de le faire à l'époque : ils testaient l'authentification.
+
+Ils ont été corrigés en **fournissant un couple CSRF valide**, pour que le `401` porte bien sur la session manquante et non sur la garde qui la précède. Un test supplémentaire couvre désormais l'autre moitié : sans token, c'est `403`, *avant* que la session soit seulement regardée. Changer l'assertion sans fournir le token aurait transformé un test d'authentification en test de CSRF sans que personne le remarque.
+
+### La porte MFA et le CSRF : deux chemins, deux décisions
+
+`POST /auth/sessions` peut désormais se terminer de deux façons, et elles n'appellent pas le même traitement.
+
+| Issue du login | Rebinding CSRF | Pourquoi |
+|---|---|---|
+| Session créée | **oui** | le token qui a passé la garde ne vérifie plus rien ensuite |
+| `AUTH_MFA_REQUIRED` | **non** | il n'y a **aucune session** à laquelle lier, et le client a encore une seconde étape à poster |
+
+Rebinder sur la branche MFA aurait détruit le token nécessaire à la vérification du challenge ; le lier au `challengeId` l'aurait lié à quelque chose qui n'authentifie personne. Le rebinding appartient donc à `MfaChallengeController`, qui est l'endroit où la session naît réellement.
+
+### Le préfixe de cookie qui piège
+
+`__Host-eventini_csrf` est un **préfixe de** `__Host-eventini_csrf_ctx`. Un test qui cherchait le cookie lisible par `startsWith(nom)` trouvait le cookie de contexte et concluait, à tort, que le token était `HttpOnly`. La correspondance se fait sur `nom=`. C'est le genre de défaut qui rend vert un test qui ne teste rien.
+
+### Ce que la garde globale a coûté aux suites existantes
+
+Six suites e2e écrivaient des mutations sans token et échouaient toutes. C'est le prix réel d'une garde globale, et il valait mieux le payer que d'exempter des routes : un helper partagé (`test/helpers`) fait la poignée de main pré-session et fusionne le couple CSRF avec les cookies de session, **construit à partir des `Set-Cookie` du serveur** — un test qui fabriquerait son propre token continuerait de passer après la rupture de la liaison.
+
+### Structure livrée
+
+```
+csrf/domain/            csrf-token.ts (HMAC + comparaison à temps constant) · csrf-context.ts
+csrf/infrastructure/    csrf-cookies.ts
+csrf/                   csrf.service.ts · csrf.guard.ts (APP_GUARD) · csrf.controller.ts
+                        csrf-token.service.ts · origin-validator.service.ts
+```
+
+La route est `GET /api/v1/auth/csrf-token` — le contrôleur portait encore `identity/csrf`, un chemin d'une convention abandonnée, corrigé ici pour suivre `API_CONVENTIONS.md`.
 
 ```
 Branche  feat/EVT-028-csrf-protection

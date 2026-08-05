@@ -3,12 +3,14 @@ import type { ConfigType } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { IsString } from 'class-validator';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 import { AppModule } from '../../src/app.module';
-import { applicationConfig } from '../../src/config';
+import { applicationConfig, cookiesConfig } from '../../src/config';
 import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
+import { preSessionCsrf } from '../helpers';
 
 function envelope<T>(body: unknown): ApiEnvelope<T> {
   return body as ApiEnvelope<T>;
@@ -55,6 +57,14 @@ describe('response envelope and exception filter (EVT-010)', () => {
     });
 
     app.get<ConfigType<typeof applicationConfig>>(applicationConfig.KEY);
+    // CsrfGuard is global from EVT-028, and it reads its context from a
+    // cookie — without the parser the probe POST is refused before the
+    // validation pipe this suite is actually about ever runs.
+    app.use(
+      cookieParser(
+        app.get<ConfigType<typeof cookiesConfig>>(cookiesConfig.KEY).secret,
+      ),
+    );
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(buildValidationPipe());
     // The envelope interceptor and exception filter arrive through AppModule's
@@ -120,6 +130,7 @@ describe('response envelope and exception filter (EVT-010)', () => {
   it('renders a mass-assignment rejection as VALIDATION_ERROR with a field error', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/probe/echo')
+      .set((await preSessionCsrf(app)).headers())
       .send({ name: 'ok', role: 'ADMIN' });
 
     expect(response.status).toBe(400);

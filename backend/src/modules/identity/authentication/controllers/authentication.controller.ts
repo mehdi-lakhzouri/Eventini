@@ -13,6 +13,7 @@ import type { Request, Response } from 'express';
 import { AppException } from '../../../../common/api/app-exception';
 import type { RequestWithId } from '../../../../common/types/request-with-id';
 import { cookiesConfig } from '../../../../config/cookies.config';
+import { CsrfService } from '../../csrf';
 import { LoginUseCase } from '../application/login.use-case';
 import { RefreshSessionUseCase } from '../application/refresh-session.use-case';
 import {
@@ -32,6 +33,7 @@ export class AuthenticationController {
   constructor(
     private readonly login: LoginUseCase,
     private readonly refresh: RefreshSessionUseCase,
+    private readonly csrf: CsrfService,
     @Inject(cookiesConfig.KEY)
     private readonly cookies: ConfigType<typeof cookiesConfig>,
   ) {}
@@ -63,6 +65,12 @@ export class AuthenticationController {
     // §5.1 step 10. The challenge id is the only thing that crosses, and it
     // authenticates nothing on its own — no cookie is set on this branch, so
     // a client that ignores the 401 is left exactly as signed-out as it was.
+    // The CSRF token is deliberately left alone on this branch. There is no
+    // session to bind it to, and the client still has a challenge to post: a
+    // rebinding here would void the token it needs for the second leg, while
+    // a rebinding to the challenge id would bind it to something that
+    // authenticates nobody. The challenge verification creates the session,
+    // so the rebinding belongs there — see MfaChallengeController.
     if (result.outcome === 'MFA_REQUIRED') {
       throw new AppException('AUTH_MFA_REQUIRED', {
         extensions: { challengeId: result.challengeId },
@@ -70,6 +78,11 @@ export class AuthenticationController {
     }
 
     setSessionCookies(response, this.cookieSettings(), result);
+
+    // ADR-0016's rebinding: the anonymous context is replaced by one naming
+    // the session just created, so the token that got this request past the
+    // guard no longer verifies against anything the browser will send next.
+    this.csrf.bindToSession(response, result.sessionId);
 
     // Tokens live in cookies, never in the body: a body token is readable by
     // JavaScript, which AUTH-INV-001 forbids.

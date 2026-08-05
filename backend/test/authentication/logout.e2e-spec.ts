@@ -12,6 +12,7 @@ import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
+import { csrfOf, preSessionCsrf, type Csrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -23,6 +24,7 @@ describeWithDatabase('session revocation', () => {
   let app: NestExpressApplication;
   let pool: Pool;
   let names: { access: string; refresh: string };
+  let csrfName: string;
 
   const unique = (): string => randomUUID().replaceAll('-', '').slice(0, 12);
   const suffix = unique();
@@ -33,6 +35,8 @@ describeWithDatabase('session revocation', () => {
   interface Signed {
     readonly sessionId: string;
     readonly cookies: string;
+    /** Rebound to this session by the login response (ADR-0016). */
+    readonly csrf: Csrf;
   }
 
   function cookiesOf(response: request.Response): string[] {
@@ -55,8 +59,10 @@ describeWithDatabase('session revocation', () => {
   }
 
   async function signIn(): Promise<Signed> {
+    const handshake = await preSessionCsrf(app);
     const response = await request(app.getHttpServer())
       .post(SESSIONS)
+      .set(handshake.headers())
       .send({ email, password: PASSWORD, clientType: 'WEB' });
 
     expect(response.status).toBe(201);
@@ -68,6 +74,7 @@ describeWithDatabase('session revocation', () => {
       sessionId: (response.body as ApiEnvelope<{ sessionId: string }>).data
         ?.sessionId as string,
       cookies: `${names.access}=${access}; ${names.refresh}=${refresh}`,
+      csrf: csrfOf(app, response),
     };
   }
 
@@ -88,6 +95,7 @@ describeWithDatabase('session revocation', () => {
       cookiesConfig.KEY,
     );
     names = { access: cookies.access.name, refresh: cookies.refresh.name };
+    csrfName = cookies.csrf.name;
 
     app.use(cookieParser(cookies.secret));
     app.setGlobalPrefix('api/v1');
@@ -157,16 +165,20 @@ describeWithDatabase('session revocation', () => {
 
       const response = await request(app.getHttpServer())
         .delete(`${SESSIONS}/current`)
-        .set('Cookie', session.cookies);
+        .set(session.csrf.headers(session.cookies));
 
       expect(response.status).toBe(204);
       expect(await statusOf(session.sessionId)).toBe('REVOKED');
 
+      // The CSRF pair goes with the session pair: its context names a session
+      // that no longer exists.
       const cleared = cookiesOf(response);
-      expect(cleared).toHaveLength(2);
+      expect(cleared).toHaveLength(4);
       // C-19: the delete must replay HttpOnly, or some browsers keep the
       // cookie and the logout does not log anybody out.
-      for (const cookie of cleared) {
+      for (const cookie of cleared.filter(
+        (candidate) => !candidate.startsWith(`${csrfName}=`),
+      )) {
         expect(cookie).toContain('HttpOnly');
       }
     });
@@ -175,7 +187,7 @@ describeWithDatabase('session revocation', () => {
       const session = await signIn();
       await request(app.getHttpServer())
         .delete(`${SESSIONS}/current`)
-        .set('Cookie', session.cookies);
+        .set(session.csrf.headers(session.cookies));
 
       const rows = await pool.query<{ status: string }>(
         `SELECT status FROM refresh_token_rotations WHERE session_id = $1`,
@@ -190,7 +202,7 @@ describeWithDatabase('session revocation', () => {
       const session = await signIn();
       await request(app.getHttpServer())
         .delete(`${SESSIONS}/current`)
-        .set('Cookie', session.cookies);
+        .set(session.csrf.headers(session.cookies));
 
       const after = await request(app.getHttpServer())
         .get(SESSIONS)
@@ -199,10 +211,16 @@ describeWithDatabase('session revocation', () => {
       expect(after.status).toBe(401);
     });
 
-    it('refuses a request with no cookies at all', async () => {
-      const response = await request(app.getHttpServer()).delete(
-        `${SESSIONS}/current`,
-      );
+    /**
+     * A valid pre-session CSRF pack, so the 401 is about the missing session
+     * and not about the guard that runs before it.
+     */
+    it('refuses a request with no session cookies at all', async () => {
+      const csrf = await preSessionCsrf(app);
+
+      const response = await request(app.getHttpServer())
+        .delete(`${SESSIONS}/current`)
+        .set(csrf.headers());
 
       expect(response.status).toBe(401);
     });
@@ -225,7 +243,7 @@ describeWithDatabase('session revocation', () => {
 
       const response = await request(app.getHttpServer())
         .delete(SESSIONS)
-        .set('Cookie', second.cookies);
+        .set(second.csrf.headers(second.cookies));
 
       expect(response.status).toBe(204);
       expect(await statusOf(first.sessionId)).toBe('REVOKED');
@@ -245,7 +263,7 @@ describeWithDatabase('session revocation', () => {
 
       await request(app.getHttpServer())
         .delete(SESSIONS)
-        .set('Cookie', caller.cookies);
+        .set(caller.csrf.headers(caller.cookies));
 
       const response = await request(app.getHttpServer())
         .get(SESSIONS)
@@ -260,11 +278,11 @@ describeWithDatabase('session revocation', () => {
 
       await request(app.getHttpServer())
         .delete(SESSIONS)
-        .set('Cookie', session.cookies);
+        .set(session.csrf.headers(session.cookies));
 
       const rotation = await request(app.getHttpServer())
         .post(`${SESSIONS}/current/rotation`)
-        .set('Cookie', refresh);
+        .set(session.csrf.headers(refresh));
 
       expect(rotation.status).toBe(401);
     });
@@ -277,7 +295,7 @@ describeWithDatabase('session revocation', () => {
 
       const response = await request(app.getHttpServer())
         .delete(`${SESSIONS}/${target.sessionId}`)
-        .set('Cookie', caller.cookies);
+        .set(caller.csrf.headers(caller.cookies));
 
       expect(response.status).toBe(204);
       expect(await statusOf(target.sessionId)).toBe('REVOKED');
@@ -307,7 +325,7 @@ describeWithDatabase('session revocation', () => {
 
       const response = await request(app.getHttpServer())
         .delete(`${SESSIONS}/${stranger}`)
-        .set('Cookie', caller.cookies);
+        .set(caller.csrf.headers(caller.cookies));
 
       expect(response.status).toBe(404);
       expect(await statusOf(stranger)).toBe('ACTIVE');
@@ -320,7 +338,7 @@ describeWithDatabase('session revocation', () => {
 
       const response = await request(app.getHttpServer())
         .delete(`${SESSIONS}/ses_nonexistent`)
-        .set('Cookie', caller.cookies);
+        .set(caller.csrf.headers(caller.cookies));
 
       expect(response.status).toBe(404);
     });

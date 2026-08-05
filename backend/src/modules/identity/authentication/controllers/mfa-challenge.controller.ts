@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import { AppException } from '../../../../common/api/app-exception';
 import type { RequestWithId } from '../../../../common/types/request-with-id';
 import { cookiesConfig } from '../../../../config/cookies.config';
+import { CsrfService } from '../../csrf';
 import { MfaError } from '../../mfa/domain/mfa.errors';
 import { CompleteMfaLoginUseCase } from '../application/complete-mfa-login.use-case';
 import { AuthenticationError } from '../domain/authentication.errors';
@@ -35,6 +36,7 @@ import {
 export class MfaChallengeController {
   constructor(
     private readonly completeLogin: CompleteMfaLoginUseCase,
+    private readonly csrf: CsrfService,
     @Inject(cookiesConfig.KEY)
     private readonly cookies: ConfigType<typeof cookiesConfig>,
   ) {}
@@ -60,6 +62,10 @@ export class MfaChallengeController {
       });
 
     setSessionCookies(response, this.cookieSettings(), result.session);
+
+    // This is the request that creates the session on a gated login, so this
+    // is where the pre-session token stops working (ADR-0016).
+    this.csrf.bindToSession(response, result.session.sessionId);
 
     return {
       userId: result.session.userId,

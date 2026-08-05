@@ -12,6 +12,7 @@ import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
+import { preSessionCsrf } from '../helpers';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -52,6 +53,7 @@ describeWithDatabase('POST /api/v1/auth/sessions/current/rotation', () => {
   async function newSession(): Promise<{ token: string; sessionId: string }> {
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/sessions')
+      .set((await preSessionCsrf(app)).headers())
       .send({ email, password: PASSWORD, clientType: 'WEB' });
 
     expect(response.status).toBe(201);
@@ -63,10 +65,17 @@ describeWithDatabase('POST /api/v1/auth/sessions/current/rotation', () => {
     };
   }
 
-  function rotate(token: string) {
+  /**
+   * The CSRF pair is merged with the refresh cookie rather than set beside it:
+   * a bare `.set('Cookie', ...)` would replace the header wholesale and drop
+   * the context the guard needs, refusing the request for the wrong reason.
+   */
+  async function rotate(token: string) {
+    const csrf = await preSessionCsrf(app);
+
     return request(app.getHttpServer())
       .post(ROTATE)
-      .set('Cookie', `${refreshCookieName}=${token}`);
+      .set(csrf.headers(`${refreshCookieName}=${token}`));
   }
 
   async function rowsOfFamily(sessionId: string) {
@@ -308,7 +317,11 @@ describeWithDatabase('POST /api/v1/auth/sessions/current/rotation', () => {
     });
 
     it('refuses a request with no refresh cookie', async () => {
-      const response = await request(app.getHttpServer()).post(ROTATE);
+      // A valid CSRF pair, so the 401 is about the missing refresh token and
+      // not about the guard that runs ahead of it.
+      const response = await request(app.getHttpServer())
+        .post(ROTATE)
+        .set((await preSessionCsrf(app)).headers());
 
       expect(response.status).toBe(401);
     });

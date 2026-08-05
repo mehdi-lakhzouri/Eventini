@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../config/authentication.config';
+import { CsrfModule } from '../csrf';
 import { MfaModule } from '../mfa';
 import { PasswordsModule } from '../passwords';
 import { SecurityEventsModule } from '../security-events';
@@ -27,6 +28,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
 
 @Module({
   imports: [
+    CsrfModule,
     IdentitySessionsModule,
     forwardRef(() => PasswordsModule),
     forwardRef(() => MfaModule),
