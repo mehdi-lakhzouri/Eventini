@@ -19,6 +19,7 @@ import {
 } from './infrastructure/logging';
 import { MetricsModule } from './infrastructure/metrics';
 import { RedisModule } from './infrastructure/redis';
+import { OrganizationsModule } from './modules/organizations';
 import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
 
@@ -80,6 +81,7 @@ if (!isProduction) {
     // endpoint that hashes first and counts afterwards is its own DoS vector.
     RateLimitingModule,
     IdentityModule,
+    OrganizationsModule,
   ],
   providers: [
     // Registered here rather than in `main.ts` because all three need DI:

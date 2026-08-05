@@ -64,4 +64,26 @@ export class PrismaSessionRepository extends SessionRepository {
   ): Promise<void> {
     await tx.user.update({ where: { id: userId }, data: { lastLoginAt: at } });
   }
+
+  async replaceSession(
+    tx: TransactionalClient,
+    input: { sessionId: string; userId: string; now: Date },
+  ): Promise<void> {
+    // Filtered on `userId` as well as the id: ownership lives in the WHERE
+    // clause, not in a check above it that a later edit could drop.
+    await tx.userSession.updateMany({
+      where: { id: input.sessionId, userId: input.userId, status: 'ACTIVE' },
+      data: {
+        status: 'REPLACED',
+        revokedAt: input.now,
+        revokedBy: input.userId,
+        revocationReason: 'ORGANIZATION_CONTEXT_SWITCHED',
+      },
+    });
+
+    await tx.refreshTokenRotation.updateMany({
+      where: { sessionId: input.sessionId, status: 'ACTIVE' },
+      data: { status: 'REVOKED', revokedAt: input.now },
+    });
+  }
 }

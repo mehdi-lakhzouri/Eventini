@@ -202,6 +202,23 @@ describe('repositories take a TenantContext first', () => {
       'infrastructure',
       'prisma-rotation.repository.ts',
     ),
+    /**
+     * The organization repository answers questions *about* tenancy rather
+     * than questions *within* one: which organizations the caller belongs to,
+     * and whether they may switch into a given one. Both run before a context
+     * for the target exists — demanding a `TenantContext` would mean demanding
+     * the answer as an argument.
+     *
+     * Ownership is enforced by the `userId` filter instead, and the two
+     * `$unscoped` calls are on rule 3's allow-list where a reviewer sees them.
+     */
+    join('modules', 'organizations', 'domain', 'organization.repository.ts'),
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-organization.repository.ts',
+    ),
     // mfa_methods and mfa_recovery_codes — PLATFORM (§3, rows 18 and 19).
     // A second factor belongs to a person, not to one of their organizations:
     // scoping it per tenant would mean enrolling an authenticator once per
@@ -284,6 +301,23 @@ describe('$unscoped stays on its allow-list', () => {
   const ALLOWED = new Set([
     // Defines it.
     join('infrastructure', 'database', 'tenant-scope.extension.ts'),
+    /**
+     * "Which organizations do I belong to" and "may I switch into this one"
+     * both span organizations by construction — the first *is* the set of
+     * them, and the second targets one the session is deliberately not scoped
+     * to yet. Filtering on the current organization would make switching away
+     * from it impossible (EVT-033).
+     *
+     * Safe because both queries filter on `userId`: the rows are the caller's
+     * own memberships, so no client-supplied organization id can widen the
+     * result.
+     */
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-organization.repository.ts',
+    ),
   ]);
 
   it('has no caller outside the allow-list', () => {

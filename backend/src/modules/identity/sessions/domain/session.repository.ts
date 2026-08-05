@@ -46,4 +46,26 @@ export abstract class SessionRepository {
     userId: string,
     at: Date,
   ): Promise<void>;
+
+  /**
+   * Retires a session that a successor has replaced, and kills its token
+   * family with it — EVT-033's organization switch.
+   *
+   * `REPLACED` rather than `REVOKED` on purpose: both end the session, but the
+   * audit trail should say whether it ended because someone signed out or
+   * because the context moved. Leaving the family alive would let the holder
+   * of the old refresh token rebuild a session still pointing at the previous
+   * organization, which is the whole thing the rotation exists to prevent.
+   *
+   * Takes the transaction: the successor and this must commit together, or a
+   * crash between them leaves the caller with two live sessions or none.
+   */
+  abstract replaceSession(
+    tx: TransactionalClient,
+    input: {
+      readonly sessionId: string;
+      readonly userId: string;
+      readonly now: Date;
+    },
+  ): Promise<void>;
 }

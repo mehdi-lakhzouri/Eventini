@@ -32,6 +32,23 @@ export interface IssuedSession {
   readonly requiresOrganizationSelection: boolean;
 }
 
+/** A session whose organization has already been decided by the caller. */
+export interface ResolvedSessionCommand {
+  readonly userId: string;
+  readonly userVersion: number;
+  readonly hasPlatformRole: boolean;
+  readonly organizationId: string | null;
+  readonly membershipId: string | null;
+  readonly clientType: SessionClientType;
+  readonly authenticationLevel: AuthenticationLevel;
+  readonly userAgent: string | null;
+  readonly ipAddress: string | null;
+  readonly requestId: string | null;
+  /** Retired in the same transaction as the successor. */
+  readonly replacingSessionId?: string;
+  readonly requiresOrganizationSelection?: boolean;
+}
+
 export interface IssueSessionCommand {
   readonly candidate: AuthenticationCandidate;
   readonly clientType: SessionClientType;
@@ -81,7 +98,35 @@ export class SessionIssuer {
     const membershipId =
       resolution.kind === 'TENANT' ? resolution.membershipId : null;
 
-    const profile = profileFor(command.clientType, candidate.hasPlatformRole);
+    return this.issueResolved({
+      userId: candidate.userId,
+      userVersion: candidate.userVersion,
+      hasPlatformRole: candidate.hasPlatformRole,
+      organizationId,
+      membershipId,
+      clientType: command.clientType,
+      authenticationLevel: command.authenticationLevel,
+      userAgent: command.userAgent,
+      ipAddress: command.ipAddress,
+      requestId: command.requestId,
+      requiresOrganizationSelection: resolution.kind === 'AMBIGUOUS',
+    });
+  }
+
+  /**
+   * Steps 14 and 15, with the organization already decided.
+   *
+   * Login reaches this through `issue`, which resolves the organization first.
+   * The organization switch of EVT-033 reaches it directly: the target is
+   * chosen by the caller and already checked against their memberships, so
+   * re-running the resolution would either ignore that choice or re-derive it.
+   *
+   * `replacingSessionId` retires the predecessor **inside the same
+   * transaction** as the successor. Committing them separately would leave a
+   * window with two live sessions, or — if the second failed — none at all.
+   */
+  async issueResolved(command: ResolvedSessionCommand): Promise<IssuedSession> {
+    const profile = profileFor(command.clientType, command.hasPlatformRole);
     const now = new Date();
     const deadlines = deadlinesFor(profile, this.config.lifetimes, now);
     const refresh = issueRefreshToken(this.config.refreshToken.hmacSecret);
@@ -92,9 +137,9 @@ export class SessionIssuer {
       const result = await this.sessions.createWithRefreshToken(
         tx,
         {
-          userId: candidate.userId,
-          organizationId,
-          membershipId,
+          userId: command.userId,
+          organizationId: command.organizationId,
+          membershipId: command.membershipId,
           clientType: command.clientType,
           authenticationLevel: command.authenticationLevel,
           idleExpiresAt: deadlines.idleExpiresAt,
@@ -106,7 +151,18 @@ export class SessionIssuer {
         { tokenHash: refresh.tokenHash, expiresAt: deadlines.refreshExpiresAt },
       );
 
-      await this.sessions.touchLastLogin(tx, candidate.userId, now);
+      if (command.replacingSessionId !== undefined) {
+        await this.sessions.replaceSession(tx, {
+          sessionId: command.replacingSessionId,
+          userId: command.userId,
+          now,
+        });
+      } else {
+        // Only a real sign-in moves `last_login_at`. A context switch is not
+        // a new login, and treating it as one would make the column useless
+        // for spotting when an account was actually used.
+        await this.sessions.touchLastLogin(tx, command.userId, now);
+      }
 
       return result;
     });
@@ -115,31 +171,32 @@ export class SessionIssuer {
     // demanding MFA can decide from the token alone.
     const access = await this.signer.issue(
       {
-        userId: candidate.userId,
+        userId: command.userId,
         sessionId: created.sessionId,
-        organizationId,
-        membershipId,
-        userVersion: candidate.userVersion,
+        organizationId: command.organizationId,
+        membershipId: command.membershipId,
+        userVersion: command.userVersion,
         clientType: command.clientType,
         authLevel: command.authenticationLevel,
       },
       accessTokenTtlSeconds(
         command.clientType,
-        candidate.hasPlatformRole,
+        command.hasPlatformRole,
         this.config.lifetimes.accessToken,
       ),
     );
 
     return {
       sessionId: created.sessionId,
-      userId: candidate.userId,
-      organizationId,
-      membershipId,
+      userId: command.userId,
+      organizationId: command.organizationId,
+      membershipId: command.membershipId,
       accessToken: access.token,
       accessTokenExpiresAt: access.expiresAt,
       refreshToken: refresh.token,
       refreshTokenExpiresAt: deadlines.refreshExpiresAt,
-      requiresOrganizationSelection: resolution.kind === 'AMBIGUOUS',
+      requiresOrganizationSelection:
+        command.requiresOrganizationSelection ?? false,
     };
   }
 }
