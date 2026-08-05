@@ -14,6 +14,25 @@ class FakeRedis implements RedisConnection {
   evalShaCount = 0;
   loadFailure: Error | undefined;
 
+  // Not exercised by the registry, which only ever runs scripts. Declared so
+  // the fake implements the port in full and a future method cannot be added
+  // to the interface without this file noticing.
+  get(): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
+  incr(): Promise<number> {
+    return Promise.resolve(1);
+  }
+
+  pExpire(): Promise<unknown> {
+    return Promise.resolve(1);
+  }
+
+  del(): Promise<number> {
+    return Promise.resolve(0);
+  }
+
   scriptLoad(script: string): Promise<string> {
     if (this.loadFailure) {
       return Promise.reject(this.loadFailure);

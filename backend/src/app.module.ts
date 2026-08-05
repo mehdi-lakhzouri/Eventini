@@ -19,6 +19,7 @@ import {
 } from './infrastructure/logging';
 import { MetricsModule } from './infrastructure/metrics';
 import { RedisModule } from './infrastructure/redis';
+import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
 
 /**
@@ -72,6 +73,12 @@ if (!isProduction) {
     // not start able to serve `/auth/sessions` with no limiter behind it.
     RedisModule,
     HealthModule,
+    // Ahead of IdentityModule, and the order is load-bearing: Nest runs
+    // APP_GUARD providers in registration order, so this is what puts
+    // RateLimitGuard in front of CsrfGuard. §7.5 requires rate limiting to run
+    // before CSRF, before validation and above all before Argon2id — a login
+    // endpoint that hashes first and counts afterwards is its own DoS vector.
+    RateLimitingModule,
     IdentityModule,
   ],
   providers: [

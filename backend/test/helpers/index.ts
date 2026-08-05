@@ -1,9 +1,47 @@
 import type { INestApplication } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
+import { createClient } from 'redis';
 import request from 'supertest';
 
 import { applicationConfig } from '../../src/config/application.config';
 import { cookiesConfig } from '../../src/config/cookies.config';
+
+/**
+ * Clears the rate-limit and lockout counters (EVT-030).
+ *
+ * The limiter is shared state in Redis exactly as rows are shared state in
+ * PostgreSQL, and a suite that signs in twenty times legitimately exhausts the
+ * per-IP login window — every e2e request arrives from 127.0.0.1, so from the
+ * limiter's point of view the whole suite is one very determined client. That
+ * is the limiter working, not a defect, so the fix is isolation rather than a
+ * looser limit: `rate-limit.e2e-spec.ts` is where the ceilings are proven.
+ *
+ * Scoped to `rl:*` and `lockout:*`. A `FLUSHDB` would also take the MFA
+ * challenges and CSRF contexts other suites are mid-way through using.
+ */
+export async function resetRateLimits(): Promise<void> {
+  const url = process.env.REDIS_URL;
+
+  if (url === undefined) {
+    return;
+  }
+
+  const client = createClient({ url });
+  client.on('error', () => undefined);
+  await client.connect();
+
+  try {
+    for (const pattern of ['rl:*', 'lockout:*']) {
+      const keys = await client.keys(pattern);
+
+      if (keys.length > 0) {
+        await client.del(keys);
+      }
+    }
+  } finally {
+    await client.quit();
+  }
+}
 
 /**
  * Everything a mutating request needs to get past `CsrfGuard` (EVT-028).

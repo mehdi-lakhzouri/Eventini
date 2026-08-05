@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../config/authentication.config';
+import { RateLimitingModule } from '../../rate-limiting';
 import { CsrfModule } from '../csrf';
 import { MfaModule } from '../mfa';
 import { PasswordsModule } from '../passwords';
@@ -29,6 +30,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
 @Module({
   imports: [
     CsrfModule,
+    RateLimitingModule,
     IdentitySessionsModule,
     forwardRef(() => PasswordsModule),
     forwardRef(() => MfaModule),
