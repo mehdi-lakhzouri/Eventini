@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../config/authentication.config';
@@ -24,7 +24,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
 @Module({
   imports: [
     IdentitySessionsModule,
-    PasswordsModule,
+    forwardRef(() => PasswordsModule),
     MfaModule,
     SecurityEventsModule,
   ],
@@ -59,6 +59,6 @@ type Auth = ConfigType<typeof authenticationConfig>;
     LogoutUseCase,
     RefreshSessionUseCase,
   ],
-  exports: [AccessTokenSigner, AccessTokenVerifier],
+  exports: [AccessTokenSigner, AccessTokenVerifier, CallerResolver],
 })
 export class AuthenticationModule {}

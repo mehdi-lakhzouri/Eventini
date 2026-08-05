@@ -119,6 +119,43 @@ export class PrismaRevocationRepository extends RevocationRepository {
     });
   }
 
+  async revokeOtherSessions(input: {
+    userId: string;
+    keepSessionId: string;
+    revokedBy: string;
+    reason: string;
+    now: Date;
+  }): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const sessions = await tx.userSession.findMany({
+        where: {
+          userId: input.userId,
+          status: 'ACTIVE',
+          id: { not: input.keepSessionId },
+        },
+        select: { id: true },
+      });
+      const ids = sessions.map((session) => session.id);
+
+      await tx.userSession.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          status: 'REVOKED',
+          revokedAt: input.now,
+          revokedBy: input.revokedBy,
+          revocationReason: input.reason,
+        },
+      });
+
+      await tx.refreshTokenRotation.updateMany({
+        where: { sessionId: { in: ids }, status: 'ACTIVE' },
+        data: { status: 'REVOKED', revokedAt: input.now },
+      });
+
+      return ids.length;
+    });
+  }
+
   async revokeAllSessions(input: {
     userId: string;
     revokedBy: string;
