@@ -276,6 +276,22 @@ export const MFA_METHOD_STATUSES = [
 export type MfaMethodStatus = (typeof MFA_METHOD_STATUSES)[number];
 
 /**
+ * The five states of IDEMPOTENCY_AND_CONCURRENCY.md §5.
+ *
+ * `FAILED_FINAL` is the one worth reading twice: a definitive 4xx is
+ * *memorised* rather than re-executed, because replaying an operation that
+ * will refuse identically spends resources to produce the same refusal.
+ */
+export const IDEMPOTENCY_STATUSES = [
+  'PENDING',
+  'COMPLETED',
+  'FAILED_RETRYABLE',
+  'FAILED_FINAL',
+  'EXPIRED',
+] as const;
+export type IdempotencyStatus = (typeof IDEMPOTENCY_STATUSES)[number];
+
+/**
  * Maps each CHECK constraint to the values it permits.
  *
  * Keyed by constraint name so the spec can look each one up in the migration
@@ -306,4 +322,5 @@ export const CHECK_CONSTRAINT_VALUES: Readonly<
   ck_invitations_status: INVITATION_STATUSES,
   ck_mfa_methods_type: MFA_METHOD_TYPES,
   ck_mfa_methods_status: MFA_METHOD_STATUSES,
+  ck_idempotency_records_status: IDEMPOTENCY_STATUSES,
 };

@@ -105,6 +105,20 @@ export const TENANT_OWNERSHIP = {
    */
   SecurityEvent: 'TENANT_OPTIONAL',
   AuditLog: 'TENANT_OPTIONAL',
+
+  // --- Migration 13, idempotency -------------------------------------------
+  /**
+   * Mixed: `POST /platform/organizations` needs an idempotency key and has no
+   * organization to scope it to — the request is what creates one. §8.3
+   * classifies the table "ORGANIZATION-OWNED nullable" for that reason.
+   *
+   * The isolation that matters here is not lost, it is moved: the tenant is
+   * part of `ux_idempotency_scope`, so the same key in two organizations
+   * cannot collide, and `IdempotencyRepository` takes a `TenantContext` first
+   * so every query it issues carries the filter this classification does not
+   * demand.
+   */
+  IdempotencyRecord: 'TENANT_OPTIONAL',
 } as const satisfies Record<string, TenantOwnership>;
 
 export type ClassifiedModel = keyof typeof TENANT_OWNERSHIP;
