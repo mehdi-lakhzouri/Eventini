@@ -18,6 +18,7 @@ import {
   RequestContextInterceptor,
 } from './infrastructure/logging';
 import { MetricsModule } from './infrastructure/metrics';
+import { RedisModule } from './infrastructure/redis';
 import { IdentityModule } from './modules/identity';
 
 /**
@@ -65,6 +66,11 @@ if (!isProduction) {
     // Ahead of HealthModule: the database readiness indicator injects
     // PrismaService, so the module providing it has to be constructed first.
     PrismaModule,
+    // Ahead of everything that rate-limits or locks out: `RedisScriptRegistry`
+    // loads the four Lua scripts in its `onModuleInit`, and a failure there is
+    // fatal by design (REDIS_KEYS_AND_LUA_SCRIPTS.md §6) — the application must
+    // not start able to serve `/auth/sessions` with no limiter behind it.
+    RedisModule,
     HealthModule,
     IdentityModule,
   ],

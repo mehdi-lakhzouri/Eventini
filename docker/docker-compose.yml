@@ -49,7 +49,13 @@ services:
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    # `maxmemory-policy noeviction` is Redis's default, and it is stated here
+    # anyway: under an `allkeys-*` policy Redis would drop the least recently
+    # used keys under memory pressure, and a lockout counter or a distributed
+    # lock — written once, read rarely — is close to the ideal LRU victim. An
+    # eviction must never be able to switch off a security control
+    # (REDIS_KEYS_AND_LUA_SCRIPTS.md §2). Memory is bounded by TTLs instead.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD}"]
     ports:
       - "${REDIS_PORT}:6379"
     volumes:
