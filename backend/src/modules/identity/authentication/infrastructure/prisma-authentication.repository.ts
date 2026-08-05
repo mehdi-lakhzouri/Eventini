@@ -7,6 +7,46 @@ import {
   type AuthenticationCandidate,
 } from '../domain/authentication.repository';
 
+/**
+ * Shared so the two lookups cannot drift apart. They answer the same question
+ * about the same account — one keyed by address at password time, one keyed by
+ * id when a challenge is answered — and a field present in only one of them
+ * would mean the MFA path decided on different evidence.
+ */
+const CANDIDATE_SELECT = {
+  id: true,
+  status: true,
+  version: true,
+  credential: { select: { passwordHash: true, passwordVersion: true } },
+  mfaMethods: { where: { status: 'ACTIVE' }, select: { id: true } },
+  platformRoleAssignments: {
+    where: { status: 'ACTIVE' },
+    select: { role: { select: { code: true } } },
+  },
+  memberships: {
+    where: { status: 'ACTIVE', deletedAt: null },
+    select: {
+      id: true,
+      organizationId: true,
+      organization: { select: { status: true, isEnabled: true } },
+    },
+  },
+} as const;
+
+type CandidateRow = {
+  id: string;
+  status: string;
+  version: number;
+  credential: { passwordHash: string; passwordVersion: number } | null;
+  mfaMethods: readonly unknown[];
+  platformRoleAssignments: readonly { role: { code: string } }[];
+  memberships: readonly {
+    id: string;
+    organizationId: string;
+    organization: { status: string; isEnabled: boolean };
+  }[];
+};
+
 @Injectable()
 export class PrismaAuthenticationRepository extends AuthenticationRepository {
   constructor(
@@ -23,45 +63,43 @@ export class PrismaAuthenticationRepository extends AuthenticationRepository {
       // Soft-deleted accounts do not authenticate; the partial unique index
       // excludes them, so the address may even belong to someone else now.
       where: { normalizedEmail, deletedAt: null },
-      select: {
-        id: true,
-        status: true,
-        version: true,
-        credential: { select: { passwordHash: true, passwordVersion: true } },
-        mfaMethods: { where: { status: 'ACTIVE' }, select: { id: true } },
-        platformRoleAssignments: {
-          where: { status: 'ACTIVE' },
-          select: { id: true },
-        },
-        memberships: {
-          where: { status: 'ACTIVE', deletedAt: null },
-          select: {
-            id: true,
-            organizationId: true,
-            organization: { select: { status: true, isEnabled: true } },
-          },
-        },
-      },
+      select: CANDIDATE_SELECT,
     });
 
-    if (user === null) {
-      return null;
-    }
-
-    return {
-      userId: user.id,
-      status: user.status,
-      userVersion: user.version,
-      passwordHash: user.credential?.passwordHash ?? null,
-      passwordVersion: user.credential?.passwordVersion ?? 0,
-      hasActiveMfa: user.mfaMethods.length > 0,
-      hasPlatformRole: user.platformRoleAssignments.length > 0,
-      memberships: user.memberships.map((membership) => ({
-        membershipId: membership.id,
-        organizationId: membership.organizationId,
-        organizationActive: membership.organization.status === 'ACTIVE',
-        organizationEnabled: membership.organization.isEnabled,
-      })),
-    };
+    return user === null ? null : toCandidate(user);
   }
+
+  async findCandidateById(
+    userId: string,
+  ): Promise<AuthenticationCandidate | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: CANDIDATE_SELECT,
+    });
+
+    return user === null ? null : toCandidate(user);
+  }
+}
+
+function toCandidate(user: CandidateRow): AuthenticationCandidate {
+  const platformRoles = user.platformRoleAssignments.map(
+    (assignment) => assignment.role.code,
+  );
+
+  return {
+    userId: user.id,
+    status: user.status,
+    userVersion: user.version,
+    passwordHash: user.credential?.passwordHash ?? null,
+    passwordVersion: user.credential?.passwordVersion ?? 0,
+    hasActiveMfa: user.mfaMethods.length > 0,
+    hasPlatformRole: platformRoles.length > 0,
+    isSuperAdmin: platformRoles.includes('SUPER_ADMIN'),
+    memberships: user.memberships.map((membership) => ({
+      membershipId: membership.id,
+      organizationId: membership.organizationId,
+      organizationActive: membership.organization.status === 'ACTIVE',
+      organizationEnabled: membership.organization.isEnabled,
+    })),
+  };
 }

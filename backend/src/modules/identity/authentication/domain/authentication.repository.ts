@@ -9,6 +9,8 @@ export interface AuthenticationCandidate {
   readonly passwordVersion: number;
   readonly hasActiveMfa: boolean;
   readonly hasPlatformRole: boolean;
+  /** Step 10 requires MFA of a `SUPER_ADMIN` regardless of enrolment. */
+  readonly isSuperAdmin: boolean;
   readonly memberships: readonly ActiveMembership[];
 }
 
@@ -20,5 +22,17 @@ export abstract class AuthenticationRepository {
    */
   abstract findCandidateByEmail(
     normalizedEmail: string,
+  ): Promise<AuthenticationCandidate | null>;
+
+  /**
+   * Re-reads the account when an MFA challenge is answered.
+   *
+   * The challenge lives five minutes, and nothing stops an account being
+   * suspended or a membership revoked inside that window. Completing the login
+   * from state captured at password time would honour privileges that no
+   * longer exist, so the decision is taken again on fresh rows.
+   */
+  abstract findCandidateById(
+    userId: string,
   ): Promise<AuthenticationCandidate | null>;
 }

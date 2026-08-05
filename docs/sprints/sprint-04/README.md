@@ -36,7 +36,7 @@ C'est le sprint où les invariants `AUTH-INV-001` à `AUTH-INV-012` du Document 
 | [EVT-024](#evt-024) | Rotation et détection de rejeu | — |
 | [EVT-025](#evt-025) | Déconnexion et révocation | — |
 | [EVT-026](#evt-026) | Reset de mot de passe et vérification d'email | — |
-| [EVT-027](#evt-027) | MFA TOTP | — |
+| [EVT-027](#evt-027) | MFA TOTP | ✅ |
 
 ---
 
@@ -297,11 +297,11 @@ authentication/
 | 1, 2, 6, 7, 8, 9, 11, 12, 13, 14, 15, 19, 20 | ✅ livrées |
 | 3, 4 — rate limit et lockout | ⏳ **EVT-030**, qui dépend de Redis (EVT-029) |
 | 5, 16 — CSRF pré-session et token CSRF | ⏳ **EVT-028** |
-| 10 — porte MFA | ⏳ **EVT-027** |
+| 10 — porte MFA | ✅ **EVT-027** |
 
 Ces quatre tickets sont **postérieurs** à celui-ci dans le plan de sprint : les étapes ne sont pas oubliées, elles ne sont pas encore constructibles. Deux des trois cookies sont posés ; le troisième est celui du CSRF.
 
-Conséquence assumée et rendue visible dans le code : **toute session naît en `authentication_level = 'PASSWORD'`**, jamais en `MFA`. Un test l'asserte même pour un utilisateur qui possède déjà une méthode MFA active, pour qu'aucun code écrit d'ici EVT-027 ne suppose l'inverse.
+Conséquence à l'époque : toute session naissait en `authentication_level = 'PASSWORD'`. **Résolu par [EVT-027](#evt-027)**, qui a inversé le test correspondant : un utilisateur possédant une méthode MFA active n'obtient plus de session du tout avant vérification.
 
 ### 🔴 L'étape 7, et pourquoi l'ordre des vérifications compte
 
@@ -590,6 +590,83 @@ Routes   POST /auth/password-reset-requests · POST /auth/password-resets
 ## EVT-027 — MFA TOTP
 <a id="evt-027"></a>
 
+> ✅ **Fait le 5 août 2026.** Les cinq routes fonctionnent contre PostgreSQL réel, 15 tests e2e. Le critère d'acceptation ci-dessous est tenu et prouvé par quatre tests e2e dédiés.
+
+### Le critère d'acceptation, et comment il est prouvé
+
+> 🔴 **Critère explicite du propriétaire du produit** : lorsque le MFA est activé, **aucune session finale, aucun access token, aucun refresh token** ne doit être émis avant la vérification d'un code TOTP ou d'un code de récupération.
+
+L'ordre est le contrôle. L'étape 10 est placée **avant toute ligne qui émet quelque chose** — avant la résolution d'organisation, avant la transaction, avant la signature du token. Un mot de passe correct n'achète que le droit d'être interrogé.
+
+| Preuve | Test |
+|---|---|
+| Aucun cookie posé | `answers AUTH_MFA_REQUIRED and sets no cookie at all` |
+| Aucune ligne `user_sessions` | `creates no session row for a login stopped at the gate` |
+| Rien de jeton-formé dans le corps | `carries the challenge id and nothing else` |
+| La session naît bien en `MFA` ensuite | `issues the session once the code is right, at level MFA` |
+
+Le type de retour rend l'erreur impossible plutôt que testée : `LoginResult` est une **union discriminée**, et la branche `MFA_REQUIRED` ne *possède* pas de champ token. Le compilateur a refusé le contrôleur tant qu'il ne traitait pas la branche.
+
+**Le test d'EVT-023 a été inversé**, comme ce document l'exigeait. `starts every session at PASSWORD, never at MFA` devient `starts a session without MFA at PASSWORD`, accompagné de six tests de porte.
+
+### 🔴 Trois bugs dans le wrapper TOTP, tous invisibles aux tests classiques
+
+Le typage d'`otplib` 13 a fait apparaître le premier ; les deux autres ont été trouvés en vérifiant la bibliothèque plutôt qu'en la supposant. **Chacun aurait produit un code auto-cohérent** — l'enrôlement et la vérification se seraient mis d'accord entre eux, et tous les tests écrits sur ce seul couple seraient passés au vert, pendant qu'aucune application d'authentification réelle n'aurait fonctionné.
+
+| Bug | Ce qui se serait passé |
+|---|---|
+| `'SHA-1'` au lieu de `'sha1'` | valeur hors du type `HashAlgorithm` : **codes différents**, silencieusement |
+| `window` au lieu de `epochTolerance` | clé inconnue **ignorée** → tolérance de dérive à 0 au lieu de ±1 fenêtre |
+| `\d` dans un *template literal* | l'échappement tombe : motif `^d{6}$`, qui **rejetait tout code valide** |
+
+La parade est une référence externe : les **vecteurs de test officiels de la RFC 6238 (annexe B)** sont désormais dans la suite. Ils sont la seule chose qui distingue « correct » de « d'accord avec soi-même ».
+
+### Ce que la porte MFA a obligé à extraire
+
+Deux chemins mènent maintenant à une session : le login direct, et le login vérifié par code. Ils doivent produire **exactement** la même session.
+
+```
+authentication/application/
+├── session-issuer.ts            étapes 11→15, seule implémentation
+├── login.use-case.ts            étapes 6→10, puis délègue
+└── complete-mfa-login.use-case.ts   vérifie le challenge, puis délègue
+```
+
+Le niveau d'authentification est un **paramètre**, pas une branche dupliquée.
+
+**L'utilisateur est relu à la vérification, pas mémorisé.** Un challenge vit cinq minutes ; une suspension ou une révocation survenue dans cette fenêtre doit s'appliquer. Compléter la connexion sur l'état capturé au moment du mot de passe honorerait des droits qui n'existent plus.
+
+**Le type de client vient du challenge, pas de la requête.** Sinon un challenge ouvert par un scanner pourrait être terminé en session web et hériter des durées de vie plus longues.
+
+### `SUPER_ADMIN` : la clause redondante est écrite quand même
+
+Le §5.1 dit « méthode `ACTIVE` **ou** rôle `SUPER_ADMIN` ». La seconde clause est redondante tant qu'INV-11 tient. Elle est implémentée malgré tout, parce que les deux modes de défaillance ne sont pas symétriques : si l'invariant était contourné, filtrer sur le seul enrôlement laisserait entrer un administrateur plateforme avec un simple mot de passe, alors que filtrer sur le rôle le bloque jusqu'à restauration du MFA. **Fail-closed est le bon côté pour ce compte-là.**
+
+### RFC 9457 : membres d'extension
+
+Un challenge doit atteindre un client qu'on est en train de refuser. Le §3.2 de la RFC 9457 prévoit exactement cela, donc `ProblemDetails` gagne `extensions`. Le type est volontairement `Record<string, string>` — un refus est la seule réponse qu'un appelant non authentifié peut toujours provoquer, et le type refuse de transporter un objet qu'on aurait pu convaincre le serveur de trop partager.
+
+### 🟡 Ce qui n'est pas fait, et pourquoi
+
+- **Anti-rejeu d'un code TOTP dans sa propre fenêtre** (RFC 6238 §5.2). Cela demande de mémoriser le dernier `timeStep` accepté ; `otplib` l'expose (`afterTimeStep`), mais `mfa_methods` n'a **pas de colonne pour cela** dans `DATABASE_SCHEMA.md` §4.7, dont la liste de colonnes est normative. Ajouter silencieusement une colonne à une table que le corpus fige serait le mauvais réflexe. **À spécifier, puis implémenter** — le risque résiduel est un code observé et rejoué dans les 30 s, borné par le fait que le challenge, lui, est bien à usage unique.
+- **Le rate limiting** des tentatives de code appartient à EVT-030 ; le compteur de 5 tentatives par challenge est en place.
+- **Le store de challenges est en mémoire** jusqu'à EVT-029 (Redis). En multi-instance, un challenge ouvert sur une instance échoue sur une autre : c'est une limite de **disponibilité**, pas de sécurité — l'échec est fermé.
+
+### Structure livrée
+
+```
+mfa/domain/          totp.ts · recovery-codes.ts · mfa-challenge.store.ts
+                     mfa.repository.ts · mfa.errors.ts
+mfa/infrastructure/  mfa-secret.cipher.ts · memory-mfa-challenge.store.ts
+                     prisma-mfa.repository.ts
+mfa/application/     begin/confirm-enrollment · verify-mfa · disable-mfa
+                     regenerate-recovery-codes
+mfa/controllers/     mfa.controller.ts              (enrôlement, méthodes, codes)
+authentication/controllers/mfa-challenge.controller.ts  (vérification → session)
+```
+
+Le partage est fait sur **ce qui est émis** : les routes qui produisent une session vivent avec l'émission de session, celles qui gèrent une méthode vivent dans le module MFA.
+
 > 🔴 **Critère d'acceptation explicite, ajouté à la demande du propriétaire du produit.**
 >
 > **Le gating MFA à la connexion fait partie du périmètre de ce ticket, pas d'un suivi.** Lorsqu'un utilisateur a le MFA activé, l'étape 10 du §5.1 doit refuser d'émettre **quoi que ce soit d'utilisable** avant la vérification d'un code TOTP ou d'un code de récupération :
@@ -602,7 +679,7 @@ Routes   POST /auth/password-reset-requests · POST /auth/password-resets
 >
 > Seul un challenge MFA (5 min, 5 tentatives) est créé, et la réponse est `AUTH_MFA_REQUIRED`.
 >
-> **État actuel à surveiller** — [EVT-023](#evt-023) crée aujourd'hui toute session en `authentication_level = 'PASSWORD'`, et un test l'asserte même pour un utilisateur possédant déjà une méthode MFA active. Ce test devra être **inversé** par EVT-027 : il existe précisément pour que ce ticket ne puisse pas être considéré terminé sans avoir traité le cas.
+> ✅ **Tenu.** Le test d'[EVT-023](#evt-023) qui exigeait `PASSWORD` pour toute session a bien été inversé — voir « Le critère d'acceptation, et comment il est prouvé » plus haut.
 
 ```
 Branche  feat/EVT-027-mfa-totp
@@ -613,10 +690,11 @@ Routes   POST   /auth/mfa/enrollments
          POST   /auth/mfa/recovery-codes
 ```
 
-**État actuel** — `otplib` est installé et **jamais importé**. Les 5 use cases MFA sont des classes vides.
+**État au démarrage du ticket** — `otplib` était installé et jamais importé, les 5 use cases MFA étaient des classes vides.
 
 ```
 algorithme  SHA-1        (RFC 6238 ; SHA-256 casse des applications d'authentification)
+            ⚠ en code la valeur est 'sha1' — 'SHA-1' produit des codes differents
 chiffres    6
 période     30 s
 dérive      ±1 fenêtre

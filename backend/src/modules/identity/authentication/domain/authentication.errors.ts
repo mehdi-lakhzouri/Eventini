@@ -15,6 +15,7 @@ export type LoginRejection =
   | 'NO_CREDENTIAL'
   | 'USER_NOT_ACTIVE'
   | 'ORGANIZATION_UNAVAILABLE'
+  | 'MFA_CHALLENGE_UNKNOWN'
   | 'NO_ACCESS';
 
 export class AuthenticationError extends Error {

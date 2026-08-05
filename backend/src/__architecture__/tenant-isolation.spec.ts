@@ -202,6 +202,18 @@ describe('repositories take a TenantContext first', () => {
       'infrastructure',
       'prisma-rotation.repository.ts',
     ),
+    // mfa_methods and mfa_recovery_codes — PLATFORM (§3, rows 18 and 19).
+    // A second factor belongs to a person, not to one of their organizations:
+    // scoping it per tenant would mean enrolling an authenticator once per
+    // membership, and MFA gates login, which runs before any tenant is known.
+    join('modules', 'identity', 'mfa', 'domain', 'mfa.repository.ts'),
+    join(
+      'modules',
+      'identity',
+      'mfa',
+      'infrastructure',
+      'prisma-mfa.repository.ts',
+    ),
   ]);
 
   const allRepositories = sourceFiles

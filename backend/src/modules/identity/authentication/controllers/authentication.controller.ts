@@ -60,6 +60,15 @@ export class AuthenticationController {
         throw toLoginException(error);
       });
 
+    // §5.1 step 10. The challenge id is the only thing that crosses, and it
+    // authenticates nothing on its own — no cookie is set on this branch, so
+    // a client that ignores the 401 is left exactly as signed-out as it was.
+    if (result.outcome === 'MFA_REQUIRED') {
+      throw new AppException('AUTH_MFA_REQUIRED', {
+        extensions: { challengeId: result.challengeId },
+      });
+    }
+
     setSessionCookies(response, this.cookieSettings(), result);
 
     // Tokens live in cookies, never in the body: a body token is readable by
