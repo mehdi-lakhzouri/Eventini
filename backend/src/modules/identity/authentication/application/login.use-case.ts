@@ -1,22 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { ConfigType } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 
-import { authenticationConfig } from '../../../../config/authentication.config';
 import type { SessionClientType } from '../../../../infrastructure/database/enums';
 import { normalizeEmail } from '../../../../infrastructure/database/normalize-email';
-import { TransactionManager } from '../../../../infrastructure/database/transaction.manager';
+import { MfaChallengeStore } from '../../mfa/domain/mfa-challenge.store';
 import { PasswordHasher } from '../../passwords/domain/password-hasher';
-import { issueRefreshToken } from '../../sessions/domain/refresh-token';
-import {
-  deadlinesFor,
-  profileFor,
-} from '../../sessions/domain/session-profile';
-import { SessionRepository } from '../../sessions/domain/session.repository';
 import { AuthenticationError } from '../domain/authentication.errors';
 import { AuthenticationRepository } from '../domain/authentication.repository';
-import { resolveOrganization } from '../domain/organization-resolution';
-import { accessTokenTtlSeconds } from '../infrastructure/jwt/access-token.lifetime';
-import { AccessTokenSigner } from '../infrastructure/jwt/access-token.signer';
+import { SessionIssuer, type IssuedSession } from './session-issuer';
 
 export interface LoginCommand {
   readonly email: string;
@@ -27,29 +17,28 @@ export interface LoginCommand {
   readonly requestId: string | null;
 }
 
-export interface LoginResult {
-  readonly sessionId: string;
-  readonly userId: string;
-  readonly organizationId: string | null;
-  readonly membershipId: string | null;
-  readonly accessToken: string;
-  readonly accessTokenExpiresAt: Date;
-  readonly refreshToken: string;
-  readonly refreshTokenExpiresAt: Date;
-  /** True when several organizations were usable and none was chosen. */
-  readonly requiresOrganizationSelection: boolean;
+export interface MfaRequired {
+  readonly outcome: 'MFA_REQUIRED';
+  readonly challengeId: string;
 }
+
+export type SessionEstablished = IssuedSession & {
+  readonly outcome: 'SESSION_ESTABLISHED';
+};
+
+/**
+ * A discriminated union rather than a session with nullable fields: it is not
+ * possible to read a token off the MFA branch, because the branch has none.
+ */
+export type LoginResult = SessionEstablished | MfaRequired;
 
 @Injectable()
 export class LoginUseCase {
   constructor(
     private readonly users: AuthenticationRepository,
-    private readonly sessions: SessionRepository,
     private readonly hasher: PasswordHasher,
-    private readonly signer: AccessTokenSigner,
-    private readonly transactions: TransactionManager,
-    @Inject(authenticationConfig.KEY)
-    private readonly config: ConfigType<typeof authenticationConfig>,
+    private readonly challenges: MfaChallengeStore,
+    private readonly issuer: SessionIssuer,
   ) {}
 
   async execute(command: LoginCommand): Promise<LoginResult> {
@@ -81,85 +70,46 @@ export class LoginUseCase {
       throw new AuthenticationError('USER_NOT_ACTIVE');
     }
 
-    // Steps 11 to 13.
-    const resolution = resolveOrganization(
-      candidate.memberships,
-      candidate.hasPlatformRole,
-    );
+    // Step 10, and it sits ahead of every line that mints something. A correct
+    // password alone buys a challenge id and nothing else: no session row, no
+    // access token, no refresh token, no `last_login_at`. Ordering is the
+    // whole control — anything issued here would already be in the client's
+    // hands by the time the code was asked for.
+    if (requiresMfa(candidate)) {
+      const challenge = await this.challenges.create({
+        userId: candidate.userId,
+        clientType: command.clientType,
+      });
 
-    if (resolution.kind === 'ORGANIZATION_UNAVAILABLE') {
-      throw new AuthenticationError('ORGANIZATION_UNAVAILABLE');
+      return { outcome: 'MFA_REQUIRED', challengeId: challenge.challengeId };
     }
 
-    if (resolution.kind === 'DENIED') {
-      throw new AuthenticationError('NO_ACCESS');
-    }
-
-    const organizationId =
-      resolution.kind === 'TENANT' ? resolution.organizationId : null;
-    const membershipId =
-      resolution.kind === 'TENANT' ? resolution.membershipId : null;
-
-    const profile = profileFor(command.clientType, candidate.hasPlatformRole);
-    const now = new Date();
-    const deadlines = deadlinesFor(profile, this.config.lifetimes, now);
-    const refresh = issueRefreshToken(this.config.refreshToken.hmacSecret);
-
-    // Step 14. One transaction: a session without its first refresh token is
-    // a session nobody can ever continue.
-    const created = await this.transactions.runInTransaction(async (tx) => {
-      const result = await this.sessions.createWithRefreshToken(
-        tx,
-        {
-          userId: candidate.userId,
-          organizationId,
-          membershipId,
-          clientType: command.clientType,
-          // MFA gating is EVT-027, so every session starts at PASSWORD and no
-          // code may assume otherwise.
-          authenticationLevel: 'PASSWORD',
-          idleExpiresAt: deadlines.idleExpiresAt,
-          absoluteExpiresAt: deadlines.absoluteExpiresAt,
-          userAgent: command.userAgent,
-          ipAddress: command.ipAddress,
-          requestId: command.requestId,
-        },
-        { tokenHash: refresh.tokenHash, expiresAt: deadlines.refreshExpiresAt },
-      );
-
-      await this.sessions.touchLastLogin(tx, candidate.userId, now);
-
-      return result;
+    const session = await this.issuer.issue({
+      candidate,
+      clientType: command.clientType,
+      authenticationLevel: 'PASSWORD',
+      userAgent: command.userAgent,
+      ipAddress: command.ipAddress,
+      requestId: command.requestId,
     });
 
-    // Step 15.
-    const access = await this.signer.issue(
-      {
-        userId: candidate.userId,
-        sessionId: created.sessionId,
-        organizationId,
-        membershipId,
-        userVersion: candidate.userVersion,
-        clientType: command.clientType,
-        authLevel: 'PASSWORD',
-      },
-      accessTokenTtlSeconds(
-        command.clientType,
-        candidate.hasPlatformRole,
-        this.config.lifetimes.accessToken,
-      ),
-    );
-
-    return {
-      sessionId: created.sessionId,
-      userId: candidate.userId,
-      organizationId,
-      membershipId,
-      accessToken: access.token,
-      accessTokenExpiresAt: access.expiresAt,
-      refreshToken: refresh.token,
-      refreshTokenExpiresAt: deadlines.refreshExpiresAt,
-      requiresOrganizationSelection: resolution.kind === 'AMBIGUOUS',
-    };
+    return { outcome: 'SESSION_ESTABLISHED', ...session };
   }
+}
+
+/**
+ * §5.1 step 10: an enrolled method, *or* the `SUPER_ADMIN` role.
+ *
+ * The second clause is redundant while INV-11 holds, since the trigger refuses
+ * that role to a user without an ACTIVE method. It is written out anyway
+ * because the two failure modes are not symmetric: if the invariant were ever
+ * bypassed, gating on enrolment alone would let a platform administrator in on
+ * a password, while gating on the role locks them out until MFA is restored.
+ * Fail-closed is the correct side for that account.
+ */
+function requiresMfa(candidate: {
+  hasActiveMfa: boolean;
+  isSuperAdmin: boolean;
+}): boolean {
+  return candidate.hasActiveMfa || candidate.isSuperAdmin;
 }

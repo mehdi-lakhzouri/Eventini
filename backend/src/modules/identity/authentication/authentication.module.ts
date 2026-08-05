@@ -7,11 +7,14 @@ import { PasswordsModule } from '../passwords';
 import { SecurityEventsModule } from '../security-events';
 import { IdentitySessionsModule } from '../sessions';
 import { AuthenticationController } from './controllers/authentication.controller';
+import { MfaChallengeController } from './controllers/mfa-challenge.controller';
 import { SessionsController } from './controllers/sessions.controller';
+import { CompleteMfaLoginUseCase } from './application/complete-mfa-login.use-case';
 import { GetCurrentUserUseCase } from './application/get-current-user.use-case';
 import { LoginUseCase } from './application/login.use-case';
 import { LogoutUseCase } from './application/logout.use-case';
 import { RefreshSessionUseCase } from './application/refresh-session.use-case';
+import { SessionIssuer } from './application/session-issuer';
 import { AuthenticationRepository } from './domain/authentication.repository';
 import { PrismaAuthenticationRepository } from './infrastructure/prisma-authentication.repository';
 import { AccessTokenSigner } from './infrastructure/jwt/access-token.signer';
@@ -25,10 +28,14 @@ type Auth = ConfigType<typeof authenticationConfig>;
   imports: [
     IdentitySessionsModule,
     forwardRef(() => PasswordsModule),
-    MfaModule,
+    forwardRef(() => MfaModule),
     SecurityEventsModule,
   ],
-  controllers: [AuthenticationController, SessionsController],
+  controllers: [
+    AuthenticationController,
+    MfaChallengeController,
+    SessionsController,
+  ],
   providers: [
     {
       // Built once at boot: `createPrivateKey` throws on malformed PEM, so a
@@ -54,11 +61,18 @@ type Auth = ConfigType<typeof authenticationConfig>;
       useClass: PrismaAuthenticationRepository,
     },
     CallerResolver,
+    SessionIssuer,
+    CompleteMfaLoginUseCase,
     GetCurrentUserUseCase,
     LoginUseCase,
     LogoutUseCase,
     RefreshSessionUseCase,
   ],
-  exports: [AccessTokenSigner, AccessTokenVerifier, CallerResolver],
+  exports: [
+    AccessTokenSigner,
+    AccessTokenVerifier,
+    CallerResolver,
+    AuthenticationRepository,
+  ],
 })
 export class AuthenticationModule {}

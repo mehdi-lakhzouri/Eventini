@@ -64,6 +64,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
             detail: exception.detail,
             errors: exception.errors,
             retryable: exception.retryable,
+            extensions: exception.extensions,
           })
         : mapUnknownException(exception, instance);
 

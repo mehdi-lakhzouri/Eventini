@@ -8,9 +8,19 @@ import type {
   AuthenticationCandidate,
   AuthenticationRepository,
 } from '../domain/authentication.repository';
+import type {
+  MfaChallenge,
+  MfaChallengeStore,
+} from '../../mfa/domain/mfa-challenge.store';
 import { AccessTokenSigner } from '../infrastructure/jwt/access-token.signer';
 import { SigningKeySet } from '../infrastructure/jwt/signing-keys';
-import { LoginUseCase, type LoginCommand } from './login.use-case';
+import {
+  LoginUseCase,
+  type LoginCommand,
+  type LoginResult,
+  type SessionEstablished,
+} from './login.use-case';
+import { SessionIssuer } from './session-issuer';
 
 const PASSWORD = 'correct horse battery staple';
 
@@ -86,6 +96,7 @@ async function candidate(
     passwordVersion: 1,
     hasActiveMfa: false,
     hasPlatformRole: false,
+    isSuperAdmin: false,
     memberships: [
       {
         membershipId: 'mbr_1',
@@ -98,9 +109,23 @@ async function candidate(
   };
 }
 
+/**
+ * Narrows the union, and fails loudly rather than silently passing if the
+ * result was the MFA branch — a test that asserted on optional fields would
+ * go green against a login that issued nothing at all.
+ */
+function sessionOf(result: LoginResult): SessionEstablished {
+  if (result.outcome !== 'SESSION_ESTABLISHED') {
+    throw new Error(`expected a session, got ${result.outcome}`);
+  }
+
+  return result;
+}
+
 function build(found: AuthenticationCandidate | null) {
   const lookups: string[] = [];
   const created: unknown[] = [];
+  const challengesOpened: { userId: string; clientType: string }[] = [];
 
   const users: AuthenticationRepository = {
     findCandidateByEmail: (email: string) => {
@@ -108,7 +133,21 @@ function build(found: AuthenticationCandidate | null) {
 
       return Promise.resolve(found);
     },
+    findCandidateById: () => Promise.resolve(found),
   };
+
+  const challenges = {
+    create: (input: { userId: string; clientType: string }) => {
+      challengesOpened.push(input);
+
+      return Promise.resolve({
+        challengeId: 'mch_1',
+        userId: input.userId,
+        clientType: input.clientType,
+        attempts: 0,
+      } as MfaChallenge);
+    },
+  } as unknown as MfaChallengeStore;
 
   const sessions = {
     createWithRefreshToken: (
@@ -134,16 +173,18 @@ function build(found: AuthenticationCandidate | null) {
     runInTransaction: <T>(work: (tx: unknown) => Promise<T>) => work({}),
   } as unknown as TransactionManager;
 
-  const useCase = new LoginUseCase(
-    users,
+  // The real issuer, not a fake: these tests assert on what a session is made
+  // of, so replacing the thing that makes it would leave nothing under test.
+  const issuer = new SessionIssuer(
     sessions,
-    hasher,
     signer,
     transactions,
     CONFIG as never,
   );
 
-  return { useCase, lookups, created };
+  const useCase = new LoginUseCase(users, hasher, challenges, issuer);
+
+  return { useCase, lookups, created, challengesOpened };
 }
 
 describe('login', () => {
@@ -158,7 +199,7 @@ describe('login', () => {
   it('issues a session, an access token and a refresh token', async () => {
     const { useCase, created } = build(await candidate());
 
-    const result = await useCase.execute(command());
+    const result = sessionOf(await useCase.execute(command()));
 
     expect(result.sessionId).toBe('ses_1');
     expect(result.organizationId).toBe('org_1');
@@ -172,7 +213,7 @@ describe('login', () => {
   it('stores the refresh token hashed, never in the clear', async () => {
     const { useCase, created } = build(await candidate());
 
-    const result = await useCase.execute(command());
+    const result = sessionOf(await useCase.execute(command()));
     const { refreshToken } = created[0] as {
       refreshToken: { tokenHash: string };
     };
@@ -181,8 +222,8 @@ describe('login', () => {
     expect(refreshToken.tokenHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('starts every session at PASSWORD, never at MFA', async () => {
-    const { useCase, created } = build(await candidate({ hasActiveMfa: true }));
+  it('starts a session without MFA at PASSWORD', async () => {
+    const { useCase, created } = build(await candidate());
 
     await useCase.execute(command());
     const { session } = created[0] as {
@@ -190,6 +231,79 @@ describe('login', () => {
     };
 
     expect(session.authenticationLevel).toBe('PASSWORD');
+  });
+
+  /**
+   * 🔴 §5.1 step 10, and the acceptance criterion of EVT-027.
+   *
+   * The password is correct here. What these assert is that being right about
+   * the password buys nothing except the right to be asked for a code: no
+   * session row, no access token, no refresh token. This inverts the EVT-023
+   * test that required every session to start at PASSWORD, which was true only
+   * while the gate did not exist.
+   */
+  describe('MFA gate', () => {
+    it.each([
+      ['an enrolled method', { hasActiveMfa: true }],
+      ['the SUPER_ADMIN role', { isSuperAdmin: true, hasActiveMfa: false }],
+    ])('stops a correct password at a challenge for %s', async (_, given) => {
+      const { useCase, created } = build(await candidate(given));
+
+      const result = await useCase.execute(command());
+
+      expect(result.outcome).toBe('MFA_REQUIRED');
+      expect(created).toEqual([]);
+    });
+
+    it('returns a challenge id and nothing that authenticates', async () => {
+      const { useCase } = build(await candidate({ hasActiveMfa: true }));
+
+      const result = await useCase.execute(command());
+
+      expect(result).toEqual({
+        outcome: 'MFA_REQUIRED',
+        challengeId: 'mch_1',
+      });
+      // Spelled out because the union alone would not catch a field added
+      // later by accident.
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
+      expect(result).not.toHaveProperty('sessionId');
+    });
+
+    it('binds the challenge to the user and the client type', async () => {
+      const { useCase, challengesOpened } = build(
+        await candidate({ hasActiveMfa: true }),
+      );
+
+      await useCase.execute(command({ clientType: 'MOBILE_SCANNER' }));
+
+      expect(challengesOpened).toEqual([
+        { userId: 'usr_1', clientType: 'MOBILE_SCANNER' },
+      ]);
+    });
+
+    it('opens no challenge when the password is wrong', async () => {
+      const { useCase, challengesOpened } = build(
+        await candidate({ hasActiveMfa: true }),
+      );
+
+      await expect(
+        useCase.execute(command({ password: 'wrong' })),
+      ).rejects.toThrow();
+
+      expect(challengesOpened).toEqual([]);
+    });
+
+    it('opens no challenge for a suspended account', async () => {
+      const { useCase, challengesOpened } = build(
+        await candidate({ hasActiveMfa: true, status: 'SUSPENDED' }),
+      );
+
+      await expect(useCase.execute(command())).rejects.toThrow();
+
+      expect(challengesOpened).toEqual([]);
+    });
   });
 
   describe('organization resolution', () => {
@@ -213,7 +327,7 @@ describe('login', () => {
         }),
       );
 
-      const result = await useCase.execute(command());
+      const result = sessionOf(await useCase.execute(command()));
 
       expect(result.organizationId).toBeNull();
       expect(result.membershipId).toBeNull();
@@ -225,7 +339,7 @@ describe('login', () => {
         await candidate({ memberships: [], hasPlatformRole: true }),
       );
 
-      const result = await useCase.execute(command());
+      const result = sessionOf(await useCase.execute(command()));
 
       expect(result.organizationId).toBeNull();
       expect(result.requiresOrganizationSelection).toBe(false);
