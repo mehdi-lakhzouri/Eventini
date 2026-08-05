@@ -31,7 +31,7 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 
 | # | Titre |
 |---|---|
-| [EVT-033](#evt-033) | Contexte tenant et activation d'organisation |
+| [EVT-033](#evt-033) | Contexte tenant et activation d'organisation ✅ |
 | [EVT-034](#evt-034) | Résolution et cache des permissions |
 | [EVT-035](#evt-035) | Guards globaux et décorateurs |
 | [EVT-036](#evt-036) | Tests d'isolation cross-tenant |
@@ -40,6 +40,50 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 
 ## EVT-033 — Contexte tenant et activation d'organisation
 <a id="evt-033"></a>
+
+> ✅ **Fait le 5 août 2026.** 15 tests unitaires, 11 tests e2e contre PostgreSQL réel.
+
+### La rotation, et pourquoi ce n'est pas un `UPDATE`
+
+Mettre `user_sessions.organization_id` à jour sur place tiendrait en une instruction et serait faux deux fois : un refresh token capturé **avant** le changement continuerait de fonctionner **après**, pointant désormais sur la nouvelle organisation ; et la piste d'audit montrerait une session qui a silencieusement changé de tenant au lieu de deux sessions avec une transition explicite.
+
+Un test le prouve directement : après activation, l'ancienne session est `REPLACED`, sa famille de tokens est révoquée, et l'ancien cookie d'accès reçoit `401`.
+
+### 🔴 Le niveau d'authentification est **transporté**, jamais supposé
+
+Une première version câblait `authenticationLevel: 'MFA'` en dur. C'était une escalade de privilège dans une route qui ne prétend que changer d'organisation : chaque bascule aurait accordé une garantie MFA jamais obtenue. Câbler `'PASSWORD'` aurait le défaut inverse — perdre une vérification réellement faite, et faire refuser plus tard un `@RequireAuthLevel` à quelqu'un qui avait bien vérifié.
+
+Seul le niveau de la session remplacée est correct. Trois tests le vérifient, un par niveau.
+
+### L'identifiant du chemin ne construit jamais une requête
+
+Il sert uniquement à **retrouver un membership appartenant à l'appelant**. Un identifiant forgé ne trouve rien, au lieu de scoper une requête sur le tenant de quelqu'un d'autre. Le test utilise une organisation **réelle et active** dont l'utilisateur n'est pas membre — pas une chaîne inventée, parce que c'est l'identifiant réel qu'un attaquant utiliserait.
+
+Les deux refus sont **identiques au bit près** (hors `instance` et `requestId`, qui diffèrent par construction) : distinguer « pas de membership » de « organisation suspendue » permettrait d'énumérer les identifiants d'organisation.
+
+### 🔴 Trois règles d'architecture ont refusé ce ticket, et elles avaient raison
+
+| Règle | Ce qu'elle a attrapé | Résolution |
+|---|---|---|
+| `$unscoped` sur liste blanche | deux requêtes non scopées | ajoutées avec justification |
+| Repository → `TenantContext` d'abord | `OrganizationRepository` n'en prend pas | exempté, avec la raison |
+| Frontières de modules | 10 imports profonds dans `identity` | **surface publique explicite** |
+
+Les deux `$unscoped` sont structurellement nécessaires : « à quelles organisations j'appartiens » **est** l'ensemble des organisations, et une activation vise justement celle sur laquelle la session n'est pas encore scopée — filtrer sur le contexte courant rendrait tout changement impossible. Ce qui les rend sûres est le filtre `userId`.
+
+La troisième a produit le meilleur résultat du ticket : `modules/identity/index.ts` déclare désormais une **surface publique nommée** au lieu d'être un `export *`. Tout ce qui n'y figure pas est interne par construction, et l'élargir est une ligne visible en revue.
+
+### Structure livrée
+
+```
+organizations/domain/organization.repository.ts        le port
+organizations/infrastructure/prisma-organization.repository.ts
+organizations/application/{list,activate}-organization.use-case.ts
+organizations/controllers/organizations.controller.ts
+identity/tenant-access/tenant-context.service.ts       Caller → TenantContext
+```
+
+`SessionIssuer` gagne `issueResolved` : les étapes 14-15 avec l'organisation **déjà décidée**. Le login y arrive par `issue` qui résout d'abord ; la bascule y arrive directement, puisque la cible est choisie et déjà vérifiée. La session remplacée est retirée **dans la même transaction** que sa remplaçante — les valider séparément laisserait une fenêtre à deux sessions vivantes, ou à zéro.
 
 ```
 Branche  feat/EVT-033-tenant-context

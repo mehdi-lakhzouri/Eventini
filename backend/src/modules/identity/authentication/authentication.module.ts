@@ -88,6 +88,9 @@ type Auth = ConfigType<typeof authenticationConfig>;
     CallerResolver,
     IdempotencyContextResolver,
     AuthenticationRepository,
+    // EVT-033's organization switch issues a session without going through
+    // login, and must produce exactly the same one.
+    SessionIssuer,
   ],
 })
 export class AuthenticationModule {}
