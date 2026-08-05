@@ -365,6 +365,29 @@ Statuts : `QUEUED` `PROCESSING` `SUCCEEDED` `FAILED` `CANCELLED` `EXPIRED`.
 | Acceptation d'invitation | `POST` | `/auth/invitation-acceptances` |
 | Réauthentification | `POST` | `/auth/reauthentications` |
 
+**`GET /auth/me`** — livré par [EVT-025](../sprints/sprint-04/README.md#evt-025). Aucune permission requise au-delà d'une session valide ; le corps ne contient délibérément ni `role` ni `permissions`, la résolution des permissions étant différée à EVT-036 (cache Redis `perms:{membershipId}:v{n}`).
+
+```json
+{
+  "data": {
+    "userId": "usr_01JABCDEF",
+    "email": "ada@example.com",
+    "firstName": "Ada",
+    "lastName": "Lovelace",
+    "displayName": "Ada L.",
+    "status": "ACTIVE",
+    "emailVerifiedAt": "2026-08-01T09:00:00.000Z",
+    "lastLoginAt": "2026-08-05T10:00:00.000Z",
+    "mfaEnabled": false,
+    "sessionId": "ses_01JABCDEF",
+    "organizationId": "org_01JABCDEF",
+    "membershipId": "mbr_01JABCDEF",
+    "clientType": "WEB",
+    "authenticationLevel": "PASSWORD"
+  }
+}
+```
+
 ### Organisations
 
 | Opération | Méthode | Route | Permission |

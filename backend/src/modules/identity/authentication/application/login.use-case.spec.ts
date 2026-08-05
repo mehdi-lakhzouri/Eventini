@@ -134,6 +134,7 @@ function build(found: AuthenticationCandidate | null) {
       return Promise.resolve(found);
     },
     findCandidateById: () => Promise.resolve(found),
+    findProfileById: () => Promise.resolve(null),
   };
 
   const challenges = {

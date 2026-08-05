@@ -3,6 +3,10 @@ import type { ConfigType } from '@nestjs/config';
 import type { Request } from 'express';
 
 import { cookiesConfig } from '../../../../config/cookies.config';
+import type {
+  AuthenticationLevel,
+  SessionClientType,
+} from '../../../../infrastructure/database/enums';
 import { RevocationRepository } from '../../sessions/domain/revocation.repository';
 import { sessionUnusableReason } from '../../sessions/domain/session-state';
 import { AccessTokenVerifier } from './jwt/access-token.verifier';
@@ -12,6 +16,8 @@ export interface Caller {
   readonly sessionId: string;
   readonly organizationId: string | null;
   readonly membershipId: string | null;
+  readonly clientType: SessionClientType;
+  readonly authenticationLevel: AuthenticationLevel;
 }
 
 export type CallerRejection =
@@ -88,6 +94,8 @@ export class CallerResolver {
       sessionId: session.sessionId,
       organizationId: session.organizationId,
       membershipId: session.membershipId,
+      clientType: session.clientType,
+      authenticationLevel: session.authenticationLevel,
     };
   }
 }

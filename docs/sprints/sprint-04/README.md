@@ -462,6 +462,8 @@ Deux rotations simultanées avec le même token sont départagées par **`ux_ref
 <a id="evt-025"></a>
 
 > ✅ **Fait le 1er août 2026.** Les trois opérations de révocation et la liste des sessions, contre PostgreSQL réel. Les **tests négatifs 11 et 12 du §11** passent : un access token encore valide sur une session révoquée reçoit `401`, immédiatement.
+>
+> ✅ **`GET /auth/me` ajouté le 5 août 2026.** Reporté à l'époque faute de « couche de présentation utilisateur » ; ce ticket est refermé rétroactivement plutôt que d'ouvrir un ticket sans rapport avec aucun sprint documenté. Détail en fin de section.
 
 ### Structure livrée
 
@@ -470,7 +472,10 @@ sessions/domain/revocation.repository.ts        le port
 sessions/infrastructure/prisma-revocation.repository.ts
 sessions/application/{revoke-session,revoke-all-sessions,list-user-sessions}.use-case.ts
 authentication/infrastructure/caller.resolver.ts   étapes 1 à 3 de la chaîne
+authentication/infrastructure/caller-exception.mapper.ts   ajouté avec GET /auth/me
 authentication/controllers/sessions.controller.ts
+authentication/controllers/current-user.controller.ts      ajouté avec GET /auth/me
+authentication/application/get-current-user.use-case.ts    ajouté avec GET /auth/me
 ```
 
 ### 🔴 L'incrément de `users.version` est ce qui rend la révocation globale immédiate
@@ -497,13 +502,32 @@ Le Document B §14.4 l'omettait. Certains navigateurs ne reconnaissent alors pas
 
 ### Ce qui reste aux tickets suivants
 
-`GET /auth/me` attend la couche de présentation utilisateur ; l'invalidation du cache Redis attend EVT-029 ; les security events (`SESSION_REVOKED`, `ALL_SESSIONS_REVOKED`) attendent leur module. Les 12 déclencheurs de révocation automatique du §5.5 arrivent avec les fonctionnalités qui les déclenchent.
+L'invalidation du cache Redis attend EVT-029 ; les security events (`SESSION_REVOKED`, `ALL_SESSIONS_REVOKED`) attendent leur module. Les 12 déclencheurs de révocation automatique du §5.5 arrivent avec les fonctionnalités qui les déclenchent.
 
 ```
-Branche  feat/EVT-025-logout-revocation
+Branche  feat/EVT-025-logout-revocation  (route initiale)
+         feat/EVT-025b-auth-me           (GET /auth/me, 5 août 2026)
 Routes   DELETE /auth/sessions/current   ·  DELETE /auth/sessions
          DELETE /auth/sessions/{sessionId} · GET /auth/sessions · GET /auth/me
 ```
+
+### `GET /auth/me`, livré le 5 août 2026
+
+Aucune section du corpus ne fixe la forme de la réponse — la route n'est qu'une entrée de table dans `API_CONVENTIONS.md` §11. Le corps est donc dérivé de ce qui existe réellement, pas d'un contrat inventé :
+
+```
+identité   userId · email · firstName · lastName · displayName · status
+                    emailVerifiedAt · lastLoginAt · mfaEnabled
+session    sessionId · organizationId · membershipId · clientType · authenticationLevel
+```
+
+**Ce qui n'y figure délibérément pas** : `permissions` et un `role` unique. Le frontend a un type `CurrentUser` avec ces deux champs (`web/src/features/authentication/types/authentication.types.ts`), mais il précède ADR-0003/0005/0006 et pointe vers `/identity/authentication/me` — une route qui n'a jamais existé. La résolution de permissions est explicitement différée à EVT-036 (cache Redis `perms:{membershipId}:v{n}`) ; l'inventer ici aurait été le même genre de choix non fait que celui que ce document refuse ailleurs pour la vérification d'email.
+
+**Une lecture, pas une décision.** `AuthenticationRepository.findCandidateById` existe déjà pour le login et porte le hash du mot de passe et toutes les memberships — exactement ce qu'une décision d'autorisation doit voir. `/auth/me` ne décide rien, donc `findProfileById` est une projection distincte, plus étroite, qui ne fait jamais entrer un hash en mémoire pour une simple lecture de profil.
+
+**`clientType` et `authenticationLevel` ne coûtent rien de plus.** `CallerResolver` les avait déjà lus depuis `user_sessions` à l'étape 2 de la chaîne pour les invalider ; ils manquaient seulement à l'objet `Caller` retourné. Un test e2e vérifie que `authenticationLevel` vaut `PASSWORD` pour une session ordinaire.
+
+**Le mapping `CallerError` → réponse a été extrait** dans `caller-exception.mapper.ts`, partagé maintenant par `SessionsController` et `CurrentUserController`. Deux copies de ce tableau auraient pu diverger — refuser `STALE_VERSION` différemment selon la route est exactement le genre d'incohérence que la chaîne d'autorisation existe pour éviter.
 
 | Opération | Effet |
 |---|---|

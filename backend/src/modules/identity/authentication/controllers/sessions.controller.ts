@@ -16,11 +16,8 @@ import { cookiesConfig } from '../../../../config/cookies.config';
 import { ListUserSessionsUseCase } from '../../sessions/application/list-user-sessions.use-case';
 import { RevokeAllSessionsUseCase } from '../../sessions/application/revoke-all-sessions.use-case';
 import { RevokeSessionUseCase } from '../../sessions/application/revoke-session.use-case';
-import {
-  CallerError,
-  CallerResolver,
-  type Caller,
-} from '../infrastructure/caller.resolver';
+import { toCallerException } from '../infrastructure/caller-exception.mapper';
+import { CallerResolver, type Caller } from '../infrastructure/caller.resolver';
 import { clearSessionCookies } from '../infrastructure/cookies/session-cookies';
 
 /**
@@ -127,21 +124,5 @@ export class SessionsController {
       access: this.cookies.access,
       refresh: this.cookies.refresh,
     });
-  }
-}
-
-function toCallerException(error: unknown): unknown {
-  if (!(error instanceof CallerError)) {
-    return error;
-  }
-
-  switch (error.rejection) {
-    case 'SESSION_EXPIRED':
-      return new AppException('AUTH_SESSION_EXPIRED');
-    case 'SESSION_GONE':
-    case 'STALE_VERSION':
-      return new AppException('AUTH_SESSION_REVOKED');
-    default:
-      return new AppException('AUTHENTICATION_REQUIRED');
   }
 }

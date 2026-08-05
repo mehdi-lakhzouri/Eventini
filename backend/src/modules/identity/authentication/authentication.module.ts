@@ -7,6 +7,7 @@ import { PasswordsModule } from '../passwords';
 import { SecurityEventsModule } from '../security-events';
 import { IdentitySessionsModule } from '../sessions';
 import { AuthenticationController } from './controllers/authentication.controller';
+import { CurrentUserController } from './controllers/current-user.controller';
 import { MfaChallengeController } from './controllers/mfa-challenge.controller';
 import { SessionsController } from './controllers/sessions.controller';
 import { CompleteMfaLoginUseCase } from './application/complete-mfa-login.use-case';
@@ -33,6 +34,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
   ],
   controllers: [
     AuthenticationController,
+    CurrentUserController,
     MfaChallengeController,
     SessionsController,
   ],
