@@ -208,6 +208,7 @@ model Organization {
   sessions                  UserSession[]
   invitations               UserInvitation[]
   membershipRoleAssignments MembershipRoleAssignment[]
+  idempotencyRecords        IdempotencyRecord[]
 
   // `ux_organizations_slug_active` is partial; see the migration SQL.
   @@index([status], map: "ix_organizations_status")
@@ -838,6 +839,8 @@ model UserSession {
   activeMembership OrganizationMembership? @relation(fields: [activeMembershipId], references: [id])
   rotations        RefreshTokenRotation[]
 
+  idempotencyRecords IdempotencyRecord[]
+
   @@index([userId, status], map: "ix_sessions_user_status")
   @@index([activeMembershipId, status], map: "ix_sessions_membership_status")
   @@index([organizationId, status], map: "ix_sessions_org_status")
@@ -967,4 +970,76 @@ model MfaRecoveryCode {
   @@unique([codeHash], map: "ux_mfa_recovery_code_hash")
   @@index([mfaMethodId, usedAt, revokedAt], map: "ix_mfa_recovery_method_available")
   @@map("mfa_recovery_codes")
+}
+
+// ---------------------------------------------------------------------------
+// Migration 13 — idempotency
+// ---------------------------------------------------------------------------
+
+/// Mixed ownership, `organization_id` nullable. §8.3, ADR-0012.
+///
+/// The nullable tenant is not laxity: `POST /platform/organizations` is on
+/// API_CONVENTIONS.md §8's mandatory-key list and has no organization by
+/// construction — the request is what creates one.
+model IdempotencyRecord {
+  /// idm_ prefix.
+  id String @id
+
+  organizationId String? @map("organization_id")
+
+  /// A user or a scanner device. Deliberately not a foreign key: the two live
+  /// in different tables, and a column that could point at either points at
+  /// neither in SQL.
+  actorId String @map("actor_id")
+
+  actorSessionId String? @map("actor_session_id")
+
+  method String
+
+  /// The route TEMPLATE — `/api/v1/events/:eventId/check-ins`, never the
+  /// concrete URI. The identifier is already among the fingerprint's path
+  /// parameters; counting it twice would make two spellings of one intention
+  /// hash differently.
+  route String
+
+  /// Client-supplied, therefore logged and stored. Never carries a secret.
+  idempotencyKey String @map("idempotency_key")
+
+  /// SHA-256 of the canonical fingerprint — what separates a legitimate
+  /// replay from a key collision.
+  requestHash String @map("request_hash")
+
+  /// One of IdempotencyStatus. TEXT + ck_idempotency_records_status.
+  status String
+
+  responseStatus Int? @map("response_status")
+
+  /// The memorised response. JSONB rather than TEXT so a replay can be read
+  /// and queried without parsing it back out of a string.
+  responseBody Json? @map("response_body")
+
+  /// Where a response too large for the row was put instead. Unused at MVP;
+  /// the column exists so the first oversized response is a code change and
+  /// not a migration on a table that grows with every mutating request.
+  responseRef String? @map("response_ref")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  /// How long the in-flight claim holds. Past it, a PENDING row is taken to
+  /// belong to a process that died mid-request and the next attempt takes it
+  /// over — otherwise one crash wedges that key until it expires.
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(3)
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  actorSession UserSession?  @relation(fields: [actorSessionId], references: [id])
+
+  // THE atomic mechanism. The reservation is an INSERT ... ON CONFLICT DO
+  // NOTHING against this index, so there is no read before the write and
+  // nothing to race with. `ux_idempotency_scope_platform` in the migration
+  // SQL covers the rows this index cannot — see the note there.
+  @@unique([organizationId, actorId, method, route, idempotencyKey], map: "ux_idempotency_scope")
+  @@index([expiresAt], map: "ix_idempotency_expires")
+  @@index([status, createdAt], map: "ix_idempotency_status_created")
+  @@map("idempotency_records")
 }

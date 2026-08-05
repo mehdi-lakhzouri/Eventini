@@ -23,6 +23,8 @@ import { PrismaAuthenticationRepository } from './infrastructure/prisma-authenti
 import { AccessTokenSigner } from './infrastructure/jwt/access-token.signer';
 import { AccessTokenVerifier } from './infrastructure/jwt/access-token.verifier';
 import { CallerResolver } from './infrastructure/caller.resolver';
+import { CallerIdempotencyContextResolver } from './infrastructure/caller-idempotency-context.resolver';
+import { IdempotencyContextResolver } from '../../../common/idempotency/idempotency-context.resolver';
 import { SigningKeySet } from './infrastructure/jwt/signing-keys';
 
 type Auth = ConfigType<typeof authenticationConfig>;
@@ -67,6 +69,12 @@ type Auth = ConfigType<typeof authenticationConfig>;
       useClass: PrismaAuthenticationRepository,
     },
     CallerResolver,
+    // The idempotency mechanism declares the port; whoever authenticates owns
+    // the adapter, which is here. EVT-036's guard replaces both.
+    {
+      provide: IdempotencyContextResolver,
+      useClass: CallerIdempotencyContextResolver,
+    },
     SessionIssuer,
     CompleteMfaLoginUseCase,
     GetCurrentUserUseCase,
@@ -78,6 +86,7 @@ type Auth = ConfigType<typeof authenticationConfig>;
     AccessTokenSigner,
     AccessTokenVerifier,
     CallerResolver,
+    IdempotencyContextResolver,
     AuthenticationRepository,
   ],
 })

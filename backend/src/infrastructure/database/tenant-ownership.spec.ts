@@ -74,12 +74,15 @@ describe('requiresOrganizationScope', () => {
   );
 
   /** The documented weak spot — nullable `organization_id`. */
-  it.each(['SecurityEvent', 'AuditLog', 'UserSession', 'RefreshTokenRotation'])(
-    'exempts the TENANT_OPTIONAL model %s',
-    (model) => {
-      expect(requiresOrganizationScope(model)).toBe(false);
-    },
-  );
+  it.each([
+    'SecurityEvent',
+    'AuditLog',
+    'UserSession',
+    'RefreshTokenRotation',
+    'IdempotencyRecord',
+  ])('exempts the TENANT_OPTIONAL model %s', (model) => {
+    expect(requiresOrganizationScope(model)).toBe(false);
+  });
 
   /**
    * The inversion of ADR-0003's allow-list, and the reason for it. Under an

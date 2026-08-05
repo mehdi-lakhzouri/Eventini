@@ -29,10 +29,23 @@ export interface ProblemDetails {
   readonly extensions: ProblemExtensions;
 }
 
+/**
+ * IDEMPOTENCY_AND_CONCURRENCY.md §7. Present only on a replay.
+ *
+ * `originalRequestId` is the point of it: `meta.requestId` is the *current*
+ * request, so without this there is no way to find the execution that actually
+ * happened in the logs.
+ */
+export interface IdempotencyMeta {
+  readonly replayed: true;
+  readonly originalRequestId: string;
+}
+
 export interface ResponseMeta {
   readonly requestId: string;
   readonly timestamp: string;
   readonly apiVersion: 'v1';
+  readonly idempotency?: IdempotencyMeta;
 }
 
 /** The envelope every response carries — `data`/`meta`/`error` are always present. */
