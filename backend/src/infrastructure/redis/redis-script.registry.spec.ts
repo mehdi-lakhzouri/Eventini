@@ -21,6 +21,10 @@ class FakeRedis implements RedisConnection {
     return Promise.resolve(null);
   }
 
+  set(): Promise<unknown> {
+    return Promise.resolve('OK');
+  }
+
   incr(): Promise<number> {
     return Promise.resolve(1);
   }

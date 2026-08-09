@@ -219,6 +219,31 @@ describe('repositories take a TenantContext first', () => {
       'infrastructure',
       'prisma-organization.repository.ts',
     ),
+    /**
+     * The permission repository resolves the context rather than consuming
+     * one: it is step 6 of the chain, and steps 4 and 5 have only just decided
+     * which membership is in play. Requiring a `TenantContext` here would
+     * require the answer as an argument.
+     *
+     * Isolation is structural instead — every query is keyed on a
+     * `membershipId`, which belongs to exactly one organization, so a result
+     * cannot span tenants however the caller asks. The platform query is
+     * keyed on the user and is scoped by `roles.scope = 'PLATFORM'`.
+     */
+    join(
+      'modules',
+      'identity',
+      'authorization',
+      'domain',
+      'permission.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'authorization',
+      'infrastructure',
+      'prisma-permission.repository.ts',
+    ),
     // mfa_methods and mfa_recovery_codes — PLATFORM (§3, rows 18 and 19).
     // A second factor belongs to a person, not to one of their organizations:
     // scoping it per tenant would mean enrolling an authenticator once per
