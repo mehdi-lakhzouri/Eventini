@@ -12,6 +12,7 @@ function connectionAnswering(reply: unknown): RedisConnection {
     // Unused here; present so the fake satisfies the whole port rather than
     // the slice this file happens to exercise.
     get: () => Promise.resolve(null),
+    set: () => Promise.resolve('OK'),
     incr: () => Promise.resolve(1),
     pExpire: () => Promise.resolve(1),
     del: () => Promise.resolve(0),

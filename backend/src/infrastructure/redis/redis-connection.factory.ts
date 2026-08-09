@@ -31,6 +31,11 @@ export interface RedisConnection {
   ping(): Promise<string>;
   configGet(parameter: string): Promise<unknown>;
   get(key: string): Promise<string | null>;
+  set(
+    key: string,
+    value: string,
+    options?: { readonly PX: number },
+  ): Promise<unknown>;
   incr(key: string): Promise<number>;
   pExpire(key: string, milliseconds: number): Promise<unknown>;
   del(keys: string[]): Promise<number>;

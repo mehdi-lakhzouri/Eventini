@@ -32,7 +32,7 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 | # | Titre |
 |---|---|
 | [EVT-033](#evt-033) | Contexte tenant et activation d'organisation ✅ |
-| [EVT-034](#evt-034) | Résolution et cache des permissions |
+| [EVT-034](#evt-034) | Résolution et cache des permissions ✅ |
 | [EVT-035](#evt-035) | Guards globaux et décorateurs |
 | [EVT-036](#evt-036) | Tests d'isolation cross-tenant |
 
@@ -131,6 +131,55 @@ POST /api/v1/organizations/{organizationId}/activation
 
 ## EVT-034 — Résolution et cache des permissions
 <a id="evt-034"></a>
+
+> ✅ **Fait le 5 août 2026.** 12 tests unitaires, 10 tests d'intégration contre PostgreSQL réel. La garde qui consomme ce résolveur arrive avec [EVT-035](#evt-035) — voir « ce qui n'est pas encore prouvé » plus bas.
+
+### L'invalidation par version, et ce qu'elle évite
+
+Incrémenter rend toutes les clés de l'ancienne version inatteignables d'un coup : aucune clé à retrouver, aucun `SCAN`, aucune suppression partielle. Une suppression par motif serait partielle sous charge, et une clé manquée signifie **une permission révoquée encore accordée** — exactement ce que ce mécanisme existe pour empêcher.
+
+### 🔴 Le compteur de version n'a **jamais** de TTL
+
+Le compteur et les entrées de cache vivent dans le même Redis. Si le compteur expirait pendant que des entrées survivent, la version redescendrait et les entrées périmées **redeviendraient atteignables**. Les perdre ensemble est inoffensif : il ne reste rien à ressusciter. D'où la règle : les entrées portent un TTL, les compteurs jamais.
+
+C'est écrit dans le code à l'endroit où quelqu'un serait tenté d'en ajouter un.
+
+### Trois scopes, trois tables, et une fenêtre de validité dans le SQL
+
+| Scope | Table | Particularité |
+|---|---|---|
+| `ORGANIZATION` | `membership_role_assignments` | révocation par `revoked_at` **seul** |
+| `PLATFORM` | `platform_role_assignments` | a `status` **et** `revoked_at` |
+| `EVENT` | `event_user_assignments` | fenêtre `valid_from` / `valid_until` dans le `WHERE` |
+
+**Les bornes de validité sont dans le filtre SQL**, pas vérifiées ensuite. Un filtre appliqué en code applicatif est un filtre qu'un `return` anticipé ou un refactor peut sauter ; une ligne hors de sa fenêtre ne doit pas être **retournée** du tout.
+
+**Les permissions d'événement ne sont pas mises en cache.** L'ensemble dépend de l'événement *et* de l'horloge : une copie en cache survivrait à la fenêtre dans laquelle elle a été calculée et continuerait d'accorder l'accès après expiration.
+
+### 🔴 Deux découvertes des tests d'intégration
+
+**`membership_role_assignments` n'a pas de colonne `status`.** Ma requête en filtrait une. C'est asymétrique avec `platform_role_assignments`, qui a les deux. Le test d'intégration l'a attrapé parce qu'il s'exécute contre le vrai schéma — un dépôt factice aurait répondu ce qu'on lui aurait dit de répondre.
+
+**INV-09 est un trigger, pas seulement une convention.** Le test « un rôle PLATFORM ne passe pas par une assignation de membership » ne peut même pas **insérer** la ligne : la base la refuse. C'est une garantie plus forte que le filtre `scope` de la requête, et le test asserte désormais la vraie. Le filtre reste comme seconde ligne de défense — c'est lui qui tiendrait si le trigger disparaissait dans une migration.
+
+### 🟡 Ce qui n'est pas encore prouvé, et pourquoi
+
+Le **test décisif d'ADR-0004** — révoquer un rôle puis appeler une route protégée avec le token existant ⇒ `403` immédiat — exige une route protégée. `PermissionsGuard` est EVT-035. La propriété est donc prouvée ici **au niveau SQL** (une assignation révoquée cesse d'accorder immédiatement) et **au niveau du cache** (un incrément de version rend l'ancienne entrée inatteignable) ; la preuve bout en bout arrive avec la garde.
+
+**La colonne miroir d'ADR-0004 n'est pas créée.** L'ADR décrit « un compteur Redis + une colonne miroir » ; le sprint 06 déclare **aucune migration**. Elle n'est pas nécessaire à la correction — compteur et cache partagent un Redis, donc ils se perdent ensemble, et un compteur qui repart de zéro ne peut pas exposer des entrées disparues avec lui. Ce qu'elle apporterait est la durabilité après une perte totale de Redis, à des fins d'audit. Noté comme limite plutôt que passé sous silence.
+
+### Structure livrée
+
+```
+authorization/domain/        permission.repository.ts · permission-cache.ts
+                             permissions-version.store.ts
+authorization/infrastructure/ prisma-permission.repository.ts
+                             redis-permission.cache.ts
+                             redis-permissions-version.store.ts
+authorization/application/   permission-resolver.service.ts
+```
+
+Redis est une optimisation, **jamais une autorité** : défaut de version, défaut de lecture et défaut d'écriture terminent tous dans PostgreSQL. Aucune branche ne renvoie « autorisé » parce qu'une recherche a échoué — trois tests l'exigent, un par mode de panne.
 
 ```
 Branche  feat/EVT-034-permission-resolution
