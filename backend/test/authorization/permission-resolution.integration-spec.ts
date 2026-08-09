@@ -165,16 +165,27 @@ describeWithServices('permission resolution against PostgreSQL', () => {
     );
   });
 
+  /**
+   * The connections close in `finally`, and that is not defensive padding.
+   *
+   * If a cleanup query throws — which it does the moment the schema is not
+   * what the suite expected — an unguarded teardown returns early, leaves the
+   * Redis client connected, and Jest never exits. The run then does not fail;
+   * it *hangs* until the CI job is cancelled, which reads as an infrastructure
+   * flake rather than as the schema problem it actually is.
+   */
   afterAll(async () => {
-    await pool.query(`DELETE FROM events WHERE id = $1`, [ids.event]);
-    await pool.query(`DELETE FROM organization_memberships WHERE id = $1`, [
-      ids.membership,
-    ]);
-    await pool.query(`DELETE FROM users WHERE id = $1`, [ids.user]);
-    await pool.query(`DELETE FROM organizations WHERE id = $1`, [ids.org]);
-
-    await pool.end();
-    await redis.quit();
+    try {
+      await pool.query(`DELETE FROM events WHERE id = $1`, [ids.event]);
+      await pool.query(`DELETE FROM organization_memberships WHERE id = $1`, [
+        ids.membership,
+      ]);
+      await pool.query(`DELETE FROM users WHERE id = $1`, [ids.user]);
+      await pool.query(`DELETE FROM organizations WHERE id = $1`, [ids.org]);
+    } finally {
+      await pool.end();
+      await redis.quit();
+    }
   });
 
   describe('organization scope', () => {
