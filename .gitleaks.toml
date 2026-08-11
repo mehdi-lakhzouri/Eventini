@@ -2,31 +2,61 @@
 #
 # Extends the default ruleset rather than replacing it: every built-in detector
 # stays active.
+#
+# ## Why a pull request can pass while the nightly scan fails
+#
+# A pull-request run scans the diff. The scheduled run scans the **whole
+# history**, on `master`. Those are different questions, and only the second
+# one notices something that has been in the tree since before the check
+# existed — which is why the nightly job reported eleven findings while every
+# PR was green. Nine of them are covered by the first entry below, which
+# `master` does not yet carry; the remaining two needed the entries added here.
 
 [extend]
 useDefault = true
 
 [allowlist]
 description = """
-The .env.example placeholder, and nothing else.
+Documented examples and placeholders. Nothing that is, or could become, a
+credential.
 
-Every secret in backend/.env.example is the base64 of
-"EXAMPLE-DO-NOT-USE-REPLACE-BEFORE-ANY-DEPLOYMENT". It is deliberately long
-enough to satisfy the 32-byte entropy rule so that cross rule 9 reports it as a
-leftover example rather than as weak entropy — which also makes it look exactly
-like a real secret to gitleaks' generic-api-key detector.
-
-Allowlisted by the exact decoded value, NOT by path. Ignoring
-backend/.env.example wholesale would mean a genuine secret pasted into the
-template later would never be caught — precisely the mistake this scan exists
-to prevent. With this scoping, any value other than the placeholder still
-fails the build.
-
-The application itself refuses to start on this value
-(backend/src/config/rules/secret-hygiene.rule.ts), so it cannot reach a
-deployment even if it were somehow trusted here.
+Allowlisted by value, NOT by path. Ignoring backend/.env.example or docs/
+wholesale would mean a genuine secret pasted into one of them later is never
+caught — precisely the mistake this scan exists to prevent. With this scoping,
+any value other than the ones named below still fails the build, in the same
+files.
 """
-regexTarget = "match"
+
+# Matched against the whole line rather than the captured secret. Two of the
+# three entries are only recognisable from their context: the secret gitleaks
+# captures from a documented header is the bare ULID `01JXYZABCDEF`, which in
+# isolation is indistinguishable from a real one. Anchoring on the surrounding
+# text is what keeps these narrow instead of allowlisting every ULID in the
+# repository.
+regexTarget = "line"
+
 regexes = [
+  # Every secret in backend/.env.example is the base64 of
+  # "EXAMPLE-DO-NOT-USE-REPLACE-BEFORE-ANY-DEPLOYMENT". It is deliberately long
+  # enough to satisfy the 32-byte entropy rule so that rule 9 reports it as a
+  # leftover example rather than as weak entropy — which also makes it look
+  # exactly like a real secret to the generic-api-key detector.
+  #
+  # The application refuses to start on this value
+  # (backend/src/config/rules/secret-hygiene.rule.ts), so it cannot reach a
+  # deployment even if it were somehow trusted here.
   '''RVhBTVBMRS1ETy1OT1QtVVNFLVJFUExBQ0UtQkVGT1JFLUFOWS1ERVBMT1lNRU5U''',
+
+  # Documented `Idempotency-Key` examples in docs/api. ULID-shaped and
+  # deliberately obvious. A client-supplied request identifier is not a
+  # credential: it carries no authority, which is why the fingerprint in
+  # IDEMPOTENCY_AND_CONCURRENCY.md §4 is what actually separates a replay from
+  # a collision.
+  '''Idempotency-Key:\s*01J[0-9A-Z]{1,26}''',
+
+  # The CircleCI badge from the stock NestJS starter README, whose query string
+  # is upstream's own placeholder. backend/README.md is rewritten in this
+  # change so the working tree no longer carries it; the entry stays because
+  # the scheduled scan reads history, where it does.
+  '''img\.shields\.io/circleci/build/github/nestjs/nest/master\?token=''',
 ]

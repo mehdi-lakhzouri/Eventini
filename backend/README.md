@@ -1,98 +1,78 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Eventini — backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS 11 modular monolith. PostgreSQL 18 via Prisma 7, Redis 8 for rate
+limiting, lockout and permission caching.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+This file replaces the stock NestJS starter README, which advertised the
+framework's Discord and a PayPal donation link and told a reader nothing about
+this service. Its CircleCI badge also carried an upstream placeholder query
+string that the nightly secret scan reported as a leak on every run.
 
-## Description
+## Running it
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+The database and Redis come from `docker/docker-compose.yml`:
 
 ```bash
-$ npm install
+docker compose -f ../docker/docker-compose.yml up -d
+cp .env.example .env      # then replace every placeholder secret
+npm ci
+npm run prisma:migrate:deploy
+npm run db:seed
+npm run start:dev
 ```
 
-## Compile and run the project
+`.env.example` ships loud placeholders — every secret decodes to
+`EXAMPLE-DO-NOT-USE-REPLACE-BEFORE-ANY-DEPLOYMENT`. The application **refuses
+to start** on them: rule 9 of `src/config/rules/secret-hygiene.rule.ts` reports
+them by name. Generate real ones:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+openssl rand -base64 32                      # each symmetric secret, separately
+openssl genpkey -algorithm ed25519           # the two signing key pairs
 ```
 
-## Run tests
+Reusing one value across two variables fails rule 8. That separation is the
+point: compromising the CSRF key must not also compromise refresh tokens.
+
+## Tests
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm test                  # unit, no external services
+npm run test:integration  # needs DATABASE_URL and REDIS_URL
+npm run test:e2e          # needs both, boots the real application
 ```
 
-## Deployment
+Integration and e2e read `DATABASE_URL` and `REDIS_URL` from the environment
+and **skip silently when they are absent**, so a bare `npm test` on a fresh
+clone stays green. CI supplies both — see `scripts/ci/prepare-test-env.mjs`,
+which builds a complete environment with freshly generated secrets.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+The e2e suite runs with `maxWorkers: 1`. Database rows are partitioned by a
+per-suite suffix, but rate-limit counters are keyed on the client IP and every
+request arrives from `127.0.0.1`, so parallel suites share one window and reset
+each other's counters mid-test.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Layout
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```
+src/common/          envelope, errors, idempotency — no dependency on modules/
+src/config/          environment schema and the nine validation rules
+src/infrastructure/  Prisma, Redis, metrics, logging
+src/modules/         the feature modules; identity/ owns the auth chain
+src/__architecture__/ rules enforced as tests: tenant isolation, module edges
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+`src/__architecture__` is not documentation. It fails the build when a
+repository on a tenant-owned model omits its `TenantContext`, when a module
+reaches past another's public barrel, or when `$unscoped` is called outside its
+allow-list.
 
-## Resources
+## Documentation
 
-Check out a few resources that may come in handy when working with NestJS:
+The specifications live in [`../docs`](../docs). The ones this service is built
+against most directly:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- `docs/security/AUTHENTICATION_AUTHORIZATION.md` — the eight-step chain
+- `docs/architecture/BACKEND_ARCHITECTURE.md` — layering and bootstrap order
+- `docs/database/DATABASE_SCHEMA.md` — normative column lists
+- `docs/adr/` — the decisions, with the alternatives that were rejected
