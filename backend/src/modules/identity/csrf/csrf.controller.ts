@@ -1,6 +1,7 @@
 import { Controller, Get, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
+import { Public } from '../../../common/decorators';
 import { CsrfService } from './csrf.service';
 
 /**
@@ -15,6 +16,7 @@ import { CsrfService } from './csrf.service';
 export class CsrfController {
   constructor(private readonly csrf: CsrfService) {}
 
+  @Public()
   @Get('csrf-token')
   issue(
     @Req() request: Request,

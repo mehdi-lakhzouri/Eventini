@@ -33,7 +33,7 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 |---|---|
 | [EVT-033](#evt-033) | Contexte tenant et activation d'organisation ✅ |
 | [EVT-034](#evt-034) | Résolution et cache des permissions ✅ |
-| [EVT-035](#evt-035) | Guards globaux et décorateurs |
+| [EVT-035](#evt-035) | Guards globaux et décorateurs ✅ |
 | [EVT-036](#evt-036) | Tests d'isolation cross-tenant |
 
 ---
@@ -219,6 +219,68 @@ perms:platform:{userId}:v{permissionsVersion}   TTL  60 s
 
 ## EVT-035 — Guards globaux et décorateurs
 <a id="evt-035"></a>
+
+> ✅ **Fait le 11 août 2026.** 11 tests e2e dédiés à la chaîne, contre PostgreSQL et Redis réels. Suite complète : 1046 unitaires, 139 d'intégration, 179 e2e.
+
+### 🔴 Protégé par défaut, ouvert par exception
+
+```
+RateLimit → Csrf → Authentication → TenantContext → Permissions
+```
+
+Le test qui porte tout le ticket : **une route sans aucun décorateur répond `401`**. Avec des guards posés route par route, un décorateur oublié produit une route ouverte qui répond `200`, et personne n'enquête sur un `200`. Inversé, le même oubli produit un `401`, qui remonte dans l'heure.
+
+`@Public()` est la seule sortie. Cinq routes la portent, et chacune a une raison qui tient en une phrase :
+
+| Route | Pourquoi |
+|---|---|
+| `POST /auth/sessions` | c'est la frontière elle-même |
+| `POST /auth/sessions/current/rotation` | s'authentifie sur le cookie refresh, précisément quand l'access token a expiré |
+| `POST /auth/mfa/challenges/{id}/verification` | seconde étape d'un login gaté : mot de passe prouvé, session pas encore créée |
+| `GET /auth/csrf-token` | délivre le jeton qui permet la première mutation, dont le login — l'exiger serait circulaire |
+| `POST /auth/password-reset*` | s'adresse à quelqu'un qui ne peut pas se connecter |
+
+Plus `/health/*` et `/metrics`, appelés par la plateforme et non par un utilisateur.
+
+### L'ordre est fixé à un seul endroit
+
+Nest exécute les `APP_GUARD` dans l'ordre d'initialisation des modules. Les enregistrer dans `AuthorizationModule` les aurait placés là où la liste d'imports d'`IdentityModule` les met — c'est-à-dire **avant `CsrfModule`**, par ordre alphabétique. Rien n'aurait paru anormal en lisant l'un ou l'autre fichier.
+
+D'où `GuardChainModule` : un module dont le seul rôle est de déclarer la séquence, importé par `AppModule` après `IdentityModule`. Deux tests e2e vérifient l'ordre par le comportement plutôt que par la lecture du code.
+
+### 🔴 Une exemption explicite plutôt qu'un cas particulier caché
+
+`TenantContextGuard` compare tout `organizationId` reçu — chemin, query **et** corps — au contexte de la session, et refuse une divergence. Or `POST /organizations/{id}/activation` en nomme délibérément une autre : c'est sa raison d'être.
+
+L'exemption est un décorateur, `@AllowsOrganizationSwitch()`, posé sur la route concernée, et non une liste de chemins à l'intérieur du guard. Une liste d'exceptions cachée dans un guard est une liste que personne ne relit ; un décorateur est lu par quiconque lit la route.
+
+### Ce que la chaîne a fait remonter
+
+**`infrastructure/` ne doit pas importer `modules/`.** `@Public()` vivait dans `identity/authorization/` ; les contrôleurs `health` et `metrics` en avaient besoin. Le décorateur est transversal, sa place est `common/decorators/` — c'est là qu'il est désormais, avant qu'EVT-036 ne fasse de cette arête une règle appliquée.
+
+**Trois suites e2e sondaient des routes sans session.** Les contrôleurs-sondes de `bootstrap/` et `logging/` testent le pipe de validation, l'enveloppe et le logger : les faire passer par la chaîne aurait fait dépendre ces tests d'une session et prouvé autre chose. Ils portent `@Public()`, avec la raison écrite au-dessus.
+
+### 🟡 Rien n'incrémente encore `permissionsVersion` en production
+
+Le test de révocation immédiate est passé au vert seulement après que le test lui-même incrémente le compteur. Ce n'est pas un échafaudage autour d'un défaut : c'est le contrat d'ADR-0004 — le compteur bouge **dans la transaction** qui change un rôle. Simplement, le use case qui possédera les deux moitiés est **EVT-044 (sprint 08)**, donc aucun appelant de `bumpMembership` n'existe encore.
+
+Conséquence à connaître : **un rôle modifié directement en base est périmé jusqu'au TTL de 300 s.** Le mécanisme est construit et prouvé ; son point d'appel arrive avec la gestion des rôles.
+
+### Structure livrée
+
+```
+common/decorators/public.decorator.ts          transversal, d'où common/
+identity/authorization/decorators/             RequirePermission · RequireAuthLevel
+                                               CurrentCaller · CurrentContext
+identity/authorization/guards/                 authentication.guard · permissions.guard
+identity/authorization/guard-chain.module.ts   l'ordre, en un seul endroit
+identity/tenant-access/tenant-context.guard.ts étapes 4-5
+identity/tenant-access/decorators/             AllowsOrganizationSwitch
+```
+
+`@RequireAuthLevel` compare des rangs, pas des égalités : une session `REAUTHENTICATED` satisfait une route qui demande `MFA`, parce qu'elle a prouvé **plus**, pas moins. Une égalité refuserait celui qui vient de ressaisir son mot de passe — le résultat le plus déroutant qu'un contrôle de sécurité puisse produire.
+
+Les étapes 7 et 8 ne sont pas ici et ne peuvent pas l'être : les décider suppose de charger la ressource, ce qui est le travail du use case. Elles sont portées par des méthodes de repository qui **exigent** un `TenantContext`.
 
 ```
 Branche  feat/EVT-035-authorization-guards

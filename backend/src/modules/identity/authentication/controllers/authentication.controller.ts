@@ -14,6 +14,7 @@ import { AppException } from '../../../../common/api/app-exception';
 import type { RequestWithId } from '../../../../common/types/request-with-id';
 import { cookiesConfig } from '../../../../config/cookies.config';
 import { CsrfService } from '../../csrf';
+import { Public } from '../../../../common/decorators';
 import { LoginUseCase } from '../application/login.use-case';
 import { RefreshSessionUseCase } from '../application/refresh-session.use-case';
 import {
@@ -42,6 +43,7 @@ export class AuthenticationController {
    * Login creates a session, so it is a POST to the collection rather than an
    * `/auth/login` verb — the resolution of C-2.
    */
+  @Public()
   @Post()
   @HttpCode(201)
   async createSession(
@@ -99,6 +101,7 @@ export class AuthenticationController {
    * The refresh token comes from its own path-scoped cookie, never from the
    * body, so nothing that reads the rest of the API can reach it.
    */
+  @Public()
   @Post('current/rotation')
   @HttpCode(200)
   async rotateSession(

@@ -6,6 +6,7 @@ import {
   CallerError,
   CallerResolver,
 } from '../../authentication/infrastructure/caller.resolver';
+import { Public } from '../../../../common/decorators';
 import { ChangePasswordUseCase } from '../application/change-password.use-case';
 import { RequestPasswordResetUseCase } from '../application/request-password-reset.use-case';
 import { ResetPasswordUseCase } from '../application/reset-password.use-case';
@@ -31,6 +32,7 @@ export class PasswordsController {
    * anyone. Answering differently would turn this endpoint into a register of
    * which email addresses have accounts — and it is unauthenticated.
    */
+  @Public()
   @Post('password-reset-requests')
   @HttpCode(202)
   async request(
@@ -48,6 +50,7 @@ export class PasswordsController {
     return { accepted: true };
   }
 
+  @Public()
   @Post('password-resets')
   @HttpCode(204)
   async reset(@Body() body: ResetPasswordDto): Promise<void> {

@@ -11,6 +11,7 @@ import { applicationConfig, cookiesConfig } from '../../src/config';
 import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { preSessionCsrf } from '../helpers';
+import { Public } from '../../src/common/decorators';
 
 function envelope<T>(body: unknown): ApiEnvelope<T> {
   return body as ApiEnvelope<T>;
@@ -21,6 +22,13 @@ class ProbeDto {
   name!: string;
 }
 
+/**
+ * `@Public()`: this probe exists to exercise the validation pipe, the response
+ * envelope and the logger. Sending it through the authorization chain would
+ * make those tests depend on a session and prove something else — the chain
+ * itself is covered by `guard-chain.e2e-spec.ts`.
+ */
+@Public()
 @Controller('probe')
 class ProbeController {
   @Get('ok')
