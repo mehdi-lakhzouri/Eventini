@@ -10,6 +10,7 @@ import type { FieldError } from '../../common/api/problem-details.types';
 import { DatabaseHealthIndicator } from './database.health-indicator';
 import { RedisHealthIndicator } from './redis.health-indicator';
 import { StartupState } from './startup.state';
+import { Public } from '../../common/decorators';
 
 /**
  * Terminus throws a `ServiceUnavailableException` whose response body holds
@@ -69,6 +70,13 @@ function toFieldErrors(error: unknown): FieldError[] {
  * So `/live` deliberately checks **nothing**. Any dependency reachable from
  * it is a dependency whose outage can restart the fleet.
  */
+/**
+ * Public: liveness, readiness and scraping are called by the platform, not
+ * by a user — a probe holds no session and a failing probe must report the
+ * service's health rather than its own lack of credentials. Exempt from
+ * CSRF and rate limiting for the same reason.
+ */
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(

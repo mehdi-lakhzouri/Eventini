@@ -19,6 +19,7 @@ import {
 } from './infrastructure/logging';
 import { MetricsModule } from './infrastructure/metrics';
 import { RedisModule } from './infrastructure/redis';
+import { GuardChainModule } from './modules/identity/authorization/guard-chain.module';
 import { OrganizationsModule } from './modules/organizations';
 import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
@@ -81,6 +82,10 @@ if (!isProduction) {
     // endpoint that hashes first and counts afterwards is its own DoS vector.
     RateLimitingModule,
     IdentityModule,
+    // After IdentityModule, and that is deliberate: APP_GUARD providers run in
+    // module initialisation order, so this is what puts the authorization
+    // chain behind rate limiting and CSRF (§7.5).
+    GuardChainModule,
     OrganizationsModule,
   ],
   providers: [

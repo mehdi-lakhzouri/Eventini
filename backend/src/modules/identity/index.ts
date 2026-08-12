@@ -35,5 +35,5 @@ export {
   type SessionCookieSettings,
 } from './authentication/infrastructure/cookies/session-cookies';
 export { CsrfModule, CsrfService } from './csrf';
-export { TenantAccessModule } from './tenant-access';
+export { TenantAccessModule, AllowsOrganizationSwitch } from './tenant-access';
 export { TenantContextService } from './tenant-access/tenant-context.service';

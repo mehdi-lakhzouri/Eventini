@@ -17,6 +17,7 @@ import {
   permissionsPolicyMiddleware,
 } from '../../src/bootstrap';
 import { preSessionCsrf } from '../helpers';
+import { Public } from '../../src/common/decorators';
 
 /**
  * Route-free otherwise: `AppModule`'s own controllers don't yet expose a body
@@ -29,6 +30,13 @@ class ProbeDto {
   name!: string;
 }
 
+/**
+ * `@Public()`: this probe exists to exercise the validation pipe, the response
+ * envelope and the logger. Sending it through the authorization chain would
+ * make those tests depend on a session and prove something else — the chain
+ * itself is covered by `guard-chain.e2e-spec.ts`.
+ */
+@Public()
 @Controller('probe')
 class ProbeController {
   @Get('ip')

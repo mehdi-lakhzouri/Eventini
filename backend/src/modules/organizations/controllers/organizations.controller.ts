@@ -15,6 +15,7 @@ import { AppException } from '../../../common/api/app-exception';
 import type { RequestWithId } from '../../../common/types/request-with-id';
 import { cookiesConfig } from '../../../config/cookies.config';
 import {
+  AllowsOrganizationSwitch,
   CallerResolver,
   CsrfService,
   setSessionCookies,
@@ -56,6 +57,7 @@ export class OrganizationsController {
    *
    * `201`, because what comes back is a new session, not an edited one.
    */
+  @AllowsOrganizationSwitch()
   @Post(':organizationId/activation')
   @HttpCode(201)
   async activateOrganization(

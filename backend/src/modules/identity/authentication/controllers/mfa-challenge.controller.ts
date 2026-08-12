@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import { AppException } from '../../../../common/api/app-exception';
 import type { RequestWithId } from '../../../../common/types/request-with-id';
 import { cookiesConfig } from '../../../../config/cookies.config';
+import { Public } from '../../../../common/decorators';
 import { CsrfService } from '../../csrf';
 import { MfaError } from '../../mfa/domain/mfa.errors';
 import { CompleteMfaLoginUseCase } from '../application/complete-mfa-login.use-case';
@@ -41,6 +42,7 @@ export class MfaChallengeController {
     private readonly cookies: ConfigType<typeof cookiesConfig>,
   ) {}
 
+  @Public()
   @Post(':challengeId/verification')
   @HttpCode(201)
   async verify(
