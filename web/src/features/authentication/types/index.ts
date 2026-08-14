@@ -14,9 +14,13 @@
  *   permission.types.ts     → re-export from @/lib/permissions
  */
 export type {
-  Role,
+  AuthenticationLevel,
   CurrentUser,
   LoginInput,
+  Role,
+  SessionClientType,
+  SessionCreated,
+  UserStatus,
 } from "./authentication.types";
 
 export type { MfaVerificationInput } from "./mfa.types";

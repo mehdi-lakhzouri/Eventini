@@ -39,6 +39,20 @@ Référence des défauts : [`FRONTEND_ARCHITECTURE.md` §1.2](../../architecture
 ## EVT-037 — Client API : corps d'erreur et méthodes manquantes
 <a id="evt-037"></a>
 
+> ✅ **Fait le 14 août 2026.** 79 tests unitaires, dont 24 nouveaux sur le client et l'analyse du problème.
+>
+> ### 🔴 Trois défauts plus graves que celui du ticket
+>
+> Le corps d'erreur jeté était réel, mais trois autres l'attendaient derrière.
+>
+> **Les quatre routes d'authentification n'existaient pas.** Le client appelait `/identity/authentication/{login,logout,refresh,me}` ; le backend expose `@Controller('auth/sessions')` et `@Controller('auth')`. Chaque appel aurait répondu **404, jamais 401** — un écran de connexion paraissant refuser des identifiants corrects. Idem pour les trois routes de `sessions.api.ts`, dont un `POST .../revoke-all` que [ADR-0010] proscrit.
+>
+> **Le client rendait l'enveloppe entière en la typant comme la ressource.** `apiClient.get<CurrentUser>()` renvoyait `{ data, meta, error }` ; tout appelant lisant `user.email` aurait trouvé `undefined`, sans erreur de compilation.
+>
+> **`CurrentUser` déclarait trois champs que le backend n'envoie pas** — `id`, `role`, `permissions`. Les deux derniers sont ceux qu'un guard de route consulte. `userHasRole` et `usePermissions` répondaient donc **`false` en toutes circonstances, en silence** : un `AuthGuard` les consultant aurait masqué chaque page protégée à des ayants droit.
+>
+> ⚠️ **Conséquence pour [EVT-039](#evt-039)** — le ticket affirme que « `userHasRole` existe déjà, il suffit de l'appeler ». C'est faux : **aucune route n'expose le rôle ni les permissions**, et [ADR-0004] les résout côté serveur par conception. EVT-039 exige donc une décision, vraisemblablement une extension **backend** de `GET /auth/me`. Les deux helpers ont été rendus explicites plutôt que laissés silencieusement faux.
+
 ```
 Branche  fix/EVT-037-api-client-errors
 Commit   fix(web): parse RFC 9457 error bodies and add put/patch methods
