@@ -291,6 +291,24 @@ Les erreurs de champ du backend (`error.errors[]`) sont réinjectées dans le fo
 ## EVT-041 — Gestion de session et contexte d'organisation
 <a id="evt-041"></a>
 
+> ✅ **Fait le 14 août 2026.** 116 tests unitaires, 32 e2e. **Sprint 07 terminé.**
+>
+> ### 🔴 `config/permissions.ts` était faux de bout en bout
+>
+> Ses trois codes — `identity.sessions.manage-own`, `identity.users.manage-tenant`, `platform.manage` — **n'existaient dans aucun rôle**. Le catalogue seedé en définit 33, et aucune ne portait ces noms. Le fichier n'étant importé nulle part (F-11), l'erreur ne pouvait pas se voir ; elle se serait vue au premier usage sous la forme la plus déroutante : une action masquée pour tout le monde, administrateur compris, sans qu'aucune erreur ne soit levée — `hasPermission` répond simplement `false` sur un code inconnu. Idem pour le type `Role`, qui en déclarait trois sur six.
+>
+> ### 🔴 Câbler la barre latérale a révélé une discordance d'hydratation
+>
+> `usePersistentSidebarOpen` lisait `localStorage` **dans l'initialiseur de `useState`** : le serveur rendait `defaultOpen`, le client la valeur stockée, et React jetait le balisage du sous-arbre. Le défaut était invisible tant que `app-sidebar.tsx` restait du code mort. Corrigé par `useSyncExternalStore`, dont c'est précisément le cas d'usage.
+>
+> ### La purge du cache, écrite une fois
+>
+> `purgeClientCache` est appelé aux **trois** moments qui changent ce que l'utilisateur a le droit de voir : connexion, déconnexion, bascule d'organisation. Il annule d'abord les requêtes en vol — sans cela, une réponse arrivée après le `clear()` réécrit dans le cache tout juste vidé la donnée qu'on venait d'en retirer, et seulement parfois, selon la latence.
+>
+> ### Le sélecteur n'utilise pas `DropdownMenu`
+>
+> Le composant installé n'a pas voulu s'ouvrir, dans trois variantes d'usage, **sans jamais lever d'erreur**. La divulgation est écrite explicitement — une trentaine de lignes, comportement clavier compris. La suite e2e est passée de 32 s à 4,7 s en supprimant les délais d'attente que cela provoquait. Le point reste à investiguer avant le prochain menu.
+
 ```
 Branche  feat/EVT-041-session-management
 Commit   feat(web): add session list, revocation and organization switcher

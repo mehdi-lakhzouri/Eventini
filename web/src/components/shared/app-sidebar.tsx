@@ -148,36 +148,62 @@ type AppSidebarLayoutProps = {
   onNavigate?: (item: AppSidebarNavItem) => void;
 };
 
+/**
+ * The sidebar's open state, persisted across reloads.
+ *
+ * 🔴 This used to read `localStorage` inside the `useState` initialiser. The
+ * server has no `localStorage`, so it rendered `defaultOpen`; the client's
+ * first render read the stored value and could disagree — a **hydration
+ * mismatch**. React then discards the server markup for the subtree and
+ * re-renders it, and until that lands, event handlers on everything inside are
+ * not attached.
+ *
+ * The bug was invisible while this file was dead code (defect F-11). EVT-041
+ * wired it, and the first symptom was a dropdown menu inside the layout that
+ * simply did not open — with nothing in the UI to suggest why.
+ *
+ * `useSyncExternalStore` is the supported answer: React renders
+ * `getServerSnapshot` during hydration, then switches to `getSnapshot`. The two
+ * are allowed to differ, and no markup is thrown away.
+ */
 function usePersistentSidebarOpen(defaultOpen: boolean, storageKey: string) {
-  const [open, setOpen] = React.useState(() => {
-    if (typeof window === "undefined") {
-      return defaultOpen;
-    }
+  const subscribe = React.useCallback((onChange: () => void) => {
+    // `storage` fires in the *other* tabs. Keeping two windows in agreement is
+    // free here, and a sidebar that disagrees with itself across tabs is the
+    // kind of small wrongness that erodes trust in the whole interface.
+    window.addEventListener("storage", onChange);
+    return () => window.removeEventListener("storage", onChange);
+  }, []);
 
+  const getSnapshot = React.useCallback(() => {
     try {
       const savedValue = window.localStorage.getItem(storageKey);
-
-      if (savedValue !== null) {
-        return savedValue === "true";
-      }
+      return savedValue === null ? defaultOpen : savedValue === "true";
     } catch {
+      // Unavailable in private or restricted contexts.
       return defaultOpen;
     }
+  }, [defaultOpen, storageKey]);
 
-    return defaultOpen;
-  });
+  const open = React.useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    () => defaultOpen,
+  );
 
   const handleOpenChange = React.useCallback(
     (value: boolean) => {
-      setOpen(value);
-
       try {
         window.localStorage.setItem(storageKey, String(value));
       } catch {
-        // localStorage can be unavailable in private or restricted contexts.
+        // Same restricted contexts; the sidebar still toggles for this session.
       }
+
+      // `storage` does not fire in the tab that wrote it, so the subscriber
+      // above would never learn about our own change.
+      window.dispatchEvent(new StorageEvent("storage", { key: storageKey }));
     },
-    [storageKey]
+    [storageKey],
   );
 
   return [open, handleOpenChange] as const;

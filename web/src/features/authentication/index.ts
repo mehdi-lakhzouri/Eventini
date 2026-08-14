@@ -2,6 +2,7 @@ export * from "./api/authentication.api";
 export * from "./api/mfa.api";
 export * from "./api/password.api";
 export * from "./api/sessions.api";
+export * from "./components/application-shell";
 export * from "./components/auth-guard";
 export * from "./components/form-field";
 export * from "./components/form-message";
