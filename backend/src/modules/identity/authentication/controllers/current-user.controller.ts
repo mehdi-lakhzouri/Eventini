@@ -1,6 +1,7 @@
 import { Controller, Get, Req } from '@nestjs/common';
 import type { Request } from 'express';
 
+import { AuthorizationContextReader } from '../domain/authorization-context.reader';
 import { AppException } from '../../../../common/api/app-exception';
 import { GetCurrentUserUseCase } from '../application/get-current-user.use-case';
 import { toCallerException } from '../infrastructure/caller-exception.mapper';
@@ -19,6 +20,7 @@ export class CurrentUserController {
   constructor(
     private readonly caller: CallerResolver,
     private readonly getCurrentUser: GetCurrentUserUseCase,
+    private readonly authorization: AuthorizationContextReader,
   ) {}
 
   @Get('me')
@@ -38,6 +40,16 @@ export class CurrentUserController {
       throw new AppException('AUTHENTICATION_REQUIRED');
     }
 
+    /*
+      Le contexte d'autorisation est résolu APRÈS la vérification du profil.
+      Le résoudre d'abord ferait payer une lecture de permissions à un compte
+      supprimé entre-temps, pour une réponse qui sera de toute façon un refus.
+    */
+    const authorization = await this.authorization.read({
+      userId: caller.userId,
+      membershipId: caller.membershipId,
+    });
+
     return {
       userId: profile.userId,
       email: profile.email,
@@ -53,6 +65,23 @@ export class CurrentUserController {
       membershipId: caller.membershipId,
       clientType: caller.clientType,
       authenticationLevel: caller.authenticationLevel,
+
+      /*
+        🔴 Consultatifs, jamais faisant autorité — EVT-039.
+
+        Ils existent pour que l'interface évite d'afficher une action qui serait
+        refusée. Masquer un bouton inutilisable est une courtoisie, pas une
+        sécurité : chaque requête est réautorisée côté serveur par la chaîne de
+        guards (ADR-0004), et un client qui forgerait cette charge utile
+        n'obtiendrait rien — le backend ne la relit jamais.
+
+        Ils ne sont pas davantage placés dans le jeton. Un JWT est signé une
+        fois et vit toute sa durée ; les permissions changent à l'instant où un
+        rôle est révoqué. Un jeton qui les porterait continuerait d'accorder
+        l'accès jusqu'à son expiration — exactement ce qu'ADR-0004 empêche.
+      */
+      role: authorization.role,
+      permissions: authorization.permissions,
     };
   }
 }

@@ -3,6 +3,7 @@ import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../config/authentication.config';
 import { RateLimitingModule } from '../../rate-limiting';
+import { AuthorizationModule } from '../authorization/authorization.module';
 import { CsrfModule } from '../csrf';
 import { MfaModule } from '../mfa';
 import { PasswordsModule } from '../passwords';
@@ -31,6 +32,13 @@ type Auth = ConfigType<typeof authenticationConfig>;
 
 @Module({
   imports: [
+    /*
+      Pour `AuthorizationContextReader`, injecté par `GET /auth/me`.
+
+      Aucun cycle : `AuthorizationModule` n'importe que `RedisModule`. C'est
+      `GuardChainModule` — un module distinct — qui dépend de celui-ci.
+    */
+    AuthorizationModule,
     CsrfModule,
     RateLimitingModule,
     IdentitySessionsModule,

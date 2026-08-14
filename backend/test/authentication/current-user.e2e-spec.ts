@@ -11,6 +11,7 @@ import { AppModule } from '../../src/app.module';
 import { buildValidationPipe } from '../../src/bootstrap';
 import type { ApiEnvelope } from '../../src/common/api';
 import { cookiesConfig } from '../../src/config/cookies.config';
+import { PermissionsVersionStore } from '../../src/modules/identity/authorization/domain/permissions-version.store';
 import { PasswordHasher } from '../../src/modules/identity/passwords/domain/password-hasher';
 import { csrfOf, preSessionCsrf, resetRateLimits, type Csrf } from '../helpers';
 
@@ -34,6 +35,9 @@ interface CurrentUserResponse {
   membershipId: string | null;
   clientType: string;
   authenticationLevel: string;
+  /** EVT-039 — consultatifs, jamais faisant autorité. */
+  role: string | null;
+  permissions: string[];
 }
 
 describeWithDatabase('GET /api/v1/auth/me', () => {
@@ -215,6 +219,122 @@ describeWithDatabase('GET /api/v1/auth/me', () => {
       expect(body.clientType).toBe('WEB');
       expect(body.authenticationLevel).toBe('PASSWORD');
       expect(body.mfaEnabled).toBe(false);
+    });
+
+    /**
+     * EVT-039 — le contexte d'autorisation consultatif.
+     *
+     * Sans rôle assigné, `role` vaut `null` et `permissions` est vide. C'est le
+     * cas d'un membre invité mais pas encore habilité, et l'interface doit
+     * lire ce `null` comme « aucune autorité particulière », jamais comme
+     * « pas encore chargé ».
+     */
+    it("renvoie un contexte d'autorisation vide quand aucun rôle n'est assigné", async () => {
+      const { jar } = await signIn();
+
+      const response = await request(server())
+        .get('/api/v1/auth/me')
+        .set('Cookie', jar)
+        .expect(200);
+
+      const body = (response.body as ApiEnvelope<CurrentUserResponse>).data!;
+
+      expect(body.role).toBeNull();
+      expect(body.permissions).toEqual([]);
+    });
+
+    it("renvoie le rôle et les permissions effectives de l'organisation active", async () => {
+      const { rows } = await pool.query<{ id: string }>(
+        `SELECT id FROM roles WHERE code = 'CLIENT_ADMIN'`,
+      );
+      const assignment = `mra_${suffix}`;
+
+      await pool.query(
+        `INSERT INTO membership_role_assignments
+           (id, membership_id, organization_id, role_id)
+         VALUES ($1, $2, $3, $4)`,
+        [assignment, `mbr_${suffix}`, ids.org, rows[0]!.id],
+      );
+      await app
+        .get(PermissionsVersionStore, { strict: false })
+        .bumpMembership(`mbr_${suffix}`);
+
+      try {
+        const { jar } = await signIn();
+
+        const response = await request(server())
+          .get('/api/v1/auth/me')
+          .set('Cookie', jar)
+          .expect(200);
+
+        const body = (response.body as ApiEnvelope<CurrentUserResponse>).data!;
+
+        expect(body.role).toBe('CLIENT_ADMIN');
+        // Le catalogue seedé accorde forcément quelque chose à un
+        // administrateur client ; l'assertion porte sur le fait que la
+        // résolution a bien eu lieu, pas sur un code particulier qui
+        // évoluerait avec le catalogue.
+        expect(body.permissions.length).toBeGreaterThan(0);
+      } finally {
+        await pool.query(
+          `DELETE FROM membership_role_assignments WHERE id = $1`,
+          [assignment],
+        );
+      }
+    });
+
+    /**
+     * 🔴 La garantie centrale d'ADR-0004 : les permissions ne voyagent pas
+     * dans le jeton. Elles sont résolues à chaque requête, donc une révocation
+     * prend effet immédiatement — et non à l'expiration du jeton.
+     */
+    it("cesse d'annoncer un rôle révoqué sur le MÊME jeton d'accès", async () => {
+      const { rows } = await pool.query<{ id: string }>(
+        `SELECT id FROM roles WHERE code = 'CLIENT_ADMIN'`,
+      );
+      const assignment = `mrb_${suffix}`;
+
+      await pool.query(
+        `INSERT INTO membership_role_assignments
+           (id, membership_id, organization_id, role_id)
+         VALUES ($1, $2, $3, $4)`,
+        [assignment, `mbr_${suffix}`, ids.org, rows[0]!.id],
+      );
+      await app
+        .get(PermissionsVersionStore, { strict: false })
+        .bumpMembership(`mbr_${suffix}`);
+
+      const { jar } = await signIn();
+
+      await request(server())
+        .get('/api/v1/auth/me')
+        .set('Cookie', jar)
+        .expect(200);
+
+      await pool.query(
+        `UPDATE membership_role_assignments SET revoked_at = now() WHERE id = $1`,
+        [assignment],
+      );
+      await app
+        .get(PermissionsVersionStore, { strict: false })
+        .bumpMembership(`mbr_${suffix}`);
+
+      try {
+        const after = await request(server())
+          .get('/api/v1/auth/me')
+          .set('Cookie', jar)
+          .expect(200);
+
+        const body = (after.body as ApiEnvelope<CurrentUserResponse>).data!;
+
+        expect(body.role).toBeNull();
+        expect(body.permissions).toEqual([]);
+      } finally {
+        await pool.query(
+          `DELETE FROM membership_role_assignments WHERE id = $1`,
+          [assignment],
+        );
+      }
     });
 
     it('never exposes a password hash or any credential material', async () => {
