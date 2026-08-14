@@ -26,7 +26,7 @@ Snapshot du 30 juillet 2026, matin. La colonne **Statut** est mise à jour au fi
 | **F-1** | **7 fichiers importent `../types`, un barrel qui n'existe pas.** `features/authentication/types/` contient `authentication.types.ts`, `permission.types.ts`, `session.types.ts` — mais **pas d'`index.ts`** | TS2307. Fichiers touchés : `authentication.api.ts`, `mfa.api.ts`, `password.api.ts`, `sessions.api.ts`, `auth-guard.tsx`, `use-permissions.ts`, `authentication.utils.ts` | ✅ **EVT-003** |
 | **F-2** | **`AppProviders` n'est monté nulle part.** Il compose correctement `InternationalizationProvider > ThemeProvider > QueryProvider`, et le layout racine ne l'importe pas | Tout `useQuery` lèvera « No QueryClient set » dès qu'une page d'authentification montera un hook | ✅ **EVT-003** |
 | **F-3** | **`AuthGuard` déclare `requiredRole` et ne le lit jamais.** Il détructure `{ children }` seulement | `(super-admin)/layout.tsx` passe `requiredRole="SUPER_ADMIN"` — **silencieusement ignoré** | ⏳ EVT-039 (sprint 07) |
-| **F-4** | **`middleware.ts` est un pass-through de 8 lignes** — pas de `matcher`, pas de lecture de cookie, pas de redirection | Aucune redirection UX ; s'exécute sur chaque requête pour rien | ⏳ EVT-039 (sprint 07) |
+| **F-4** | **`middleware.ts` est un pass-through de 7 lignes** — pas de `matcher`, pas de lecture de cookie, pas de redirection. De plus la convention est **dépréciée en Next 16** : le fichier doit devenir `proxy.ts` (§7) | Aucune redirection UX ; s'exécute sur chaque requête pour rien, et fait avertir chaque build | ⏳ EVT-039 (sprint 07) |
 | **F-5** | **Base URL par défaut `http://localhost:3000`** — le même port que le backend, et il n'existe aucun `.env` | Le serveur Next s'appelle lui-même. Chaque appel API donne 404 | ⏳ EVT-008/013 (sprint 02) |
 | **F-6** | **Pas de retry sur 401.** `refreshSession()` et `useRefreshSession()` existent et **rien ne les appelle** | Une session expirée déconnecte l'utilisateur au lieu de se rafraîchir | ⏳ EVT-038 (sprint 07) |
 | **F-7** | **Le corps d'erreur n'est jamais lu.** `throw new ApiError(response.statusText, response.status)` | L'enveloppe RFC 9457 du backend est jetée. `ApiError.details` n'est jamais rempli | ⏳ EVT-037 (sprint 07) — `put`/`patch` déjà ajoutés par EVT-003 |
@@ -36,7 +36,7 @@ Snapshot du 30 juillet 2026, matin. La colonne **Statut** est mise à jour au fi
 | **F-11** | **Code mort** — `routes.ts`, `permissions.ts`, `auth-ui.store.ts`, les 4 schémas Zod, `app-sidebar.tsx` : **importés par rien** | Aucun `useForm`, aucun `zodResolver` n'existe dans le dépôt | ⏳ EVT-040/041 (sprint 07) |
 | **F-12** | `tsconfig.sidebar-test.tsbuildinfo` (119 Ko) orphelin ; vitest et Playwright installés **sans config ni test ni script** | | ✅ **EVT-004** (fichier) / **EVT-005** (tooling) |
 
-`middleware.ts` sans effet et `AuthGuard` sans logique ne sont **pas** des failles : le frontend n'est jamais une frontière de sécurité (AUTH-INV-011). Ce sont des défauts d'ergonomie. Mais il ne faudra jamais compter dessus pour protéger quoi que ce soit.
+Le proxy sans effet et `AuthGuard` sans logique ne sont **pas** des failles : le frontend n'est jamais une frontière de sécurité (AUTH-INV-011). Ce sont des défauts d'ergonomie. Mais il ne faudra jamais compter dessus pour protéger quoi que ce soit.
 
 ---
 
@@ -67,7 +67,7 @@ web/src/
 ├── config/                         routes, permissions, environnement
 ├── i18n/                           request.ts, routing.ts
 ├── messages/                       fr.json, en.json
-└── middleware.ts
+└── proxy.ts             ← `middleware.ts` en Next ≤ 15, renommé en 16
 ```
 
 `src/shared/` est **supprimé** au sprint 01 (F-10). Deux taxonomies garantissent une répartition arbitraire du code.
@@ -214,10 +214,16 @@ Réessayer un `403` est inutile et bruyant : la permission ne va pas apparaître
 
 **Le frontend n'est jamais une frontière de sécurité.** Il évite d'afficher une page qui échouera de toute façon.
 
-### `middleware.ts` — corrige F-4
+### `proxy.ts` — corrige F-4
+
+> 🔴 **Ce n'est plus `middleware.ts`.** Next 16 a renommé la convention de fichier en `proxy`, et l'export `middleware` en `proxy`. Le dépôt est sur **Next 16.2.12** et chaque build affiche déjà l'avertissement :
+> `⚠ The "middleware" file convention is deprecated. Please use "proxy" instead.`
+>
+> EVT-039 doit donc créer `src/proxy.ts` et supprimer `src/middleware.ts`, pas remplir ce dernier. Le runtime `edge` n'est **pas** supporté par `proxy` : il s'exécute sous `nodejs`, sans configuration possible.
 
 ```ts
-export function middleware(request: NextRequest) {
+// src/proxy.ts
+export function proxy(request: NextRequest) {
   const hasSession = request.cookies.has('__Host-eventini_access');
   const { pathname } = request.nextUrl;
 
@@ -235,7 +241,7 @@ export const config = {
 };
 ```
 
-Le middleware vérifie la **présence** d'un cookie, jamais sa validité — il ne peut pas : le cookie est `HttpOnly` et signé côté serveur. Une redirection est une amélioration d'ergonomie, pas un contrôle.
+Le proxy vérifie la **présence** d'un cookie, jamais sa validité — il ne peut pas : le cookie est `HttpOnly` et signé côté serveur. Une redirection est une amélioration d'ergonomie, pas un contrôle.
 
 ### `AuthGuard` — corrige F-3
 
@@ -341,6 +347,8 @@ SSE et non WebSocket : le flux est unidirectionnel serveur → tableau de bord. 
 
 ## 12. Accessibilité et qualité
 
+> **Les tokens, la typographie, l'élévation et le mouvement sont spécifiés dans [`DESIGN_SYSTEM.md`](../design/DESIGN_SYSTEM.md)** ([ADR-0019](../adr/0019-design-system-foundation.md)). Les exigences de contraste AA et de `prefers-reduced-motion` ci-dessous y sont rendues atteignables et vérifiées en navigateur par `web/e2e/design-system.spec.ts`.
+
 Le kit Base UI est accessible par construction. Règles à ne pas casser : navigation clavier complète, focus visible, libellés associés, régions live pour les mises à jour temps réel, contraste AA minimum, `prefers-reduced-motion` respecté.
 
 `dangerouslySetInnerHTML` est **interdit par défaut** (contexte produit §11.6). Toute exception exige un ADR et une désinfection explicite.
@@ -360,7 +368,7 @@ Le kit Base UI est accessible par construction. Règles à ne pas casser : navig
 | F-7 | lire le corps d'erreur, remplir `ApiError` | 07 | |
 | F-6 | rotation en vol unique sur 401 | 07 | |
 | F-3 | `AuthGuard` applique `requiredRole` et `requiredPermission` | 07 | |
-| F-4 | `middleware.ts` avec `matcher` et redirections | 07 | |
+| F-4 | `proxy.ts` avec `matcher` et redirections | 07 | |
 | F-11 | brancher schémas Zod, routes, permissions, sidebar | 07 | |
 | F-9 | i18n complet | 08 | ◐ `locale` posé par EVT-003 |
 

@@ -4,6 +4,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  Jeu de tokens Eventini — voir docs/design/DESIGN_SYSTEM.md et ADR-0019.
+
+  Les valeurs sont en OKLCH avec le hex source en commentaire. OKLCH plutôt que
+  hex parce que l'espace est perceptuellement uniforme : ajuster la luminosité
+  pour atteindre un ratio de contraste ne décale ni la teinte ni la saturation,
+  ce qui est exactement ce qu'on a dû faire sur deux couleurs de la palette.
+
+  Chaque paire texte/fond de ce fichier a été mesurée. Les ratios figurent dans
+  DESIGN_SYSTEM.md §2 et sont recalculés au rendu par la page /design-system,
+  pour que la documentation ne puisse pas diverger de l'implémentation.
+*/
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -26,13 +39,21 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive: var(--destructive);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
+  --color-success-foreground: var(--success-foreground);
+  --color-success: var(--success);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand: var(--brand);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
@@ -46,75 +67,211 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-xs: var(--elevation-1);
+  --shadow-sm: var(--elevation-1);
+  --shadow-md: var(--elevation-2);
+  --shadow-lg: var(--elevation-3);
+  --shadow-xl: var(--elevation-4);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  /* Surfaces */
+  --background: oklch(0.985 0.007 268.55); /* #F8FAFF */
+  --foreground: oklch(0.2101 0.0318 264.66); /* #111827 — 16.99:1 */
+  --card: oklch(1 0 0); /* #FFFFFF */
+  --card-foreground: oklch(0.2101 0.0318 264.66); /* 17.74:1 */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.2101 0.0318 264.66);
+
+  /* Marque */
+  --primary: oklch(0.3658 0.1336 275.45); /* #2E3283 */
+  --primary-foreground: oklch(1 0 0); /* 11.05:1 */
+  --primary-hover: oklch(0.3141 0.1088 275.45); /* #242867 — 13.34:1 */
+
+  /*
+    `--brand` et non `--accent` : dans shadcn, `--accent` est le fond discret
+    des états de survol de menu, pas la couleur de marque. Écraser `--accent`
+    avec le bleu vif rendrait chaque survol d'élément saturé, sur les soixante
+    composants d'un coup. Voir ADR-0019.
+
+    #5B8CFF de la palette source donnait 3.16:1 sur blanc — sous AA dans les
+    deux sens, en texte comme en fond de bouton. Descendu à L=0.5743, teinte et
+    chroma inchangés.
+  */
+  --brand: oklch(0.5743 0.1795 264.68); /* #4270E1 — 4.53:1 */
+  --brand-foreground: oklch(1 0 0);
+
+  /* Surfaces atténuées — Surface Muted de la palette */
+  --secondary: oklch(0.9639 0.0169 267.79); /* #EEF3FF */
+  --secondary-foreground: oklch(0.3658 0.1336 275.45); /* 9.95:1 */
+  --muted: oklch(0.9639 0.0169 267.79);
+  --muted-foreground: oklch(0.5018 0.0293 263.18); /* #5B6475 — 5.96:1 */
+  --accent: oklch(0.9639 0.0169 267.79);
+  --accent-foreground: oklch(0.3658 0.1336 275.45);
+
+  /* États */
+  --success: oklch(0.549 0.1622 147.22); /* #008931 — 4.54:1 */
+  --success-foreground: oklch(1 0 0);
+  /*
+    Warning garde le #F59E0B de la palette. Aucun ajustement : personne ne pose
+    de texte blanc sur de l'ambre — Tailwind, Radix et GitHub imposent tous un
+    texte foncé. C'est le libellé qui change, pas la couleur.
+  */
+  --warning: oklch(0.7686 0.1647 70.08); /* #F59E0B */
+  --warning-foreground: oklch(0.1976 0.0409 80.17); /* #1F1300 — 8.49:1 */
+  --destructive: oklch(0.5771 0.2152 27.33); /* #DC2626 — 4.83:1 */
+  --destructive-foreground: oklch(1 0 0);
+
+  /*
+    Deux rôles distincts, et c'est délibéré.
+
+    `--border` est décoratif : séparateurs, contours de cartes. Le #D6DDF2 de la
+    palette donne 1.36:1, ce qui est parfaitement admissible — WCAG 1.4.11 ne
+    vise pas les séparateurs.
+
+    `--input` borde les composants interactifs (combobox, input-otp, tabs,
+    toggle) et sert de remplissage à `bg-input/50` dans les champs de saisie du
+    style base-luma. Comme il porte une frontière de composant, il doit tenir
+    3:1 — et contre la surface la PLUS DÉFAVORABLE sur laquelle un champ peut
+    reposer, `--muted` #EEF3FF, pas contre le blanc. Résolu contre le blanc il
+    donnait 3.02:1 puis retombait à 2.82:1 dès qu'un champ était posé sur une
+    surface atténuée.
+  */
+  --border: oklch(0.8986 0.0297 271.07); /* #D6DDF2 */
+  --input: oklch(0.6427 0.0304 274.4); /* #878CA0 — 3.01:1 au pire cas */
+  --ring: oklch(0.5743 0.1795 264.68); /* #4270E1 — 4.34:1 */
+
+  /*
+    Série catégorielle à luminosité constante : les cinq teintes ont le même
+    poids visuel, donc aucune ne domine une légende par accident. Ancrée sur la
+    teinte de marque, puis répartie. Chacune tient au moins 3:1 sur le fond.
+  */
+  --chart-1: oklch(0.5743 0.17 264.68); /* #4571DC — 4.33:1 */
+  --chart-2: oklch(0.5743 0.17 322); /* #A54FB3 — 4.60:1 */
+  --chart-3: oklch(0.5743 0.095 200); /* #0F898F — 4.03:1 */
+  --chart-4: oklch(0.5743 0.17 145); /* #1A912E — 3.92:1 */
+  --chart-5: oklch(0.5743 0.16 45); /* #C2520B — 4.46:1 */
+
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.2101 0.0318 264.66);
+  --sidebar-primary: oklch(0.3658 0.1336 275.45);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.9639 0.0169 267.79);
+  --sidebar-accent-foreground: oklch(0.3658 0.1336 275.45);
+  --sidebar-border: oklch(0.8986 0.0297 271.07);
+  --sidebar-ring: oklch(0.5743 0.1795 264.68);
+
+  /*
+    Élévation teintée par la primaire, jamais du noir pur. Une ombre noire sur
+    un fond bleuté vire au gris sale ; la même ombre teintée #2E3283 lit comme
+    de la profondeur. C'est la différence la plus visible entre une interface
+    correcte et une interface soignée, pour un coût nul.
+  */
+  --elevation-1: 0 1px 2px 0 rgb(46 50 131 / 0.06);
+  --elevation-2:
+    0 1px 2px 0 rgb(46 50 131 / 0.06), 0 4px 12px -4px rgb(46 50 131 / 0.1);
+  --elevation-3:
+    0 2px 4px -1px rgb(46 50 131 / 0.08), 0 12px 28px -8px rgb(46 50 131 / 0.14);
+  --elevation-4:
+    0 4px 8px -2px rgb(46 50 131 / 0.1), 0 24px 48px -16px rgb(46 50 131 / 0.18);
+
+  /* Le dégradé du panneau d'authentification et des surfaces de marque. */
+  --gradient-brand: linear-gradient(
+    145deg,
+    oklch(0.3658 0.1336 275.45) 0%,
+    oklch(0.4394 0.1662 269.5) 55%,
+    oklch(0.5743 0.1795 264.68) 100%
+  );
+  /* Dégradé de surface : quasi imperceptible, c'est le but. */
+  --gradient-surface: linear-gradient(
+    180deg,
+    oklch(1 0 0) 0%,
+    oklch(0.9639 0.0169 267.79) 100%
+  );
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.1773 0.0341 269.56); /* #0B1020 */
+  --foreground: oklch(0.9842 0.0034 247.86); /* #F8FAFC — 18.10:1 */
+  --card: oklch(0.2136 0.0387 269.63); /* #12182B — 16.85:1 */
+  --card-foreground: oklch(0.9842 0.0034 247.86);
+  --popover: oklch(0.2558 0.0433 268.07); /* #1A2238 — 15.09:1 */
+  --popover-foreground: oklch(0.9842 0.0034 247.86);
+
+  /*
+    En sombre, la primaire porte un texte FONCÉ. Du blanc sur #5B8CFF donne
+    3.16:1 et échoue ; le #0B1020 du fond donne 5.99:1. C'est l'inversion que
+    presque toutes les palettes sombres ratent, parce qu'on suppose qu'un
+    bouton coloré prend toujours du texte clair.
+  */
+  --primary: oklch(0.6623 0.1786 264.64); /* #5B8CFF */
+  --primary-foreground: oklch(0.1773 0.0341 269.56); /* #0B1020 — 5.99:1 */
+  --primary-hover: oklch(0.7702 0.1165 264.42); /* #8FB3FF — Accent Glow */
+
+  --brand: oklch(0.7702 0.1165 264.42); /* #8FB3FF — 8.44:1 */
+  --brand-foreground: oklch(0.1773 0.0341 269.56); /* 9.07:1 */
+
+  --secondary: oklch(0.2558 0.0433 268.07);
+  --secondary-foreground: oklch(0.9842 0.0034 247.86);
+  --muted: oklch(0.2558 0.0433 268.07);
+  --muted-foreground: oklch(0.7562 0.0291 265.39); /* #A7B0C3 — 8.09:1 */
+  --accent: oklch(0.2558 0.0433 268.07);
+  --accent-foreground: oklch(0.9842 0.0034 247.86);
+
+  --success: oklch(0.7227 0.192 149.58); /* #22C55E — 7.74:1 */
+  --success-foreground: oklch(0.1773 0.0341 269.56);
+  --warning: oklch(0.8369 0.1644 84.43); /* #FBBF24 — 10.56:1 */
+  --warning-foreground: oklch(0.1976 0.0409 80.17);
+  --destructive: oklch(0.7106 0.1661 22.22); /* #F87171 — 6.37:1 */
+  --destructive-foreground: oklch(0.1773 0.0341 269.56);
+
+  --border: oklch(0.3376 0.0551 268.04); /* #2B3654 — décoratif */
+  --input: oklch(0.5334 0.0544 267.85); /* #5F6C8D — 3.02:1 au pire cas */
+  --ring: oklch(0.6623 0.1786 264.64); /* #5B8CFF — 5.99:1 */
+
+  /* Remontées en luminosité : sur fond sombre, la série claire doit s'éclaircir. */
+  --chart-1: oklch(0.73 0.135 264.68); /* #7DA5FD — 7.28:1 */
+  --chart-2: oklch(0.73 0.15 322); /* #D386DF — 6.92:1 */
+  --chart-3: oklch(0.73 0.12 200); /* #1DBEC5 — 7.74:1 */
+  --chart-4: oklch(0.73 0.15 145); /* #64C06A — 7.80:1 */
+  --chart-5: oklch(0.73 0.15 45); /* #F38651 — 7.00:1 */
+
+  --sidebar: oklch(0.2136 0.0387 269.63);
+  --sidebar-foreground: oklch(0.9842 0.0034 247.86);
+  --sidebar-primary: oklch(0.6623 0.1786 264.64);
+  --sidebar-primary-foreground: oklch(0.1773 0.0341 269.56);
+  --sidebar-accent: oklch(0.2558 0.0433 268.07);
+  --sidebar-accent-foreground: oklch(0.9842 0.0034 247.86);
+  --sidebar-border: oklch(0.3376 0.0551 268.04);
+  --sidebar-ring: oklch(0.6623 0.1786 264.64);
+
+  /*
+    Une ombre portée ne se voit pas sur un fond presque noir : il n'y a plus de
+    lumière à occulter. La profondeur vient d'un liseré interne clair en haut,
+    qui simule une lumière rasante. L'ombre noire reste pour détacher du fond.
+  */
+  --elevation-1:
+    0 1px 2px 0 rgb(0 0 0 / 0.4), inset 0 1px 0 0 rgb(255 255 255 / 0.04);
+  --elevation-2:
+    0 2px 8px -2px rgb(0 0 0 / 0.5), inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+  --elevation-3:
+    0 8px 24px -6px rgb(0 0 0 / 0.6), inset 0 1px 0 0 rgb(255 255 255 / 0.06);
+  --elevation-4:
+    0 16px 48px -12px rgb(0 0 0 / 0.7), inset 0 1px 0 0 rgb(255 255 255 / 0.08);
+
+  --gradient-brand: linear-gradient(
+    145deg,
+    oklch(0.2558 0.0433 268.07) 0%,
+    oklch(0.3658 0.1336 275.45) 55%,
+    oklch(0.5743 0.1795 264.68) 100%
+  );
+  --gradient-surface: linear-gradient(
+    180deg,
+    oklch(0.2558 0.0433 268.07) 0%,
+    oklch(0.2136 0.0387 269.63) 100%
+  );
 }
 
 @layer base {
@@ -126,5 +283,44 @@
   }
   html {
     @apply font-sans;
+  }
+
+  /*
+    Chiffres tabulaires par défaut sur les données. Sans cela, une colonne de
+    montants ou de compteurs voit ses chiffres changer de largeur d'une ligne à
+    l'autre et le tableau tremble au rafraîchissement — visible dès que le
+    tableau de bord se met à jour en temps réel (sprint 11).
+  */
+  table,
+  [data-slot="table"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+    AUTH-INV-011 côté visuel : le focus est la seule affordance de ceux qui
+    naviguent au clavier. Il n'est jamais supprimé, et jamais animé en
+    position — un anneau qui glisse vers sa cible est un anneau qu'on perd.
+  */
+  :focus-visible {
+    outline-offset: 2px;
+  }
+
+  /*
+    Exigence de FRONTEND_ARCHITECTURE.md §12, appliquée globalement plutôt que
+    composant par composant. Le registre de mouvement retenu est expressif ; il
+    doit donc disparaître complètement, pas s'atténuer.
+
+    `scroll-behavior: auto` est inclus parce qu'un défilement animé déclenche
+    les mêmes troubles vestibulaires que les transitions.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
