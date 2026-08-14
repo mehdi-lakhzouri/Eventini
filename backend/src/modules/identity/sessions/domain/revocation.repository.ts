@@ -8,6 +8,18 @@ export interface CallerSession {
   readonly userId: string;
   readonly userVersion: number;
   readonly userStatus: string;
+  /**
+   * Steps 4 and 5 of the chain, carried on the row the session lookup already
+   * reads. Loading them here rather than in a second query is what lets the
+   * guard enforce a suspended organization or a revoked membership without
+   * paying another round trip per request — and what stops those two checks
+   * from being skipped because they looked expensive.
+   *
+   * Null for a platform session, which has no organization by construction.
+   */
+  readonly organizationStatus: string | null;
+  readonly organizationEnabled: boolean | null;
+  readonly membershipStatus: string | null;
   readonly organizationId: string | null;
   readonly membershipId: string | null;
   readonly clientType: SessionClientType;

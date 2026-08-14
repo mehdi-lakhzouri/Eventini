@@ -18,6 +18,10 @@ export interface Caller {
   readonly membershipId: string | null;
   readonly clientType: SessionClientType;
   readonly authenticationLevel: AuthenticationLevel;
+  /** Steps 4 and 5, decided by `TenantContextGuard`, not here. */
+  readonly organizationStatus: string | null;
+  readonly organizationEnabled: boolean | null;
+  readonly membershipStatus: string | null;
 }
 
 export type CallerRejection =
@@ -96,6 +100,9 @@ export class CallerResolver {
       membershipId: session.membershipId,
       clientType: session.clientType,
       authenticationLevel: session.authenticationLevel,
+      organizationStatus: session.organizationStatus,
+      organizationEnabled: session.organizationEnabled,
+      membershipStatus: session.membershipStatus,
     };
   }
 }

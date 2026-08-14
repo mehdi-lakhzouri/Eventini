@@ -257,16 +257,26 @@ jobs:
           echo "no credential written by any seed"
 
       # ADR-0006: organizationId is the only permitted term for the tenant.
-      # TODO(sprint 02): make this blocking once the codebase adopts the term.
+      #
+      # Blocking from EVT-036. It carried `continue-on-error` and a
+      # `TODO(sprint 02)` four sprints past sprint 02, and the code has been
+      # clean for most of them — the gate stayed advisory because its one
+      # remaining hit was the doc comment in `authentication.types.ts` that
+      # *records the rename*. Comment lines are stripped first, exactly as the
+      # seed-credential check above does: a scanner that fires on its own
+      # rationale is a scanner people learn to ignore.
       - name: Tenant terminology
-        continue-on-error: true
         run: |
-          HITS=$(grep -rnw 'tenantId' backend/src web/src 2>/dev/null \
+          HITS=$(grep -rn --include='*.ts' --include='*.tsx' \
+                   -vE '^\s*(\*|//|/\*)' backend/src web/src 2>/dev/null \
+                 | grep -w 'tenantId' \
                  | grep -v 'TenantContext' | grep -v 'TenantOwnership' || true)
           if [ -n "$HITS" ]; then
-            echo "::warning::use organizationId, not tenantId (ADR-0006):"
+            echo "::error::use organizationId, not tenantId (ADR-0006):"
             echo "$HITS"
+            exit 1
           fi
+          echo "tenant terminology clean"
 
   codeql:
     name: CodeQL

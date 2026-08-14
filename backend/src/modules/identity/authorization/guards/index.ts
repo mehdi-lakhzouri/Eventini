@@ -1,12 +1,13 @@
 import { APP_GUARD } from '@nestjs/core';
 import type { Provider } from '@nestjs/common';
 
-import { TenantContextGuard } from '../../tenant-access/tenant-context.guard';
 import { AuthenticationGuard } from './authentication.guard';
+import { TenantContextGuard } from './tenant-context.guard';
 import { PermissionsGuard } from './permissions.guard';
 
 export { AuthenticationGuard } from './authentication.guard';
 export { PermissionsGuard } from './permissions.guard';
+export { TenantContextGuard } from './tenant-context.guard';
 
 /**
  * The chain, in the order §4 fixes it — and the order is load-bearing.

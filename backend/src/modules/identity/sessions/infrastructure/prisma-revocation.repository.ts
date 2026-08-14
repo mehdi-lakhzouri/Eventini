@@ -35,6 +35,8 @@ export class PrismaRevocationRepository extends RevocationRepository {
         idleExpiresAt: true,
         absoluteExpiresAt: true,
         user: { select: { version: true, status: true } },
+        organization: { select: { status: true, isEnabled: true } },
+        activeMembership: { select: { status: true } },
       },
     });
 
@@ -47,6 +49,9 @@ export class PrismaRevocationRepository extends RevocationRepository {
       userId: row.userId,
       userVersion: row.user.version,
       userStatus: row.user.status,
+      organizationStatus: row.organization?.status ?? null,
+      organizationEnabled: row.organization?.isEnabled ?? null,
+      membershipStatus: row.activeMembership?.status ?? null,
       organizationId: row.organizationId,
       membershipId: row.activeMembershipId,
       clientType: row.clientType as SessionClientType,

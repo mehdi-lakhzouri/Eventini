@@ -80,13 +80,23 @@ jobs:
         run: npm test -- --ci --passWithNoTests
 
       # Guards against a suite that only contains it.todo. The threshold
-      # ratchets DOWN each sprint and never up: 31 at sprint 03, 10 today. The
-      # remaining ten are the cross-tenant and forbidden-import placeholders
-      # EVT-036 replaces with real assertions, which takes this to 0.
+      # ratcheted DOWN every sprint and never up: 31 at sprint 03, 10 at
+      # sprint 05, and 0 from EVT-036 — the last ten were the cross-tenant and
+      # forbidden-import placeholders, now real assertions.
+      #
+      # At 0 this stops being a budget and becomes a ban, which is the point:
+      # a todo passes, so a suite full of them is green while verifying
+      # nothing. Anything genuinely unimplementable is a ticket, not a test
+      # that reports success.
       - name: Placeholder-test budget
         run: |
-          MAX_TODOS=10
-          FOUND=$(grep -roE '\bit\.todo\b' src test --include='*.ts' | wc -l | tr -d ' ')
+          MAX_TODOS=0
+          # Comment lines are stripped first. At a budget of 0 the check would
+          # otherwise fail on the three doc comments that explain why the
+          # todos are gone — the same self-referential trap the seed-credential
+          # scanner in security.yml already avoids.
+          FOUND=$(grep -rn --include='*.ts' -vE '^\s*(\*|//|/\*)' src test \
+                  | grep -cE '\bit\.todo\b' || true)
           echo "it.todo found: $FOUND (budget: $MAX_TODOS)"
           if [ "$FOUND" -gt "$MAX_TODOS" ]; then
             echo "::error::Placeholder tests increased ($FOUND > $MAX_TODOS). Write real assertions."
@@ -140,13 +150,20 @@ jobs:
           REDIS_URL: ${{ env.TEST_REDIS_URL }}
           NODE_ENV: test
 
-      # Blocking since EVT-018. It was advisory while `tenant-isolation.spec.ts`
-      # held two `it.todo`, which is a step that cannot fail and therefore
-      # verifies nothing. It now carries the four checks ADR-0003 §4 asks for —
-      # including that `PrismaModule` does not export the unguarded client —
-      # and every one of them is a rule someone could break by accident.
+      # `arch:tenant-isolation` — the check name GIT_STRATEGY.md §6 lists as
+      # required from sprint 06, now an actual npm script rather than an
+      # inline command that happened to run the same files. A required check
+      # whose name exists only in a document cannot be selected in branch
+      # protection.
+      #
+      # Blocking since EVT-018, and only now worth blocking on: it was a step
+      # that could not fail while `tenant-isolation.spec.ts` held two `it.todo`
+      # and `forbidden-imports.spec.ts` three. EVT-036 replaced all five, and
+      # two of the new rules were already broken when they were written —
+      # `tenant-access` importing `authorization`, and a domain file importing
+      # Express. Both were fixed, not exempted.
       - name: Architecture tests
-        run: npm test -- --ci --testPathPatterns=__architecture__
+        run: npm run arch:tenant-isolation -- --ci
 
       - name: Build
         run: npm run build
