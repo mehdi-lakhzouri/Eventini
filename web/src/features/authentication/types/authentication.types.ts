@@ -40,6 +40,24 @@ export type CurrentUser = {
   membershipId: string | null;
   clientType: SessionClientType;
   authenticationLevel: AuthenticationLevel;
+
+  /**
+   * Le contexte d'autorisation **consultatif** — EVT-039, ADR-0004.
+   *
+   * Il existe pour que l'interface évite d'afficher une action qui serait
+   * refusée. Masquer un bouton inutilisable est une courtoisie, pas une
+   * sécurité : chaque requête est réautorisée côté serveur (AUTH-INV-011).
+   *
+   * `role` vaut `null` quand l'appelant n'en tient aucun — invité mais pas
+   * encore habilité, ou session plateforme sans rôle plateforme. À lire comme
+   * « aucune autorité particulière », **jamais** comme « pas encore chargé » :
+   * l'état de chargement est porté par TanStack Query, pas par cette valeur.
+   *
+   * La portée suit la session : organisation active si elle en a une, plateforme
+   * sinon. Jamais l'union des deux.
+   */
+  role: Role | null;
+  permissions: string[];
 };
 
 /**

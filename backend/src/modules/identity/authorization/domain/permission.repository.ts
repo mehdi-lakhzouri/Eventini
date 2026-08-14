@@ -35,4 +35,23 @@ export abstract class PermissionRepository {
     eventId: string,
     at: Date,
   ): Promise<string[]>;
+
+  /**
+   * Les **codes de rôle** tenus par un membership, et non leurs permissions.
+   *
+   * Deux lectures distinctes parce que ce sont deux questions distinctes. Un
+   * rôle est une étiquette destinée à l'affichage — « vous êtes administrateur
+   * de cette organisation » — là où une permission autorise une action. Les
+   * déduire l'une de l'autre est faux dans les deux sens : deux rôles peuvent
+   * accorder la même permission, et un rôle sans permission reste un rôle.
+   *
+   * Le filtre `scope = 'ORGANIZATION'` est repris tel quel de la lecture des
+   * permissions : un rôle PLATFORM atteignable par une assignation de
+   * membership serait l'escalade de privilège la plus directe que ce schéma
+   * autorise (INV-09 la refuse en base, ce filtre la refuse en lecture).
+   */
+  abstract organizationRoles(membershipId: string): Promise<string[]>;
+
+  /** Les codes de rôle `PLATFORM` tenus directement par l'utilisateur. */
+  abstract platformRoles(userId: string): Promise<string[]>;
 }

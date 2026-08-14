@@ -149,9 +149,21 @@ L'utilisateur est déconnecté par une mesure anti-vol de token, alors que rien 
 <a id="evt-039"></a>
 
 ```
-Branche  fix/EVT-039-frontend-route-guards
-Commit   fix(web): apply requiredRole in AuthGuard and add the proxy matcher
+Branche  feat/EVT-039-authorization-context
+Commit   feat(identity): expose the advisory authorization context and apply it in AuthGuard
 ```
+
+> ✅ **Fait le 14 août 2026.** Backend : 1055 unitaires, 139 intégration, 194 e2e. Frontend : 102 unitaires, 12 e2e. Le build n'avertit plus.
+>
+> **Le ticket touche `backend/`, contrairement au reste du sprint.** `AuthGuard` devait appliquer `requiredRole` en appelant `userHasRole`, « qui existe déjà ». EVT-037 a montré que c'était faux : **aucune route n'exposait le rôle ni les permissions**, et [ADR-0004] les résout côté serveur par conception. Appeler le helper n'aurait rien changé — il n'y avait rien à lui donner à lire, et il aurait répondu `false` en toutes circonstances, masquant chaque page protégée à ses ayants droit.
+>
+> `GET /auth/me` renvoie donc désormais `role` et `permissions`, **résolus côté serveur, strictement consultatifs, jamais dans le jeton**. Un JWT est signé une fois et vit toute sa durée ; les permissions changent à l'instant où un rôle est révoqué. Un test e2e le prouve : sur le **même jeton d'accès**, une révocation de rôle fait retomber `role` à `null` à la requête suivante.
+>
+> ### 🔴 Le cycle, et le port qui le résout
+>
+> `authorization` importe déjà `authentication` — les guards lisent `CallerResolver`. Faire lire `PermissionResolver` par `/auth/me` aurait inversé l'arête et fermé un cycle, ce que §5 de [`MODULE_DEPENDENCY_MAP.md`](../../architecture/MODULE_DEPENDENCY_MAP.md) interdit en nommant la résolution : « à résoudre par outbox ou **port** ».
+>
+> Le port `AuthorizationContextReader` est déclaré dans `authentication/domain` et n'importe rien. L'adaptateur vit dans `authorization`, le côté autorisé à connaître les deux. Aucun cycle Nest : `AuthorizationModule` n'importe que `RedisModule`, et c'est `GuardChainModule` — un module distinct — qui dépend de l'authentification. Les 29 tests d'architecture, détecteur de cycle compris, restent verts.
 
 > ### 🔴 Ce ticket ne crée PAS `middleware.ts`
 >

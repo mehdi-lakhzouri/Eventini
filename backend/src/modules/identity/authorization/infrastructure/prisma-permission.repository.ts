@@ -43,6 +43,38 @@ export class PrismaPermissionRepository extends PermissionRepository {
     return rows.map((row) => row.code);
   }
 
+  /**
+   * Les codes de rôle, sans passer par `role_permissions`.
+   *
+   * Un rôle dépourvu de permission — cas légitime pendant qu'un catalogue se
+   * construit — disparaîtrait d'une jointure passant par les permissions. La
+   * requête s'arrête donc à `roles`.
+   */
+  async organizationRoles(membershipId: string): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<CodeRow[]>`
+      SELECT DISTINCT r."code"
+        FROM "membership_role_assignments" mra
+        JOIN "roles" r ON r."id" = mra."role_id" AND r."scope" = 'ORGANIZATION'
+       WHERE mra."membership_id" = ${membershipId}
+         AND mra."revoked_at" IS NULL
+    `;
+
+    return rows.map((row) => row.code);
+  }
+
+  async platformRoles(userId: string): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<CodeRow[]>`
+      SELECT DISTINCT r."code"
+        FROM "platform_role_assignments" pra
+        JOIN "roles" r ON r."id" = pra."role_id" AND r."scope" = 'PLATFORM'
+       WHERE pra."user_id" = ${userId}
+         AND pra."status" = 'ACTIVE'
+         AND pra."revoked_at" IS NULL
+    `;
+
+    return rows.map((row) => row.code);
+  }
+
   async platformPermissions(userId: string): Promise<string[]> {
     const rows = await this.prisma.$queryRaw<CodeRow[]>`
       SELECT DISTINCT p."code"
