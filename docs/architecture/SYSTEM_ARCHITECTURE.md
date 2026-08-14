@@ -92,7 +92,7 @@ Le graphe d'imports est **sain** : tous les imports relatifs résolvent. Un `dis
 |---|---|---|
 | Routes | 12 — **aucune avec de l'UI réelle** ; 8 retournent `<main />`, `<section />` ou `null` | |
 | ~~`(public)` et `(scanner)`~~ | ~~produisaient zéro route~~ | ✅ **EVT-004** — supprimés |
-| `middleware.ts` | pass-through de 8 lignes, sans `matcher`, sans lecture de cookie, sans redirection | ⏳ EVT-039 |
+| `middleware.ts` | pass-through de 7 lignes, sans `matcher`, sans lecture de cookie, sans redirection. Convention **dépréciée en Next 16** : EVT-039 crée `proxy.ts` et supprime ce fichier | ⏳ EVT-039 |
 | `AuthGuard` | déclare `requiredRole` dans ses props et **ne le lit jamais** — le garde `(super-admin)` est sans effet | ⏳ EVT-039 |
 | ~~`AppProviders`~~ | ~~correctement composé et jamais monté~~ | ✅ **EVT-003** |
 | ~~Erreur bloquante~~ | ~~7 fichiers importent `../types`, barrel qui n'existe pas~~ | ✅ **EVT-003** |
@@ -144,7 +144,7 @@ flowchart TB
     subgraph WEB["Next.js 16 — web/"]
         RSC["Server Components<br/>rendu, pas de secret"]
         RCC["Client Components<br/>TanStack Query + Zustand"]
-        MW["middleware.ts<br/>redirection UX seule"]
+        MW["proxy.ts<br/>redirection UX seule<br/>runtime nodejs"]
         APIC["API client<br/>cookies + CSRF + refresh"]
     end
 

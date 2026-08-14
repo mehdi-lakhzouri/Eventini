@@ -28,7 +28,7 @@ Connexion depuis le navigateur, session maintenue par rotation automatique, déc
 |---|---|---|
 | [EVT-037](#evt-037) | Client API — corps d'erreur et méthodes manquantes | F-7 |
 | [EVT-038](#evt-038) | Rotation en vol unique sur 401 | F-6 |
-| [EVT-039](#evt-039) | Guards de route et middleware | F-3, F-4 |
+| [EVT-039](#evt-039) | Guards de route et **proxy** (ex-middleware) | F-3, F-4 |
 | [EVT-040](#evt-040) | Formulaires d'authentification | F-11 |
 | [EVT-041](#evt-041) | Gestion de session et contexte d'organisation | — |
 
@@ -69,7 +69,9 @@ throw new ApiError({
 
 `requestId` est affiché dans les messages d'erreur techniques : un utilisateur qui signale un problème avec `req_01JABC` permet de retrouver la requête exacte dans les logs.
 
-**Autres corrections** — ajouter `put` et `patch` (absents alors qu'ils figurent dans `mutatingMethods`) ; supporter les en-têtes `Idempotency-Key` et `If-Match`.
+**Autres corrections** — supporter les en-têtes `Idempotency-Key` et `If-Match`.
+
+> ~~ajouter `put` et `patch`~~ — **déjà fait par EVT-003**, vérifié le 14 août 2026 dans `web/src/lib/api/api-client.ts`. Le registre de défauts de [`FRONTEND_ARCHITECTURE.md` §1.2](../../architecture/FRONTEND_ARCHITECTURE.md) le notait, pas ce ticket.
 
 **Base URL** — le défaut `http://localhost:3000` est le port du serveur Next lui-même : sans `.env`, le front s'appelle lui-même et chaque appel donne 404. Corrigé par `PORT=3001` côté backend (EVT-008) et `NEXT_PUBLIC_API_BASE_URL`.
 
@@ -121,13 +123,34 @@ L'utilisateur est déconnecté par une mesure anti-vol de token, alors que rien 
 
 ---
 
-## EVT-039 — Guards de route et middleware
+## EVT-039 — Guards de route et proxy
 <a id="evt-039"></a>
 
 ```
 Branche  fix/EVT-039-frontend-route-guards
-Commit   fix(web): apply requiredRole in AuthGuard and add middleware matcher
+Commit   fix(web): apply requiredRole in AuthGuard and add the proxy matcher
 ```
+
+> ### 🔴 Ce ticket ne crée PAS `middleware.ts`
+>
+> Corrigé le 14 août 2026 (EVT-075). La rédaction d'origine de ce ticket décrivait `middleware.ts`, une convention **dépréciée par Next 16**. Le dépôt est sur **Next 16.2.12** et chaque build affiche déjà :
+>
+> ```
+> ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead.
+> ```
+>
+> | | |
+> |---|---|
+> | Fichier | `web/src/proxy.ts` — **créer**, et **supprimer** `web/src/middleware.ts` |
+> | Export | `export function proxy(request: NextRequest)`, **pas** `middleware` |
+> | Runtime | **`nodejs` imposé. Le runtime `edge` n'est PAS supporté par `proxy`**, et cela ne se configure pas |
+> | Options `next.config.ts` | renommées : `skipMiddlewareUrlNormalize` → `skipProxyUrlNormalize` |
+>
+> **Conséquence d'architecture à ne pas manquer.** Sous `middleware`, le code s'exécutait en Edge runtime : démarrage quasi instantané, API Web uniquement, pas d'API Node. Sous `proxy`, il s'exécute en Node.js sur chaque requête correspondant au `matcher`. Le `matcher` cesse donc d'être un détail de performance et devient le levier principal — tout ce qu'il laisse passer paie un aller-retour Node.
+>
+> Ne pas y remédier laisserait l'implémentation repartir sur une convention obsolète, avec un avertissement à chaque build et une migration forcée à la prochaine montée de version.
+>
+> Référence : `node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md`, section « `middleware` to `proxy` ».
 
 ### F-3 — `AuthGuard` ignore silencieusement `requiredRole`
 
@@ -137,17 +160,37 @@ Le composant déclare `requiredRole?: Role` dans son type de props et **destruct
 
 Le composant retourne un **squelette** pendant le chargement, jamais `null` : `null` provoque un flash de contenu vide suivi d'une redirection brutale.
 
-### F-4 — `middleware.ts` est un pass-through
+### F-4 — le pass-through, et son remplacement
 
-8 lignes, sans `matcher`, sans lecture de cookie, sans redirection. Il s'exécute sur chaque requête pour ne rien faire.
+`web/src/middleware.ts` fait 7 lignes : pas de `matcher`, pas de lecture de cookie, pas de redirection. Il s'exécute sur chaque requête pour ne rien faire — et, depuis Next 16, pour faire avertir chaque build.
 
 ```ts
+// web/src/proxy.ts  ← nouveau fichier ; middleware.ts est supprimé
+import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  const hasSession = request.cookies.has("__Host-eventini_access");
+  const { pathname } = request.nextUrl;
+
+  if (!hasSession && isProtectedPath(pathname))
+    return NextResponse.redirect(new URL("/login", request.url));
+
+  if (hasSession && isAuthPath(pathname))
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+
+  return NextResponse.next();
+}
+
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico|api).*)'],
 };
 ```
 
-Le middleware vérifie la **présence** d'un cookie, jamais sa validité — il ne peut pas : le cookie est `HttpOnly` et signé côté serveur.
+Le proxy vérifie la **présence** d'un cookie, jamais sa validité — il ne peut pas : le cookie est `HttpOnly` et signé côté serveur.
+
+`isProtectedPath` et `isAuthPath` se lisent depuis `config/routes.ts`, aujourd'hui importé par rien (défaut **F-11**). Ce ticket est l'occasion de le brancher plutôt que de recopier des listes de chemins.
+
+**Le `matcher` doit exclure `/design-system`** en développement, sinon la recette visuelle redirige vers `/login` et devient inutilisable pour mettre au point l'écran de connexion lui-même.
 
 ### 🔴 Rappel
 
@@ -235,3 +278,5 @@ Réessayer un `403` est inutile et bruyant : la permission n'apparaîtra pas ent
 | `invalidateQueries` au lieu de `clear` au changement d'organisation | Test de fuite cross-tenant côté client |
 | `AuthGuard` considéré comme une protection réelle | AUTH-INV-011 rappelé ; le backend refuse de toute façon |
 | Messages d'erreur trop précis « pour aider » | `AUTH_INVALID_CREDENTIALS` reste générique |
+| **EVT-039 implémenté sur `middleware.ts`, convention dépréciée** | Encadré normatif en tête du ticket ; le fichier à créer est `proxy.ts`, l'export `proxy`, et le runtime `edge` n'est pas disponible |
+| `matcher` trop large ⇒ chaque requête paie un aller-retour Node | Sous `proxy` le runtime est `nodejs`, plus `edge` : le `matcher` devient un levier de performance, pas un détail |
