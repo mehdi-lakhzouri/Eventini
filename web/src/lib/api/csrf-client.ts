@@ -1,3 +1,5 @@
+import { environment } from "@/config/environment";
+
 /**
  * CSRF transport concern. Lives in `lib/api/` rather than in the authentication
  * feature because `api-client.ts` needs it on every mutating request, and
@@ -57,4 +59,55 @@ export function withCsrfHeader(headers: HeadersInit = {}): Headers {
   }
 
   return nextHeaders;
+}
+
+/** La rotation en cours d'obtention du jeton, s'il y en a une. */
+let inFlight: Promise<void> | null = null;
+
+/**
+ * Obtient un jeton CSRF pré-session si le navigateur n'en a pas — EVT-040.
+ *
+ * ## 🔴 Sans cela, la toute première connexion échoue
+ *
+ * `withCsrfHeader` n'envoie l'en-tête que si le cookie existe. Or ce cookie
+ * n'apparaît qu'après un appel à `GET /auth/csrf-token` — et rien ne l'appelait.
+ * Un visiteur arrivant sur l'écran de connexion n'avait donc aucun jeton, la
+ * requête partait sans en-tête, et le guard la refusait.
+ *
+ * Le symptôme aurait été trompeur au possible : un formulaire de connexion qui
+ * échoue systématiquement, avec des identifiants parfaitement valides, pour une
+ * raison qui n'a rien à voir avec eux.
+ *
+ * `GET` volontairement, donc non protégé par le guard qu'il alimente. Le jeton
+ * n'autorise rien seul : il ne vaut que confronté au cookie de contexte
+ * `HttpOnly` posé en même temps (ADR-0016). À la connexion, le backend le relie
+ * à la session réelle — l'ancien cesse alors de vérifier.
+ */
+export async function ensureCsrfToken(): Promise<void> {
+  if (typeof document === "undefined" || readCsrfToken() !== null) {
+    return;
+  }
+
+  // Dédupliqué comme la rotation de session : deux formulaires soumis
+  // simultanément ne doivent pas demander deux jetons, le second invalidant
+  // le premier.
+  inFlight ??= fetch(`${environment.apiBaseUrl}/auth/csrf-token`, {
+    method: "GET",
+    credentials: "include",
+  })
+    .then(() => undefined)
+    // Un échec n'est pas relayé : la requête suivante partira sans en-tête et
+    // le backend refusera avec son propre code d'erreur, ce qui est un
+    // diagnostic plus utile qu'une panne au moment de l'amorçage.
+    .catch(() => undefined)
+    .finally(() => {
+      inFlight = null;
+    });
+
+  return inFlight;
+}
+
+/** Pour les tests : remet l'amorçage à zéro entre deux cas. */
+export function resetCsrfBootstrap(): void {
+  inFlight = null;
 }

@@ -8,6 +8,14 @@ export interface ApiErrorInit {
   readonly errors?: readonly FieldError[];
   readonly retryable?: boolean;
   readonly requestId?: string;
+  /**
+   * L'en-tête `Retry-After`, en secondes, quand la réponse en portait un.
+   *
+   * Un en-tête et non une extension du corps : c'est là que le backend
+   * l'écrit, et c'est la place que lui donne HTTP. Le lire depuis le corps
+   * aurait été plus commode et faux.
+   */
+  readonly retryAfterSeconds?: number;
   /** Le problème brut, quand la réponse en portait un d'exploitable. */
   readonly problem?: ProblemDetails | null;
 }
@@ -45,6 +53,7 @@ export class ApiError extends Error {
    * `req_01JABC` permet de retrouver la requête exacte dans les logs.
    */
   readonly requestId: string | undefined;
+  readonly retryAfterSeconds: number | undefined;
   readonly problem: ProblemDetails | null;
 
   constructor(init: ApiErrorInit) {
@@ -60,6 +69,7 @@ export class ApiError extends Error {
     this.errors = init.errors ?? [];
     this.retryable = init.retryable ?? false;
     this.requestId = init.requestId;
+    this.retryAfterSeconds = init.retryAfterSeconds;
     this.problem = init.problem ?? null;
   }
 
@@ -68,6 +78,7 @@ export class ApiError extends Error {
     problem: ProblemDetails,
     requestId: string | undefined,
     fallbackStatus: number,
+    retryAfterSeconds?: number,
   ): ApiError {
     return new ApiError({
       // Le statut du corps fait foi quand il est présent : c'est celui que le
@@ -79,6 +90,7 @@ export class ApiError extends Error {
       errors: problem.errors,
       retryable: problem.retryable,
       requestId,
+      retryAfterSeconds,
       problem,
     });
   }
@@ -91,12 +103,14 @@ export class ApiError extends Error {
     status: number,
     statusText: string,
     requestId: string | undefined,
+    retryAfterSeconds?: number,
   ): ApiError {
     return new ApiError({
       status,
       code: "UNKNOWN_ERROR",
       title: statusText.length > 0 ? statusText : `HTTP ${status}`,
       requestId,
+      retryAfterSeconds,
       // `retryable` reste faux : sans information du backend, réessayer
       // automatiquement est une supposition, et une supposition qui peut
       // rejouer une opération non idempotente.

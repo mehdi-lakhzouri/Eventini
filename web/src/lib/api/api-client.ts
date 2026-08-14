@@ -1,6 +1,6 @@
 import { environment } from "@/config/environment";
 import { ApiError } from "./api-error";
-import { withCsrfHeader } from "./csrf-client";
+import { ensureCsrfToken, withCsrfHeader } from "./csrf-client";
 import {
   isApiEnvelope,
   parseProblemBody,
@@ -118,6 +118,21 @@ async function requestEnvelope<T>(
    */
   mayRetry = true,
 ): Promise<ApiEnvelope<T>> {
+  /*
+    Le jeton CSRF est amorcé ici plutôt que dans chaque formulaire — EVT-040.
+
+    `withCsrfHeader` n'envoie l'en-tête que si le cookie existe, et ce cookie
+    n'apparaît qu'après `GET /auth/csrf-token`. Rien ne l'appelait : la toute
+    première mutation d'un visiteur — la connexion — partait donc sans en-tête
+    et se faisait refuser, avec des identifiants pourtant valides.
+
+    L'appel ne coûte rien quand le cookie est déjà là : la fonction sort
+    immédiatement.
+  */
+  if (MUTATING_METHODS.has(method)) {
+    await ensureCsrfToken();
+  }
+
   const response = await fetch(`${environment.apiBaseUrl}${path}`, {
     ...options,
     method,
@@ -168,13 +183,20 @@ async function requestEnvelope<T>(
   const { problem, requestId } = parseProblemBody(body);
 
   if (!response.ok) {
+    // `Retry-After` est un en-tête HTTP, pas une extension du corps : c'est
+    // là que le limiteur l'écrit, et c'est la place que lui donne HTTP.
+    const header = Number(response.headers.get("Retry-After") ?? "");
+    const retryAfter =
+      Number.isFinite(header) && header > 0 ? header : undefined;
+
     throw problem === null
       ? ApiError.fromResponse(
           response.status,
           response.statusText,
           requestId ?? response.headers.get("X-Request-Id") ?? undefined,
+          retryAfter,
         )
-      : ApiError.fromProblem(problem, requestId, response.status);
+      : ApiError.fromProblem(problem, requestId, response.status, retryAfter);
   }
 
   /*

@@ -235,6 +235,26 @@ Le proxy vérifie la **présence** d'un cookie, jamais sa validité — il ne pe
 ## EVT-040 — Formulaires d'authentification
 <a id="evt-040"></a>
 
+>  **Fait le 14 août 2026.** 112 tests unitaires, 24 e2e en navigateur.
+>
+> ### 🔴 Le CSRF n'était amorcé nulle part
+>
+> `withCsrfHeader` n'envoie l'en-tête que si le cookie existe, et ce cookie n'apparaît qu'après un appel à `GET /auth/csrf-token`. **Rien ne l'appelait.** La toute première connexion d'un visiteur serait donc partie sans en-tête et aurait été refusée par le guard — avec des identifiants parfaitement valides, et un symptôme ne désignant rien de sa cause. L'amorçage est posé dans le client API, pas dans les formulaires : toute mutation en bénéficie, et il est dédupliqué comme la rotation de session.
+>
+> ### Trois routes de plus qui n'existaient pas
+>
+> `/identity/mfa/verify`, `/identity/passwords/reset-request`, `/identity/passwords/reset`. Les **noms de champs** divergeaient aussi : `resetToken`/`password` contre `token`/`newPassword` attendus. Le corps aurait été rejeté même sur le bon chemin, la validation backend refusant les propriétés non déclarées.
+>
+> Surtout, la vérification MFA ignorait l'identifiant du défi : le backend expose `auth/mfa/challenges/{id}/verification`, la vérification portant sur un défi précis et non sur « l'utilisateur en train de se connecter » — notion qui n'existe pas côté serveur, aucune session n'étant encore ouverte.
+>
+> ### Deux règles de sécurité tenues jusqu'à l'écran
+>
+> `AUTH_INVALID_CREDENTIALS` reste **générique** : un test e2e vérifie que le message ne contient ni « compte », ni « existe », ni « inconnu ». Et la confirmation de demande de réinitialisation est **identique** que l'adresse existe ou non — sans quoi le formulaire devient un registre des adresses ayant un compte, interrogeable sans authentification.
+>
+> Un cas pour compte verrouillé a été écrit puis **retiré** : `AUTH_ACCOUNT_LOCKED` est absent du catalogue backend par décision explicite, un compte verrouillé recevant `AUTH_INVALID_CREDENTIALS` comme tout autre échec.
+>
+> `Retry-After` arrive par l'**en-tête HTTP** et non par les extensions du corps ; `ApiError` le relève désormais.
+
 ```
 Branche  feat/EVT-040-authentication-forms
 Commit   feat(web): implement login, MFA and password forms with RHF and Zod
