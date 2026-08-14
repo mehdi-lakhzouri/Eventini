@@ -26,6 +26,7 @@ export type {
 export type { MfaVerificationInput } from "./mfa.types";
 
 export type {
+  ChangePasswordInput,
   ForgotPasswordInput,
   ResetPasswordInput,
 } from "./password.types";
