@@ -10,7 +10,7 @@ import { PinoLogger } from 'nestjs-pino';
 
 import { AppException } from '../../common/api/app-exception';
 import { rateLimitConfig } from '../../config/rate-limit.config';
-import { clientIpOf } from './domain/client-ip';
+import { clientIpOf } from './infrastructure/client-ip';
 import {
   strictestOf,
   type RateLimitDecision,

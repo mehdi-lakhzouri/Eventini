@@ -1,18 +1,17 @@
 import { Module } from '@nestjs/common';
 
-import { AuthenticationModule } from '../authentication/authentication.module';
-import { TenantContextGuard } from './tenant-context.guard';
 import { TenantContextService } from './tenant-context.service';
 
 /**
- * `TenantContextGuard` is exported but **not** registered as an `APP_GUARD`
- * here: the chain's order is fixed in one place, `GuardChainModule`, so that a
- * reader sees the whole sequence at once rather than inferring it from where
- * each module happens to sit in an import list.
+ * Deliberately tiny, and with **no** dependency on `authorization`.
+ *
+ * MODULE_DEPENDENCY_MAP.md §3: `authorization → tenant-access`, never the
+ * reverse — the tenant does not need permissions, and the reverse arrow is a
+ * cycle. `TenantContextGuard` therefore lives in `authorization`, which is the
+ * side allowed to know about both.
  */
 @Module({
-  imports: [AuthenticationModule],
-  providers: [TenantContextGuard, TenantContextService],
-  exports: [TenantContextGuard, TenantContextService],
+  providers: [TenantContextService],
+  exports: [TenantContextService],
 })
 export class TenantAccessModule {}

@@ -21,9 +21,9 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 
 ## Critère de sortie
 
-- **un ID valide appartenant à un autre tenant retourne `403`** ;
-- une requête non scopée lève `TenantScopeViolationError` ;
-- `tenant-isolation.spec.ts` passe avec des **assertions réelles** (il contient aujourd'hui 2 `it.todo`).
+- ✅ **un ID valide appartenant à un autre tenant retourne `403`** ;
+- ✅ une requête non scopée lève `TenantScopeViolationError` ;
+- ✅ `tenant-isolation.spec.ts` passe avec des **assertions réelles** — les 2 `it.todo` qu'il portait sont remplacés, et le budget de placeholders du dépôt entier est à 0.
 
 ---
 
@@ -34,7 +34,7 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 | [EVT-033](#evt-033) | Contexte tenant et activation d'organisation ✅ |
 | [EVT-034](#evt-034) | Résolution et cache des permissions ✅ |
 | [EVT-035](#evt-035) | Guards globaux et décorateurs ✅ |
-| [EVT-036](#evt-036) | Tests d'isolation cross-tenant |
+| [EVT-036](#evt-036) | Tests d'isolation cross-tenant ✅ |
 
 ---
 
@@ -330,6 +330,8 @@ L'ouverture se fait par `@Public()`, explicite et visible en revue.
 ## EVT-036 — Tests d'isolation cross-tenant
 <a id="evt-036"></a>
 
+> ✅ **Fait le 12 août 2026.** 12 tests e2e cross-tenant contre deux tenants réels, 29 tests d'architecture, budget `it.todo` à **0**.
+
 ```
 Branche  test/EVT-036-tenant-isolation
 Commit   test(architecture): implement tenant isolation architecture tests
@@ -337,7 +339,32 @@ Commit   test(architecture): implement tenant isolation architecture tests
 
 > **C'est le ticket le plus important du sprint.** Il transforme une règle documentée en règle **appliquée**.
 
-**État actuel** — `backend/src/__architecture__/tenant-isolation.spec.ts` existe et contient exactement **deux `it.todo`**. `forbidden-imports.spec.ts` en contient trois.
+### 🔴 Deux failles réelles, trouvées parce que les tests utilisent un vrai second tenant
+
+Les étapes 4 et 5 de la chaîne d'autorisation n'avaient **jamais été implémentées**. EVT-035 comparait des identifiants et s'arrêtait là : une organisation suspendue et un membership révoqué continuaient de fonctionner jusqu'à l'expiration de la session — c'est-à-dire jusqu'à 30 jours. La requête de session porte désormais `organizationStatus`, `organizationEnabled` et `membershipStatus`, sur la ligne qu'elle lisait déjà, et le guard refuse.
+
+La seconde est plus discrète. `claimedOrganizationId` retournait le **premier** identifiant trouvé parmi le chemin, la query string et le corps. Une requête pouvait donc satisfaire la vérification avec un paramètre de chemin conforme tout en glissant un autre identifiant dans la query string — qu'un handler lira. Les trois sources sont maintenant toutes vérifiées.
+
+Aucune des deux n'était visible avec un identifiant inventé : il faut une organisation **réelle, active, appartenant à quelqu'un d'autre** pour que le code aille assez loin pour se tromper.
+
+### 🔴 Deux règles d'architecture étaient violées à l'instant où elles ont été écrites
+
+| Règle | Violation | Résolution |
+|---|---|---|
+| `tenant-access` n'importe jamais `authorization` | EVT-035 avait posé `TenantContextGuard` à côté du service qu'il appelle | guard déplacé dans `authorization`, seul côté autorisé à connaître les deux |
+| `domain/` ne dépend d'aucun framework | `rate-limiting/domain/client-ip.ts` importait le `Request` d'Express | déplacé dans `infrastructure/` |
+
+C'est l'argument même du ticket : une règle qui n'est pas exécutée n'est pas une règle. Les deux ont été **corrigées**, jamais exemptées.
+
+Le cycle entre modules est détecté par un parcours de graphe écrit à la main plutôt que par `madge` : les arêtes pertinentes sont module-à-module, et l'échec nomme le chemin complet.
+
+### Budget `it.todo` — 31 → 0
+
+Le dernier placeholder, `app.e2e-spec.ts`, attendait « le point d'entrée système ou observabilité quand il existera ». Il existe depuis EVT-012 et porte 14 tests réels dans `test/observability/`. Le fichier a été supprimé.
+
+Les deux garde-fous de CI échouaient sur **leur propre justification** — le compteur sur les commentaires qui expliquent la disparition des todos, le contrôle de terminologie sur le commentaire qui documente le renommage `tenantId` → `organizationId`. Les deux dépouillent maintenant les lignes de commentaire, comme le fait déjà le scanner de credentials des seeds. Un contrôle qui se déclenche sur sa propre raison d'être est un contrôle qu'on apprend à désactiver.
+
+`arch:tenant-isolation` est enfin le **nom réel** d'un script npm : un check requis dont le nom n'existe que dans un document ne peut pas être sélectionné dans la protection de branche.
 
 ### `tenant-isolation.spec.ts` — à implémenter
 
@@ -367,7 +394,9 @@ La matrice de strates et les arêtes interdites de [`MODULE_DEPENDENCY_MAP.md`](
 | Organisation suspendue | toutes les routes métier refusées |
 | Membership révoqué | sessions coupées dans la **même transaction** |
 
-**Le job CI `arch:tenant-isolation` devient bloquant à la fin de ce sprint.**
+**Le job CI `arch:tenant-isolation` est bloquant.** Ainsi que le budget `it.todo` (0) et le contrôle de terminologie tenant, qui traînait un `TODO(sprint 02)` depuis quatre sprints.
+
+Les sept tests e2e du tableau ci-dessus sont livrés, plus cinq autres : contrebande d'identifiant par la query string, exclusion du tenant voisin d'une liste, refus au niveau authentification avant même l'autorisation, échappatoire `$unscoped` vérifiée, et refus d'activation d'une organisation dont l'appelant n'est pas membre.
 
 ---
 

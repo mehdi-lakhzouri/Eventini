@@ -10,6 +10,9 @@ function caller(overrides: Partial<Caller> = {}): Caller {
     membershipId: 'mbr_1',
     clientType: 'WEB',
     authenticationLevel: 'PASSWORD',
+    organizationStatus: 'ACTIVE',
+    organizationEnabled: true,
+    membershipStatus: 'ACTIVE',
     ...overrides,
   };
 }
