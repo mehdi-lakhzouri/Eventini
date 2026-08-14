@@ -152,12 +152,109 @@ describe('repositories take a TenantContext first', () => {
     // user_sessions — mixte (§3, row 15): NULL organization for a platform
     // session, which is exactly what ck_sessions_tenant_coherence encodes.
     join('modules', 'identity', 'sessions', 'domain', 'session.repository.ts'),
+    // Authentication runs before any tenant context exists — resolving which
+    // organization the session belongs to is what login is for (EVT-023).
+    join(
+      'modules',
+      'identity',
+      'authentication',
+      'domain',
+      'authentication.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'authentication',
+      'infrastructure',
+      'prisma-authentication.repository.ts',
+    ),
     join(
       'modules',
       'identity',
       'sessions',
       'infrastructure',
       'prisma-session.repository.ts',
+    ),
+    // refresh_token_rotations follows its session, and rotation is driven by
+    // a cookie before any tenant context is built (EVT-024).
+    join('modules', 'identity', 'sessions', 'domain', 'rotation.repository.ts'),
+    // Revocation acts on the caller's own sessions, which are mixed-ownership
+    // and may be platform sessions with no organization at all (EVT-025).
+    // Ownership is enforced by the WHERE clause on user_id instead.
+    join(
+      'modules',
+      'identity',
+      'sessions',
+      'domain',
+      'revocation.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'sessions',
+      'infrastructure',
+      'prisma-revocation.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'sessions',
+      'infrastructure',
+      'prisma-rotation.repository.ts',
+    ),
+    /**
+     * The organization repository answers questions *about* tenancy rather
+     * than questions *within* one: which organizations the caller belongs to,
+     * and whether they may switch into a given one. Both run before a context
+     * for the target exists — demanding a `TenantContext` would mean demanding
+     * the answer as an argument.
+     *
+     * Ownership is enforced by the `userId` filter instead, and the two
+     * `$unscoped` calls are on rule 3's allow-list where a reviewer sees them.
+     */
+    join('modules', 'organizations', 'domain', 'organization.repository.ts'),
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-organization.repository.ts',
+    ),
+    /**
+     * The permission repository resolves the context rather than consuming
+     * one: it is step 6 of the chain, and steps 4 and 5 have only just decided
+     * which membership is in play. Requiring a `TenantContext` here would
+     * require the answer as an argument.
+     *
+     * Isolation is structural instead — every query is keyed on a
+     * `membershipId`, which belongs to exactly one organization, so a result
+     * cannot span tenants however the caller asks. The platform query is
+     * keyed on the user and is scoped by `roles.scope = 'PLATFORM'`.
+     */
+    join(
+      'modules',
+      'identity',
+      'authorization',
+      'domain',
+      'permission.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'authorization',
+      'infrastructure',
+      'prisma-permission.repository.ts',
+    ),
+    // mfa_methods and mfa_recovery_codes — PLATFORM (§3, rows 18 and 19).
+    // A second factor belongs to a person, not to one of their organizations:
+    // scoping it per tenant would mean enrolling an authenticator once per
+    // membership, and MFA gates login, which runs before any tenant is known.
+    join('modules', 'identity', 'mfa', 'domain', 'mfa.repository.ts'),
+    join(
+      'modules',
+      'identity',
+      'mfa',
+      'infrastructure',
+      'prisma-mfa.repository.ts',
     ),
   ]);
 
@@ -174,7 +271,7 @@ describe('repositories take a TenantContext first', () => {
    * `protected`, not the constructor.
    */
   const publicMethod =
-    /^ {2}(?!private |protected |constructor|\/)(?:async )?(\w+)\s*\(([^)]*)\)/gm;
+    /^ {2}(?!private |protected |constructor|return |if |for |while |switch |catch |\/)(?:async )?(\w+)\s*\(([^)]*)\)/gm;
 
   function offendingMethods(filePath: string): string[] {
     const source = executableCodeOf(read(filePath));
@@ -229,6 +326,23 @@ describe('$unscoped stays on its allow-list', () => {
   const ALLOWED = new Set([
     // Defines it.
     join('infrastructure', 'database', 'tenant-scope.extension.ts'),
+    /**
+     * "Which organizations do I belong to" and "may I switch into this one"
+     * both span organizations by construction — the first *is* the set of
+     * them, and the second targets one the session is deliberately not scoped
+     * to yet. Filtering on the current organization would make switching away
+     * from it impossible (EVT-033).
+     *
+     * Safe because both queries filter on `userId`: the rows are the caller's
+     * own memberships, so no client-supplied organization id can widen the
+     * result.
+     */
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-organization.repository.ts',
+    ),
   ]);
 
   it('has no caller outside the allow-list', () => {

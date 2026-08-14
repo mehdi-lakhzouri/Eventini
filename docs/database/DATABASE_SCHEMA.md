@@ -411,6 +411,8 @@ Index : `ix_role_permissions_permission(permission_id, role_id)` — sens invers
 
 **Propriété** `ORGANIZATION-OWNED` (via le membership). **Suppression** `REVOKE_NOT_DELETE`.
 
+> ✅ **Résolu par [EVT-021](../sprints/sprint-04/README.md#evt-021)** — la colonne `organization_id` est ajoutée par la migration 4, avec son trigger de cohérence `trg_membership_role_tenant`. La table est désormais gardée sur la colonne comme toutes les autres, et le contournement par relation d'EVT-018 est **supprimé**. Le reste de cette note documente le problème d'origine.
+>
 > 🔴 **Contradiction avec le §2.4 et [ADR-0003](../adr/0003-tenant-isolation-strategy.md) §1, relevée par [EVT-018](../sprints/sprint-03/README.md#evt-018).** Le §2.4 définit `ORGANIZATION-OWNED` comme « `organization_id NOT NULL` en colonne directe » et l'ADR-0003 §1 ajoute qu'« **aucune** table métier ne dépend d'une jointure transitive pour connaître son tenant ». Cette fiche est la **seule** des 30 à revendiquer la catégorie « via » une autre table, et sa liste de colonnes ne contient effectivement pas `organization_id` — c'est donc ce qu'EVT-014 a construit.
 >
 > En attendant le correctif, la garde tenant traverse la relation `membership` pour cette table plutôt que de l'exempter : c'est ici que vivent les attributions de rôle, et une écriture non scopée y est une escalade de privilège inter-tenant. **Correctif attendu : ajouter `organization_id NOT NULL` dénormalisé dans la vague de migrations d'[EVT-021](../sprints/sprint-04/README.md#evt-021)**, avec le trigger de cohérence correspondant, sur le modèle d'INV-01.

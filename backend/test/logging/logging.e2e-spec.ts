@@ -6,6 +6,7 @@ import request from 'supertest';
 
 import { AppModule } from '../../src/app.module';
 import { buildValidationPipe } from '../../src/bootstrap';
+import { Public } from '../../src/common/decorators';
 import {
   buildHttpLoggingOptions,
   type LoggingSettings,
@@ -13,6 +14,13 @@ import {
 
 const CANARY = 'CANARY_SECRET_VALUE_9f3a';
 
+/**
+ * `@Public()`: this probe exists to exercise the validation pipe, the response
+ * envelope and the logger. Sending it through the authorization chain would
+ * make those tests depend on a session and prove something else — the chain
+ * itself is covered by `guard-chain.e2e-spec.ts`.
+ */
+@Public()
 @Controller('probe')
 class ProbeController {
   @Get('ok')

@@ -36,12 +36,37 @@ C'est le sprint où les invariants `AUTH-INV-001` à `AUTH-INV-012` du Document 
 | [EVT-024](#evt-024) | Rotation et détection de rejeu | — |
 | [EVT-025](#evt-025) | Déconnexion et révocation | — |
 | [EVT-026](#evt-026) | Reset de mot de passe et vérification d'email | — |
-| [EVT-027](#evt-027) | MFA TOTP | — |
+| [EVT-027](#evt-027) | MFA TOTP | ✅ |
 
 ---
 
 ## EVT-020 — Hachage Argon2id
 <a id="evt-020"></a>
+
+> ✅ **Fait le 1er août 2026.** `ArgonPasswordHasher` implémente le profil ADR-0007 avec le pepper natif. 33 tests, dont le rehash sur dérive des **quatre** paramètres et le budget de 150 ms.
+
+### Structure livrée
+
+```
+domain/password.policy.ts        NFKC + bornes, aucun framework
+domain/password-hasher.ts        le port : hash / verify / verifyDecoy
+infrastructure/argon2-profile.ts options, version de profil, détection de dérive
+infrastructure/argon-password-hasher.ts
+```
+
+### Trois comportements d'`argon2@0.45.1` vérifiés, pas supposés
+
+| Constat | Conséquence |
+|---|---|
+| `needsRehash` compare `m`, `t` et `p` — **pas la longueur du hash** | `isStaleHash` décode le dernier segment base64 et compare les octets, sinon un digest raccourci ne serait jamais remonté |
+| Un digest malformé fait **lever** `verify`, il ne renvoie pas `false` | Une ligne corrompue deviendrait un 500 ; elle est traitée comme « mot de passe invalide » |
+| `verify` sans le pepper renvoie **`false`**, sans erreur | Un pepper mal configuré ressemblerait à « tous les mots de passe sont faux ». La règle `secret-hygiene` du sprint 02 le valide déjà (base64, ≥ 32 octets, distinct des 6 autres secrets) |
+
+### Détails d'implémentation
+
+- **Longueur en points de code**, pas en unités UTF-16 : `[...normalized].length`. Sinon 6 emoji passeraient pour 12 caractères.
+- **Mesurée après NFKC** : la normalisation peut allonger la chaîne (`ﬁ` → `fi`).
+- **`verifyDecoy`** — un digest construit une fois à partir d'un mot de passe que personne ne détient, réutilisé à chaque tentative. C'est la primitive de l'étape 7 d'EVT-023 ; la fournir ici la rend difficile à oublier là-bas.
 
 ```
 Branche  feat/EVT-020-argon2-hasher
@@ -68,9 +93,11 @@ argon2.hash(password, {
 
 **Tests**
 
-- les paramètres effectifs sont lisibles dans le hash encodé : `$argon2id$v=19$m=19456,t=2,p=1$…` ;
+- les paramètres effectifs sont lisibles dans le hash encodé : `$argon2id$v=19$m=19456,p=1,t=2$…` ;
 - un hash produit avec d'anciens paramètres est **re-haché à la vérification** et `password_version` incrémenté ;
 - benchmark CI : la vérification reste sous 150 ms — garde-fou contre une régression de paramètre.
+
+> 🔧 **Correction d'ordre.** Ce document annonçait `m=19456,t=2,p=1`. `argon2@0.45.1` sérialise en réalité **`m,p,t`** — constaté en lisant un digest produit, pas supposé. Une assertion écrite sur l'ordre annoncé aurait échoué sans que rien ne soit cassé.
 
 > 🔴 **`PASSWORD_PEPPER` est une donnée de sauvegarde critique.** Le perdre rend **tous** les mots de passe invérifiables : aucun utilisateur ne peut plus se connecter, et aucune restauration de base n'y remédie. À sauvegarder au même titre que la base, et **séparément d'elle**.
 
@@ -78,6 +105,64 @@ argon2.hash(password, {
 
 ## EVT-021 — Migrations sessions, mots de passe, MFA
 <a id="evt-021"></a>
+
+> ✅ **Fait le 1er août 2026.** Migrations 4, 5 et 6 appliquées sur base vierge — 21 tables, 13 triggers. **INV-02, INV-11 et INV-12 passent de « reporté » à « appliqué »**, et le registre d'EVT-019 a signalé lui-même le moment où c'est devenu possible. `prisma migrate diff --exit-code` reste à **0**.
+
+### Structure livrée
+
+```
+prisma/migrations/
+├── 20260801090000_invitations_and_email_verification/   migration 4
+├── 20260801091000_sessions_and_rotations/               migration 5
+└── 20260801092000_password_reset_and_mfa/               migration 6
+```
+
+7 nouveaux modèles Prisma, 9 nouveaux ensembles de statuts dans `enums.ts`, et le registre de propriété tenant étendu aux 7.
+
+### Le registre d'invariants a fait exactement ce pour quoi il a été écrit
+
+EVT-019 refusait d'écrire `it.todo` pour les invariants non testables et affirmait à la place que leurs tables étaient **encore absentes**. À l'apparition de `user_sessions` et `mfa_methods`, trois tests ont échoué en nommant **INV-02, INV-11, INV-12** et le ticket EVT-021. Le report a expiré tout seul.
+
+Le contrôle d'exhaustivité de la propriété tenant a fait de même : les 7 nouveaux modèles ont échoué à la classification avant d'atteindre l'exécution.
+
+### 🔴 INV-11 n'est applicable que si l'utilisateur est `ACTIVE` — arbitrage dérivé
+
+Le §9 énonce l'invariant sans condition : « tout utilisateur portant `SUPER_ADMIN` possède au moins une `mfa_methods` de statut `ACTIVE` ». Appliqué littéralement, il **rend impossible la procédure d'amorçage** du [`MIGRATION_STRATEGY.md` §8.2](../../database/MIGRATION_STRATEGY.md), qui crée l'administrateur plateforme en `PENDING`, **avec l'attribution déjà en place** et sans MFA, et ne passe à `ACTIVE` qu'après enrôlement.
+
+Deux documents du corpus se contredisent donc. La qualification retenue — n'appliquer qu'à partir de `users.status = 'ACTIVE'` — ne coûte rien : un utilisateur `PENDING` ne peut pas s'authentifier, donc ne peut pas se servir de l'attribution. Ce qui compte est que personne ne puisse **utiliser** `SUPER_ADMIN` sans MFA.
+
+**Deux triggers, pas un**, parce qu'il y a deux chemins d'entrée :
+
+| Chemin | Trigger |
+|---|---|
+| accorder le rôle à un utilisateur actif | `trg_super_admin_mfa_on_grant` sur `platform_role_assignments` |
+| activer un utilisateur qui détient déjà le rôle | `trg_super_admin_mfa_on_activation` sur `users` |
+
+Ne garder que le premier laisserait le second comme contournement en deux étapes.
+
+### La colonne qu'EVT-018 avait reportée ici
+
+`membership_role_assignments.organization_id` est ajoutée par la migration 4, en **expand / backfill / contract** : ajouter directement une colonne `NOT NULL` échoue sur toute base qui a déjà des lignes, et l'intérêt de la séquence est précisément de ne pas dépendre du fait que la table est vide.
+
+Conséquence : la catégorie `ORGANIZATION_OWNED_VIA_RELATION` et le chemin de jointure de l'analyseur de scope sont **supprimés**, pas laissés inertes. Ils n'existaient que pour contourner l'absence de la colonne. Un chemin de code mort qui affaiblit le contrat de la garde — accepter un filtre de relation — est pire que pas de chemin du tout.
+
+### Ce que les migrations ajoutent au-delà de ce que Prisma génère
+
+| | |
+|---|---|
+| `ck_sessions_tenant_coherence` | **INV-12**, résout C-29 |
+| `ck_sessions_expiry_order` | une session qui expire par inactivité **après** son expiration absolue rend cette dernière décorative |
+| `ux_refresh_active_per_family` | **AUTH-INV-003**, résout C-27. C'est cet index qui départage deux rotations concurrentes — un verrou Redis coordonne, l'index garantit |
+| `ux_mfa_user_type_pending` / `ux_mfa_user_type_active` | C-28 : l'index combiné du Document A **empêchait tout ré-enrôlement** tant qu'une méthode active existait |
+| `trg_session_membership_coherence` | **INV-02** — chaque décision d'autorisation en aval lit `user_id` et `organization_id` de la session |
+| `trg_rotations_append_only` | la chaîne de rotation **est** la piste d'audit de la session. `DELETE` refusé ; `UPDATE` autorisé sur les statuts, refusé sur le token, la session, la famille et `issued_at` |
+
+`user_sessions.device_id` est créée **sans** clé étrangère : `scanner_devices` arrive avec la migration 7 (EVT-045). La contrainte y sera ajoutée.
+
+### Deux constats en exécutant
+
+- **INV-02 se déclenche avant `ck_sessions_tenant_coherence`** sur « membership sans organisation » : le trigger `BEFORE INSERT` a un membership à comparer, donc il refuse en premier. Les deux interdisent la forme ; le test assertait un nom de contrainte, ce qui n'assertait que l'ordre de déclenchement. L'autre direction — organisation sans membership — atteint bien le `CHECK`, donc les deux sont prouvés.
+- **`BOOTSTRAP_SUPER_ADMIN_EMAIL=` (vide) fait échouer le démarrage** avec « Invalid email address », alors que le seed traite une chaîne vide comme absente. Une variable d'environnement vide se lit conventionnellement comme non définie ; les deux couches ne sont pas d'accord. Constaté en montant une base identique à celle de la CI. Hors périmètre de ce ticket — signalé pour le schéma d'environnement (EVT-008).
 
 ```
 Branche  feat/EVT-021-session-schema
@@ -107,6 +192,52 @@ CONSTRAINT ck_sessions_tenant_coherence CHECK (
 
 ## EVT-022 — Émission et vérification des access tokens
 <a id="evt-022"></a>
+
+> ✅ **Fait le 1er août 2026.** Signature EdDSA via `jose`, `kid` en en-tête, fenêtre de coexistence. **Les 5 attaques obligatoires sont refusées et testées**, dont la confusion d'algorithme. `@nestjs/jwt`, `passport`, `passport-jwt` et `@nestjs/passport` sont retirés.
+
+### Structure livrée — un fichier, une responsabilité
+
+```
+infrastructure/jwt/
+├── jose.ts                    le seul endroit où `jose` est chargé
+├── access-token.claims.ts     le jeu de claims d'ADR-0005, et rien d'autre
+├── access-token.errors.ts     AccessTokenError + motif interne
+├── signing-keys.ts            une clé de signature, N clés de vérification
+├── token-audience.ts          audience dérivée du type de client
+├── access-token.lifetime.ts   la matrice de durées d'ADR-0009
+├── access-token.signer.ts     issue()
+└── access-token.verifier.ts   verify()
+```
+
+### La ligne qui bloque la confusion d'algorithme
+
+```ts
+const ALLOWED_ALGORITHMS = ['EdDSA'];   // passé à jwtVerify, jamais lu de l'en-tête
+```
+
+La clé publique Ed25519 n'est **pas** un secret. Un vérificateur qui ferait confiance au champ `alg` de l'en-tête traiterait volontiers cette clé publique comme un secret HMAC et accepterait tout ce que l'attaquant signerait avec. Vérifié : `HS256` signé avec la clé publique est refusé, `alg: none` aussi.
+
+Le `kid` est résolu **avant** toute cryptographie, contre un ensemble fixe. Un `kid` inconnu n'atteint jamais la vérification de signature — et c'est aussi ce qui rend la révocation d'urgence immédiate : retirer une clé de l'ensemble tue tous ses tokens sur-le-champ.
+
+### Ce que le token ne peut pas contenir, structurellement
+
+Le signataire ne fait **jamais** de spread d'un objet fourni par l'appelant : il construit la charge utile à partir d'`AccessTokenClaims`. Un mot de passe, un secret MFA, un refresh token ou une liste de permissions ne peut pas fuiter dans un token qui n'a aucun moyen de porter une clé imprévue. Un test asserte que l'ensemble des clés de la charge utile est **exactement** `sub, sid, org, mbr, ver, ct, al` + `iat, exp, iss, aud`.
+
+### 🔴 `jose` 6 est ESM-only, et Jest ne peut pas le charger statiquement
+
+Node 24 sait faire `require()` d'un module ESM, donc un `import` statique **compile et fonctionne** en production. Mais Jest remplace `require` : il passe la source ESM à son compilateur CommonJS, qui échoue sur `export`. Le problème serait apparu en CI, pas en local.
+
+`jose.ts` fait donc un `import()` dynamique mémoïsé — TypeScript le préserve tel quel en sortie CommonJS avec `module: nodenext`, et les scripts de test tournent déjà avec `--experimental-vm-modules` pour le compilateur WASM de Prisma. Un seul fichier connaît cette contrainte.
+
+### Deux vérifications que le corpus n'imposait pas
+
+- **`typ: 'JWT'`** est exigé à la vérification, pas seulement posé à la signature.
+- **Chaque claim est validé, jamais casté.** La chaîne d'autorisation lit `ver`, `sid` et `org` pour décider ; un claim absent doit être un refus, pas un `undefined` comparé à quelque chose. Un token valablement signé mais amputé d'un claim est rejeté — testé pour les cinq claims obligatoires.
+- **`ACCESS_TOKEN_PREVIOUS_KEY_ID` égal à `ACCESS_TOKEN_KEY_ID`** fait échouer le démarrage. Sinon la table de clés contiendrait une seule entrée, l'ancienne clé ne serait acceptée nulle part, et la fenêtre de coexistence serait silencieusement annulée au moment du déploiement.
+
+### Le motif de refus ne sort jamais du serveur
+
+`AccessTokenError` porte un motif interne (`UNKNOWN_KEY`, `BAD_SIGNATURE`, `BAD_AUDIENCE`…). L'appelant reçoit toujours un seul `401 AUTHENTICATION_REQUIRED` : lui dire que la signature était bonne mais l'audience mauvaise, c'est lui dire que sa contrefaçon est à un champ de fonctionner.
 
 ```
 Branche  feat/EVT-022-access-tokens
@@ -140,6 +271,69 @@ L'algorithme attendu est passé **explicitement** à `jwtVerify` — jamais lu d
 
 ## EVT-023 — Login
 <a id="evt-023"></a>
+
+> ✅ **Fait le 1er août 2026.** `POST /api/v1/auth/sessions` fonctionne de bout en bout contre PostgreSQL réel : 20 tests e2e, dont l'indiscernabilité des refus et l'écriture atomique session + refresh token. **4 étapes sur 20 sont reportées** aux tickets qui les possèdent, listées ci-dessous.
+
+### Structure livrée
+
+```
+sessions/domain/
+├── refresh-token.ts        32 octets opaques, HMAC-SHA-256, comparaison à temps constant
+├── session-profile.ts      profil (WEB/SCANNER × plateforme) → échéances
+└── session.repository.ts   le port ; user_sessions est mixte, donc pas de TenantContext
+authentication/
+├── domain/organization-resolution.ts   l'étape 11, pure
+├── domain/authentication.errors.ts     les motifs de refus, internes
+├── domain/authentication.repository.ts une requête pour les étapes 6 à 13
+├── application/login.use-case.ts       l'orchestration
+├── dto/login.dto.ts                    whitelist stricte
+└── infrastructure/cookies/session-cookies.ts
+```
+
+### Ce qui est livré, et les 4 étapes qui ne peuvent pas l'être
+
+| Étapes | État |
+|---|---|
+| 1, 2, 6, 7, 8, 9, 11, 12, 13, 14, 15, 19, 20 | ✅ livrées |
+| 3, 4 — rate limit et lockout | ⏳ **EVT-030**, qui dépend de Redis (EVT-029) |
+| 5, 16 — CSRF pré-session et token CSRF | ⏳ **EVT-028** |
+| 10 — porte MFA | ✅ **EVT-027** |
+
+Ces quatre tickets sont **postérieurs** à celui-ci dans le plan de sprint : les étapes ne sont pas oubliées, elles ne sont pas encore constructibles. Deux des trois cookies sont posés ; le troisième est celui du CSRF.
+
+Conséquence à l'époque : toute session naissait en `authentication_level = 'PASSWORD'`. **Résolu par [EVT-027](#evt-027)**, qui a inversé le test correspondant : un utilisateur possédant une méthode MFA active n'obtient plus de session du tout avant vérification.
+
+### 🔴 L'étape 7, et pourquoi l'ordre des vérifications compte
+
+Sans vérification factice, le chemin « compte inconnu » saute Argon2id et répond un ordre de grandeur plus vite. C'est de l'énumération d'utilisateurs mesurable à distance. `verifyDecoy` (livré par EVT-020) est appelé sur ce chemin, et un test compare les deux durées.
+
+Le même raisonnement dicte un ordre qu'on inverserait naturellement : **le statut de l'utilisateur est vérifié _après_ le hachage**, pas avant. Sortir tôt pour un compte suspendu le ferait répondre sans payer Argon2id — exactement la même fuite, par une autre porte. Un test mesure aussi ce chemin.
+
+### 🔴 Une contradiction dans le §5.1, tranchée
+
+L'étape 11 dit « aucun membership et pas de rôle ⇒ **403** ». Les tests négatifs du ticket disent « organisation `SUSPENDED` ⇒ **réponse générique** ». Ces deux phrases se contredisent pour l'utilisateur qui **a** un membership dont l'organisation est suspendue : c'est à la fois « aucune organisation utilisable » et « organisation suspendue ».
+
+Arbitrage retenu — les deux cas sont distincts et le sont dans le type :
+
+| Situation | Réponse |
+|---|---|
+| Des memberships, mais aucun utilisable | `401 AUTH_INVALID_CREDENTIALS`, générique |
+| Aucun membership, aucun rôle plateforme | `403 AUTH_TENANT_DENIED` |
+
+Dire à un appelant « votre organisation est suspendue » est un fait sur un compte qui n'est peut-être pas le sien. N'avoir aucun accès du tout n'apprend rien à personne.
+
+### Aucune organisation n'est choisie à la place de l'utilisateur
+
+Les organisations inutilisables sont filtrées **avant** le comptage : un utilisateur avec un membership vivant et un suspendu obtient une réponse définie plutôt qu'ambiguë. Avec plusieurs organisations utilisables, la session est créée **sans organisation active** et le client doit appeler l'activation. Choisir « la première » ferait atterrir la connexion dans un tenant que l'utilisateur n'a pas désigné, et tout ce qui suit y serait attribué.
+
+### Deux défauts trouvés en exécutant
+
+| Défaut | Correction |
+|---|---|
+| **`refresh_token_rotations` n'avait aucune échappatoire de rétention.** EVT-021 lui a donné un trigger `APPEND_ONLY` qui refusait `DELETE` sans condition, alors que le §2.5 la place dans le même régime que `security_events` et `audit_logs` — « purge par rétention uniquement » — et que ces deux-là portent l'échappatoire depuis la migration 8. Sans elle la table ne peut que croître, et elle gagne une ligne à **chaque** rafraîchissement | Migration 7 : `reject_rotation_rewrite` honore `SET LOCAL eventini.retention_purge` |
+| **La règle 2 du test d'architecture a refusé mes deux nouveaux repositories.** Correct : ni l'un ni l'autre ne peut prendre un `TenantContext`. L'authentification s'exécute *avant* qu'un contexte tenant existe — le résoudre est précisément le travail du login — et `user_sessions` est de propriété mixte | Ajoutés à la liste d'exemptions, avec leur justification |
+
+Un de mes propres tests était également faux : il affirmait qu'une organisation suspendue donnait `NO_ACCESS`, ce qui était l'arbitrage avant que la contradiction du §5.1 soit tranchée.
 
 ```
 Branche  feat/EVT-023-login
@@ -176,6 +370,49 @@ Tables   user_sessions, refresh_token_rotations, security_events
 
 ## EVT-024 — Rotation et détection de rejeu
 <a id="evt-024"></a>
+
+> ✅ **Fait le 1er août 2026.** `POST /api/v1/auth/sessions/current/rotation`. Les **quatre tests négatifs obligatoires** passent contre PostgreSQL réel, dont « deux rotations concurrentes, exactement un succès » — départagées par l'index, pas par un verrou.
+
+### Structure livrée
+
+```
+sessions/domain/
+├── session-state.ts        les deux échéances, pur
+└── rotation.repository.ts  le port + RotationConflictError
+sessions/infrastructure/prisma-rotation.repository.ts
+authentication/
+├── domain/rotation.errors.ts
+└── application/refresh-session.use-case.ts
+```
+
+### 🔴 Le rejeu et la course sont deux choses différentes
+
+C'est l'arbitrage central du ticket, et le confondre coûte cher dans les deux sens : traiter une course comme une attaque déconnecte des utilisateurs légitimes à chaque double-clic ; traiter un rejeu comme une course laisse l'attaquant continuer.
+
+| Signal observé | Interprétation | Réponse |
+|---|---|---|
+| La **recherche** trouve une ligne dont le statut ≠ `ACTIVE` | Le token a déjà été dépensé : quelqu'un en détient une copie | **Rejeu.** Famille entière révoquée, session `COMPROMISED`, aucun token émis, `401` |
+| La recherche voit `ACTIVE`, puis l'**écriture** perd | Une autre rotation a gagné dans le même instant | **Course.** `409`, rien n'est révoqué, le cookie du gagnant est déjà dans le navigateur |
+
+C'est exactement ce que l'index unique partiel achète : il rend les deux cas distinguables sans verrou applicatif. La distinction est prouvée par un test qui asserte que la session reste `ACTIVE` après une course — un rejeu l'aurait passée en `COMPROMISED`.
+
+### Pourquoi la famille entière tombe
+
+On ne sait pas lequel des deux porteurs est légitime. Les deux perdent l'accès : la victime se reconnecte, l'attaquant ne peut pas. Un test le vérifie du point de vue de la victime — **le token successeur, celui que l'attaquant n'avait pas, est mort lui aussi**.
+
+### Deux échéances, une seule bouge
+
+`idle_expires_at` est repoussée à chaque rotation ; `absolute_expires_at` ne l'est **jamais**. Sans cela une session se prolongerait indéfiniment en étant simplement utilisée, et la borne absolue serait décorative. Le test mesure les deux colonnes avant et après une rotation réelle.
+
+`sessionUnusableReason` vérifie l'absolue **avant** l'idle : une session qui se rafraîchit en continu garde toujours son échéance d'inactivité dans le futur, donc rapporter celle-là nommerait la mauvaise borne.
+
+### Ce qui reste aux tickets suivants
+
+Les étapes 2 (CSRF + Origin) et 3 (rate limit 30/h par session) appartiennent à EVT-028 et EVT-030. L'invalidation du cache Redis (§5.3 étape 4) attend EVT-029, et les security events attendent leur module. Le reste des étapes 5.2 et 5.3 est livré.
+
+### Un défaut trouvé dans mon propre test d'architecture
+
+La règle 2 a refusé le repository de rotation — correctement, `refresh_token_rotations` suit sa session et la rotation part d'un cookie avant tout contexte tenant. Mais elle a aussi signalé une méthode nommée **`return`** : son expression régulière lisait `  return (…)` en début de corps de classe comme une déclaration de méthode. Les mots-clés d'instruction sont désormais exclus, ce qui supprime toute cette famille de faux positifs.
 
 ```
 Branche  feat/EVT-024-refresh-token-rotation
@@ -224,11 +461,73 @@ Deux rotations simultanées avec le même token sont départagées par **`ux_ref
 ## EVT-025 — Déconnexion et révocation
 <a id="evt-025"></a>
 
+> ✅ **Fait le 1er août 2026.** Les trois opérations de révocation et la liste des sessions, contre PostgreSQL réel. Les **tests négatifs 11 et 12 du §11** passent : un access token encore valide sur une session révoquée reçoit `401`, immédiatement.
+>
+> ✅ **`GET /auth/me` ajouté le 5 août 2026.** Reporté à l'époque faute de « couche de présentation utilisateur » ; ce ticket est refermé rétroactivement plutôt que d'ouvrir un ticket sans rapport avec aucun sprint documenté. Détail en fin de section.
+
+### Structure livrée
+
 ```
-Branche  feat/EVT-025-logout-revocation
+sessions/domain/revocation.repository.ts        le port
+sessions/infrastructure/prisma-revocation.repository.ts
+sessions/application/{revoke-session,revoke-all-sessions,list-user-sessions}.use-case.ts
+authentication/infrastructure/caller.resolver.ts   étapes 1 à 3 de la chaîne
+authentication/infrastructure/caller-exception.mapper.ts   ajouté avec GET /auth/me
+authentication/controllers/sessions.controller.ts
+authentication/controllers/current-user.controller.ts      ajouté avec GET /auth/me
+authentication/application/get-current-user.use-case.ts    ajouté avec GET /auth/me
+```
+
+### 🔴 L'incrément de `users.version` est ce qui rend la révocation globale immédiate
+
+Sans lui, « se déconnecter partout » signifie « dans dix minutes, partout » : chaque access token déjà émis reste valide jusqu'à sa propre expiration. L'incrément fait que le claim `ver` ne correspond plus, et l'étape 3 de la chaîne refuse.
+
+Il est fait **dans la même transaction** que les révocations. Un incrément qui committerait séparément laisserait une fenêtre où les sessions sont mortes et les tokens encore valides, ou l'inverse.
+
+Un test le prouve du point de vue qui compte : un token émis pour une session que l'appelant **n'a jamais touchée** est refusé après la déconnexion globale.
+
+### La propriété est dans le `WHERE`, pas dans une vérification qui la précède
+
+`revokeSession` filtre sur `user_id = <appelant>`. Révoquer la session de quelqu'un d'autre ne trouve rien à révoquer, et la réponse est **identique** à celle d'un identifiant qui n'a jamais existé — c'est BOLA, et distinguer les deux confirmerait qu'un identifiant est réel. Deux tests l'exigent, l'un avec une session étrangère bien réelle.
+
+### Le `CallerResolver`, et pourquoi il s'arrête à l'étape 3
+
+Ces routes portent sur les sessions **de l'appelant lui-même** : il n'y a aucune ressource tenant à vérifier, donc les étapes 4 à 8 n'ont rien à dire ici. Le résolveur fait l'étape 1 (le token), l'étape 2 (la session : `ACTIVE`, échéances) et l'étape 3 (l'utilisateur : `ACTIVE`, `version` = claim `ver`).
+
+C'est la couture qu'EVT-036 remplacera par le guard global — il le **remplacera**, il ne l'enveloppera pas.
+
+### `HttpOnly` est rejoué à la suppression (C-19)
+
+Le Document B §14.4 l'omettait. Certains navigateurs ne reconnaissent alors pas le cookie à supprimer et le laissent en place : une déconnexion qui ne déconnecte personne. Un test vérifie que les deux cookies supprimés portent bien `HttpOnly`.
+
+### Ce qui reste aux tickets suivants
+
+L'invalidation du cache Redis attend EVT-029 ; les security events (`SESSION_REVOKED`, `ALL_SESSIONS_REVOKED`) attendent leur module. Les 12 déclencheurs de révocation automatique du §5.5 arrivent avec les fonctionnalités qui les déclenchent.
+
+```
+Branche  feat/EVT-025-logout-revocation  (route initiale)
+         feat/EVT-025b-auth-me           (GET /auth/me, 5 août 2026)
 Routes   DELETE /auth/sessions/current   ·  DELETE /auth/sessions
          DELETE /auth/sessions/{sessionId} · GET /auth/sessions · GET /auth/me
 ```
+
+### `GET /auth/me`, livré le 5 août 2026
+
+Aucune section du corpus ne fixe la forme de la réponse — la route n'est qu'une entrée de table dans `API_CONVENTIONS.md` §11. Le corps est donc dérivé de ce qui existe réellement, pas d'un contrat inventé :
+
+```
+identité   userId · email · firstName · lastName · displayName · status
+                    emailVerifiedAt · lastLoginAt · mfaEnabled
+session    sessionId · organizationId · membershipId · clientType · authenticationLevel
+```
+
+**Ce qui n'y figure délibérément pas** : `permissions` et un `role` unique. Le frontend a un type `CurrentUser` avec ces deux champs (`web/src/features/authentication/types/authentication.types.ts`), mais il précède ADR-0003/0005/0006 et pointe vers `/identity/authentication/me` — une route qui n'a jamais existé. La résolution de permissions est explicitement différée à EVT-036 (cache Redis `perms:{membershipId}:v{n}`) ; l'inventer ici aurait été le même genre de choix non fait que celui que ce document refuse ailleurs pour la vérification d'email.
+
+**Une lecture, pas une décision.** `AuthenticationRepository.findCandidateById` existe déjà pour le login et porte le hash du mot de passe et toutes les memberships — exactement ce qu'une décision d'autorisation doit voir. `/auth/me` ne décide rien, donc `findProfileById` est une projection distincte, plus étroite, qui ne fait jamais entrer un hash en mémoire pour une simple lecture de profil.
+
+**`clientType` et `authenticationLevel` ne coûtent rien de plus.** `CallerResolver` les avait déjà lus depuis `user_sessions` à l'étape 2 de la chaîne pour les invalider ; ils manquaient seulement à l'objet `Caller` retourné. Un test e2e vérifie que `authenticationLevel` vaut `PASSWORD` pour une session ordinaire.
+
+**Le mapping `CallerError` → réponse a été extrait** dans `caller-exception.mapper.ts`, partagé maintenant par `SessionsController` et `CurrentUserController`. Deux copies de ce tableau auraient pu diverger — refuser `STALE_VERSION` différemment selon la route est exactement le genre d'incohérence que la chaîne d'autorisation existe pour éviter.
 
 | Opération | Effet |
 |---|---|
@@ -244,6 +543,56 @@ L'incrément de `users.version` invalide **immédiatement** tous les access toke
 
 ## EVT-026 — Reset de mot de passe et vérification d'email
 <a id="evt-026"></a>
+
+> ✅ **Fait le 1er août 2026.** Les trois routes de mot de passe fonctionnent contre PostgreSQL réel, 17 tests e2e. La **vérification d'email n'a aucune route dans le corpus** et n'est donc pas inventée ici — voir la note en fin de section.
+
+### Structure livrée
+
+```
+passwords/domain/
+├── reset-token.ts                     32 octets opaques + HMAC dédié
+├── password-reset-token.repository.ts le port
+└── password.errors.ts
+passwords/infrastructure/prisma-password-reset-token.repository.ts
+passwords/application/{request-password-reset,reset-password,change-password}.use-case.ts
+passwords/controllers/passwords.controller.ts
+```
+
+### 🔴 Une contradiction du corpus sur le hachage du token
+
+| Source | Dit |
+|---|---|
+| §4.5, note de colonne | « SHA-256, jamais le token en clair » |
+| §9, table de gestion des clés | « Reset de mot de passe \| **HMAC-SHA-256** \| fenêtre 30 min » |
+
+Le §9 l'emporte : c'est la section qui possède la gestion des clés, `PASSWORD_RESET_TOKEN_SECRET` existe dans l'environnement pour exactement cet usage, et un hachage à clé signifie qu'une base volée ne permet pas de **fabriquer** un lien de reset valide. Un test vérifie au passage que ce secret est bien distinct de celui du refresh.
+
+### L'anti-énumération, et où elle s'arrête honnêtement
+
+`202` est retourné systématiquement, avec le **même corps**. Le token est généré et haché sur les deux chemins, pour que le travail cryptographique ne dépende pas de l'existence du compte.
+
+**Ce qui reste** : un `INSERT` de plus sur le chemin « compte connu ». C'est un écart réel, très inférieur à celui qu'aurait un chemin sans hachage, et il se referme définitivement avec le rate limiting d'EVT-030. Le noter vaut mieux que prétendre l'inverse.
+
+### Deux arbitrages sur les sessions, opposés et voulus
+
+| Opération | Sessions | `users.version` |
+|---|---|---|
+| **Reset** | **toutes**, y compris celle qui a demandé | **incrémenté** |
+| **Changement** | les **autres** seulement | **non incrémenté** |
+
+Le reset révoque tout parce qu'on ne sait pas qui a forcé la procédure : celui qui l'a déclenchée peut détenir une session, et c'est le seul moment où on est certain de la retirer.
+
+Le changement garde la session courante, donc l'incrément est exclu — il invaliderait l'access token de cette session-là, ce qui est l'inverse de « changer mon mot de passe depuis mon navigateur de confiance ». Les autres sessions meurent par statut, et l'étape 2 de la chaîne les attrape à leur prochaine requête.
+
+### Le mot de passe est validé **avant** que le token soit consommé
+
+Sinon un mot de passe refusé brûlerait le lien, et l'utilisateur se retrouverait sans l'un ni l'autre. Un test l'exige : après un refus de politique, le même token fonctionne encore.
+
+### Ce qui n'est pas livré, et pourquoi
+
+- **La vérification d'email n'a aucune route dans le corpus.** Le titre du ticket la nomme, mais ni le §5, ni l'`API_CONVENTIONS.md`, ni ce document n'en spécifient une. La table `email_verification_tokens` existe depuis EVT-021 ; inventer un contrat HTTP pour elle ferait un choix que personne n'a fait. À spécifier avant d'implémenter.
+- **L'envoi de l'email** appartient au module de messagerie (EVT-033). Le token n'est donc joignable par personne aujourd'hui, ce qui est le bon sens dans lequel être incomplet.
+- La réauthentification comme alternative au mot de passe courant (§6.5) attend le guard qui sait la prouver ; d'ici là le mot de passe courant est **exigé**, pas optionnel.
 
 ```
 Branche  feat/EVT-026-password-reset
@@ -265,6 +614,97 @@ Routes   POST /auth/password-reset-requests · POST /auth/password-resets
 ## EVT-027 — MFA TOTP
 <a id="evt-027"></a>
 
+> ✅ **Fait le 5 août 2026.** Les cinq routes fonctionnent contre PostgreSQL réel, 15 tests e2e. Le critère d'acceptation ci-dessous est tenu et prouvé par quatre tests e2e dédiés.
+
+### Le critère d'acceptation, et comment il est prouvé
+
+> 🔴 **Critère explicite du propriétaire du produit** : lorsque le MFA est activé, **aucune session finale, aucun access token, aucun refresh token** ne doit être émis avant la vérification d'un code TOTP ou d'un code de récupération.
+
+L'ordre est le contrôle. L'étape 10 est placée **avant toute ligne qui émet quelque chose** — avant la résolution d'organisation, avant la transaction, avant la signature du token. Un mot de passe correct n'achète que le droit d'être interrogé.
+
+| Preuve | Test |
+|---|---|
+| Aucun cookie posé | `answers AUTH_MFA_REQUIRED and sets no cookie at all` |
+| Aucune ligne `user_sessions` | `creates no session row for a login stopped at the gate` |
+| Rien de jeton-formé dans le corps | `carries the challenge id and nothing else` |
+| La session naît bien en `MFA` ensuite | `issues the session once the code is right, at level MFA` |
+
+Le type de retour rend l'erreur impossible plutôt que testée : `LoginResult` est une **union discriminée**, et la branche `MFA_REQUIRED` ne *possède* pas de champ token. Le compilateur a refusé le contrôleur tant qu'il ne traitait pas la branche.
+
+**Le test d'EVT-023 a été inversé**, comme ce document l'exigeait. `starts every session at PASSWORD, never at MFA` devient `starts a session without MFA at PASSWORD`, accompagné de six tests de porte.
+
+### 🔴 Trois bugs dans le wrapper TOTP, tous invisibles aux tests classiques
+
+Le typage d'`otplib` 13 a fait apparaître le premier ; les deux autres ont été trouvés en vérifiant la bibliothèque plutôt qu'en la supposant. **Chacun aurait produit un code auto-cohérent** — l'enrôlement et la vérification se seraient mis d'accord entre eux, et tous les tests écrits sur ce seul couple seraient passés au vert, pendant qu'aucune application d'authentification réelle n'aurait fonctionné.
+
+| Bug | Ce qui se serait passé |
+|---|---|
+| `'SHA-1'` au lieu de `'sha1'` | valeur hors du type `HashAlgorithm` : **codes différents**, silencieusement |
+| `window` au lieu de `epochTolerance` | clé inconnue **ignorée** → tolérance de dérive à 0 au lieu de ±1 fenêtre |
+| `\d` dans un *template literal* | l'échappement tombe : motif `^d{6}$`, qui **rejetait tout code valide** |
+
+La parade est une référence externe : les **vecteurs de test officiels de la RFC 6238 (annexe B)** sont désormais dans la suite. Ils sont la seule chose qui distingue « correct » de « d'accord avec soi-même ».
+
+### Ce que la porte MFA a obligé à extraire
+
+Deux chemins mènent maintenant à une session : le login direct, et le login vérifié par code. Ils doivent produire **exactement** la même session.
+
+```
+authentication/application/
+├── session-issuer.ts            étapes 11→15, seule implémentation
+├── login.use-case.ts            étapes 6→10, puis délègue
+└── complete-mfa-login.use-case.ts   vérifie le challenge, puis délègue
+```
+
+Le niveau d'authentification est un **paramètre**, pas une branche dupliquée.
+
+**L'utilisateur est relu à la vérification, pas mémorisé.** Un challenge vit cinq minutes ; une suspension ou une révocation survenue dans cette fenêtre doit s'appliquer. Compléter la connexion sur l'état capturé au moment du mot de passe honorerait des droits qui n'existent plus.
+
+**Le type de client vient du challenge, pas de la requête.** Sinon un challenge ouvert par un scanner pourrait être terminé en session web et hériter des durées de vie plus longues.
+
+### `SUPER_ADMIN` : la clause redondante est écrite quand même
+
+Le §5.1 dit « méthode `ACTIVE` **ou** rôle `SUPER_ADMIN` ». La seconde clause est redondante tant qu'INV-11 tient. Elle est implémentée malgré tout, parce que les deux modes de défaillance ne sont pas symétriques : si l'invariant était contourné, filtrer sur le seul enrôlement laisserait entrer un administrateur plateforme avec un simple mot de passe, alors que filtrer sur le rôle le bloque jusqu'à restauration du MFA. **Fail-closed est le bon côté pour ce compte-là.**
+
+### RFC 9457 : membres d'extension
+
+Un challenge doit atteindre un client qu'on est en train de refuser. Le §3.2 de la RFC 9457 prévoit exactement cela, donc `ProblemDetails` gagne `extensions`. Le type est volontairement `Record<string, string>` — un refus est la seule réponse qu'un appelant non authentifié peut toujours provoquer, et le type refuse de transporter un objet qu'on aurait pu convaincre le serveur de trop partager.
+
+### 🟡 Ce qui n'est pas fait, et pourquoi
+
+- **Anti-rejeu d'un code TOTP dans sa propre fenêtre** (RFC 6238 §5.2). Cela demande de mémoriser le dernier `timeStep` accepté ; `otplib` l'expose (`afterTimeStep`), mais `mfa_methods` n'a **pas de colonne pour cela** dans `DATABASE_SCHEMA.md` §4.7, dont la liste de colonnes est normative. Ajouter silencieusement une colonne à une table que le corpus fige serait le mauvais réflexe. **À spécifier, puis implémenter** — le risque résiduel est un code observé et rejoué dans les 30 s, borné par le fait que le challenge, lui, est bien à usage unique.
+- **Le rate limiting** des tentatives de code appartient à EVT-030 ; le compteur de 5 tentatives par challenge est en place.
+- **Le store de challenges est en mémoire** jusqu'à EVT-029 (Redis). En multi-instance, un challenge ouvert sur une instance échoue sur une autre : c'est une limite de **disponibilité**, pas de sécurité — l'échec est fermé.
+
+### Structure livrée
+
+```
+mfa/domain/          totp.ts · recovery-codes.ts · mfa-challenge.store.ts
+                     mfa.repository.ts · mfa.errors.ts
+mfa/infrastructure/  mfa-secret.cipher.ts · memory-mfa-challenge.store.ts
+                     prisma-mfa.repository.ts
+mfa/application/     begin/confirm-enrollment · verify-mfa · disable-mfa
+                     regenerate-recovery-codes
+mfa/controllers/     mfa.controller.ts              (enrôlement, méthodes, codes)
+authentication/controllers/mfa-challenge.controller.ts  (vérification → session)
+```
+
+Le partage est fait sur **ce qui est émis** : les routes qui produisent une session vivent avec l'émission de session, celles qui gèrent une méthode vivent dans le module MFA.
+
+> 🔴 **Critère d'acceptation explicite, ajouté à la demande du propriétaire du produit.**
+>
+> **Le gating MFA à la connexion fait partie du périmètre de ce ticket, pas d'un suivi.** Lorsqu'un utilisateur a le MFA activé, l'étape 10 du §5.1 doit refuser d'émettre **quoi que ce soit d'utilisable** avant la vérification d'un code TOTP ou d'un code de récupération :
+>
+> | Ne doit **pas** être émis avant la vérification | |
+> |---|---|
+> | Session finale | `user_sessions` ne reçoit aucune ligne exploitable |
+> | Access token | aucun |
+> | Refresh token | aucun |
+>
+> Seul un challenge MFA (5 min, 5 tentatives) est créé, et la réponse est `AUTH_MFA_REQUIRED`.
+>
+> ✅ **Tenu.** Le test d'[EVT-023](#evt-023) qui exigeait `PASSWORD` pour toute session a bien été inversé — voir « Le critère d'acceptation, et comment il est prouvé » plus haut.
+
 ```
 Branche  feat/EVT-027-mfa-totp
 Routes   POST   /auth/mfa/enrollments
@@ -274,10 +714,11 @@ Routes   POST   /auth/mfa/enrollments
          POST   /auth/mfa/recovery-codes
 ```
 
-**État actuel** — `otplib` est installé et **jamais importé**. Les 5 use cases MFA sont des classes vides.
+**État au démarrage du ticket** — `otplib` était installé et jamais importé, les 5 use cases MFA étaient des classes vides.
 
 ```
 algorithme  SHA-1        (RFC 6238 ; SHA-256 casse des applications d'authentification)
+            ⚠ en code la valeur est 'sha1' — 'SHA-1' produit des codes differents
 chiffres    6
 période     30 s
 dérive      ±1 fenêtre

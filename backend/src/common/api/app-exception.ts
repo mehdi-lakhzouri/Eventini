@@ -1,12 +1,13 @@
 import { HttpException } from '@nestjs/common';
 
 import { ERROR_CATALOG, type ErrorCode } from './error-codes';
-import type { FieldError } from './problem-details.types';
+import type { FieldError, ProblemExtensions } from './problem-details.types';
 
 export interface AppExceptionOptions {
   readonly detail?: string;
   readonly errors?: readonly FieldError[];
   readonly retryable?: boolean;
+  readonly extensions?: ProblemExtensions;
 }
 
 /**
@@ -22,6 +23,7 @@ export class AppException extends HttpException {
   readonly errors: readonly FieldError[];
   readonly retryable: boolean;
   readonly detail: string;
+  readonly extensions: ProblemExtensions;
 
   constructor(code: ErrorCode, options: AppExceptionOptions = {}) {
     const entry = ERROR_CATALOG[code];
@@ -31,5 +33,6 @@ export class AppException extends HttpException {
     this.detail = detail;
     this.errors = options.errors ?? [];
     this.retryable = options.retryable ?? false;
+    this.extensions = options.extensions ?? {};
   }
 }

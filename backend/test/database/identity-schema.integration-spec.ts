@@ -214,9 +214,14 @@ describeWithDatabase('identity schema constraints', () => {
     it('blocks a PLATFORM role from being granted through a membership', async () => {
       await expect(
         pool.query(
-          `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-           VALUES ($1, $2, $3)`,
-          [`mra_bad_${unique()}`, ids.membership, ids.platformRole],
+          `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            `asg_${unique()}`,
+            ids.organization,
+            ids.membership,
+            ids.platformRole,
+          ],
         ),
       ).rejects.toThrow(/INV-09/);
     });
@@ -226,9 +231,9 @@ describeWithDatabase('identity schema constraints', () => {
 
       await expect(
         pool.query(
-          `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-           VALUES ($1, $2, $3)`,
-          [id, ids.membership, ids.organizationRole],
+          `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+           VALUES ($1, $2, $3, $4)`,
+          [id, ids.organization, ids.membership, ids.organizationRole],
         ),
       ).resolves.toBeDefined();
 
@@ -267,9 +272,9 @@ describeWithDatabase('identity schema constraints', () => {
     it('blocks an UPDATE that swaps in a role of the wrong scope', async () => {
       const id = `mra_up_${unique()}`;
       await pool.query(
-        `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-         VALUES ($1, $2, $3)`,
-        [id, ids.membership, ids.organizationRole],
+        `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+         VALUES ($1, $2, $3, $4)`,
+        [id, ids.organization, ids.membership, ids.organizationRole],
       );
 
       await expect(
@@ -298,16 +303,16 @@ describeWithDatabase('identity schema constraints', () => {
       const second = `mra_v2_${unique()}`;
 
       await pool.query(
-        `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-         VALUES ($1, $2, $3)`,
-        [first, ids.membership, ids.organizationRole],
+        `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+         VALUES ($1, $2, $3, $4)`,
+        [first, ids.organization, ids.membership, ids.organizationRole],
       );
 
       await expect(
         pool.query(
-          `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-           VALUES ($1, $2, $3)`,
-          [second, ids.membership, ids.organizationRole],
+          `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+           VALUES ($1, $2, $3, $4)`,
+          [second, ids.organization, ids.membership, ids.organizationRole],
         ),
       ).rejects.toThrow(/ux_membership_role_active/);
 
@@ -318,9 +323,9 @@ describeWithDatabase('identity schema constraints', () => {
 
       await expect(
         pool.query(
-          `INSERT INTO membership_role_assignments (id, membership_id, role_id)
-           VALUES ($1, $2, $3)`,
-          [second, ids.membership, ids.organizationRole],
+          `INSERT INTO membership_role_assignments (id, organization_id, membership_id, role_id)
+           VALUES ($1, $2, $3, $4)`,
+          [second, ids.organization, ids.membership, ids.organizationRole],
         ),
       ).resolves.toBeDefined();
 

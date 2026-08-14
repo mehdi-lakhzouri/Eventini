@@ -88,12 +88,27 @@ Action sans représentation : **`204 No Content`** par défaut. `200` avec `data
       { "field": "startsAt", "code": "REQUIRED", "message": "The startsAt field is required." },
       { "field": "capacity", "code": "OUT_OF_RANGE", "message": "capacity must be between 1 and 100000." }
     ],
-    "retryable": false
+    "retryable": false,
+    "extensions": {}
   }
 }
 ```
 
 `Content-Type: application/problem+json` sur les erreurs. Les URI `type` sont stables et documentaires ; elles ne sont pas résolues au MVP, ce que la RFC autorise explicitement.
+
+### `extensions` — membres d'extension (RFC 9457 §3.2)
+
+Toujours présent, `{}` par défaut. Il existe pour le cas où un refus doit transporter une donnée que l'appelant a besoin de lire **pour continuer** — le premier étant `AUTH_MFA_REQUIRED`, qui doit livrer un `challengeId` à un client qu'on est précisément en train de refuser :
+
+```json
+"error": {
+  "code": "AUTH_MFA_REQUIRED",
+  "status": 401,
+  "extensions": { "challengeId": "ses_01JABCDEF" }
+}
+```
+
+**Les valeurs sont des chaînes, et rien d'autre.** Un refus est la seule réponse qu'un appelant non authentifié peut toujours provoquer ; le type interdit d'y placer un objet, pour qu'aucune erreur future ne devienne un canal de fuite par inadvertance.
 
 ---
 
@@ -349,6 +364,29 @@ Statuts : `QUEUED` `PROCESSING` `SUCCEEDED` `FAILED` `CANCELLED` `EXPIRED`.
 | Changement de mot de passe | `PUT` | `/auth/password` |
 | Acceptation d'invitation | `POST` | `/auth/invitation-acceptances` |
 | Réauthentification | `POST` | `/auth/reauthentications` |
+
+**`GET /auth/me`** — livré par [EVT-025](../sprints/sprint-04/README.md#evt-025). Aucune permission requise au-delà d'une session valide ; le corps ne contient délibérément ni `role` ni `permissions`, la résolution des permissions étant différée à EVT-036 (cache Redis `perms:{membershipId}:v{n}`).
+
+```json
+{
+  "data": {
+    "userId": "usr_01JABCDEF",
+    "email": "ada@example.com",
+    "firstName": "Ada",
+    "lastName": "Lovelace",
+    "displayName": "Ada L.",
+    "status": "ACTIVE",
+    "emailVerifiedAt": "2026-08-01T09:00:00.000Z",
+    "lastLoginAt": "2026-08-05T10:00:00.000Z",
+    "mfaEnabled": false,
+    "sessionId": "ses_01JABCDEF",
+    "organizationId": "org_01JABCDEF",
+    "membershipId": "mbr_01JABCDEF",
+    "clientType": "WEB",
+    "authenticationLevel": "PASSWORD"
+  }
+}
+```
 
 ### Organisations
 

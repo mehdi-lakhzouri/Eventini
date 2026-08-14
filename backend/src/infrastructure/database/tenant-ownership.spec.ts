@@ -4,7 +4,6 @@ import {
   TENANT_OWNERSHIP,
   ownershipOf,
   requiresOrganizationScope,
-  scopeRuleFor,
 } from './tenant-ownership';
 
 /**
@@ -33,36 +32,13 @@ describe('the registry covers every model', () => {
 });
 
 describe('requiresOrganizationScope', () => {
-  it.each(['Event', 'OrganizationMembership'])(
-    'guards the ORGANIZATION-owned model %s',
-    (model) => {
-      expect(requiresOrganizationScope(model)).toBe(true);
-    },
-  );
-
-  /**
-   * The table ADR-0003 §1 says cannot exist. DATABASE_SCHEMA.md §5.6
-   * classifies it `ORGANIZATION-OWNED` "(via le membership)" and lists no
-   * `organization_id`; EVT-014 built what §5.6 specified. Exempting it would
-   * leave role grants — the most direct privilege-escalation surface in the
-   * schema — unguarded, so it stays guarded through the relation.
-   */
-  it('guards MembershipRoleAssignment through its membership', () => {
-    expect(requiresOrganizationScope('MembershipRoleAssignment')).toBe(true);
-    expect(scopeRuleFor('MembershipRoleAssignment')).toEqual({
-      via: 'membership',
-    });
-  });
-
-  it('asks for the plain column everywhere else', () => {
-    expect(scopeRuleFor('Event')).toEqual({});
-    expect(scopeRuleFor('EventSession')).toEqual({});
-  });
-
-  it('returns no rule for an exempt model', () => {
-    expect(scopeRuleFor('Role')).toBeUndefined();
-    expect(scopeRuleFor('User')).toBeUndefined();
-    expect(scopeRuleFor('AuditLog')).toBeUndefined();
+  it.each([
+    'Event',
+    'OrganizationMembership',
+    'MembershipRoleAssignment',
+    'UserInvitation',
+  ])('guards the ORGANIZATION-owned model %s', (model) => {
+    expect(requiresOrganizationScope(model)).toBe(true);
   });
 
   /**
@@ -77,12 +53,18 @@ describe('requiresOrganizationScope', () => {
     },
   );
 
-  it.each(['User', 'UserCredential', 'Organization', 'PlatformRoleAssignment'])(
-    'exempts the PLATFORM model %s',
-    (model) => {
-      expect(requiresOrganizationScope(model)).toBe(false);
-    },
-  );
+  it.each([
+    'User',
+    'UserCredential',
+    'Organization',
+    'PlatformRoleAssignment',
+    'EmailVerificationToken',
+    'PasswordResetToken',
+    'MfaMethod',
+    'MfaRecoveryCode',
+  ])('exempts the PLATFORM model %s', (model) => {
+    expect(requiresOrganizationScope(model)).toBe(false);
+  });
 
   it.each(['Role', 'Permission', 'RolePermission'])(
     'exempts the GLOBAL-REFERENCE model %s',
@@ -92,12 +74,15 @@ describe('requiresOrganizationScope', () => {
   );
 
   /** The documented weak spot — nullable `organization_id`. */
-  it.each(['SecurityEvent', 'AuditLog'])(
-    'exempts the TENANT_OPTIONAL model %s',
-    (model) => {
-      expect(requiresOrganizationScope(model)).toBe(false);
-    },
-  );
+  it.each([
+    'SecurityEvent',
+    'AuditLog',
+    'UserSession',
+    'RefreshTokenRotation',
+    'IdempotencyRecord',
+  ])('exempts the TENANT_OPTIONAL model %s', (model) => {
+    expect(requiresOrganizationScope(model)).toBe(false);
+  });
 
   /**
    * The inversion of ADR-0003's allow-list, and the reason for it. Under an
@@ -134,6 +119,7 @@ describe('TENANT_OWNED_MODELS', () => {
         'EventUserAssignment',
         'MembershipRoleAssignment',
         'OrganizationMembership',
+        'UserInvitation',
       ].sort(),
     );
   });

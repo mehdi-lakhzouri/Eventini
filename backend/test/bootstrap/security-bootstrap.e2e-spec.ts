@@ -16,6 +16,8 @@ import {
   buildValidationPipe,
   permissionsPolicyMiddleware,
 } from '../../src/bootstrap';
+import { preSessionCsrf } from '../helpers';
+import { Public } from '../../src/common/decorators';
 
 /**
  * Route-free otherwise: `AppModule`'s own controllers don't yet expose a body
@@ -28,6 +30,13 @@ class ProbeDto {
   name!: string;
 }
 
+/**
+ * `@Public()`: this probe exists to exercise the validation pipe, the response
+ * envelope and the logger. Sending it through the authorization chain would
+ * make those tests depend on a session and prove something else — the chain
+ * itself is covered by `guard-chain.e2e-spec.ts`.
+ */
+@Public()
 @Controller('probe')
 class ProbeController {
   @Get('ip')
@@ -120,6 +129,7 @@ describe('security bootstrap (EVT-009)', () => {
   it('rejects a body carrying a field the DTO does not declare', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/probe/echo')
+      .set((await preSessionCsrf(app)).headers())
       .send({ name: 'ok', role: 'ADMIN' });
 
     expect(response.status).toBe(400);
@@ -128,6 +138,7 @@ describe('security bootstrap (EVT-009)', () => {
   it('accepts a body matching the DTO exactly', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/probe/echo')
+      .set((await preSessionCsrf(app)).headers())
       .send({ name: 'ok' });
 
     expect(response.status).toBe(201);

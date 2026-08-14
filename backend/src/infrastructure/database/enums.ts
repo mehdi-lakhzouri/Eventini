@@ -199,6 +199,98 @@ export type SecurityEventSeverity = (typeof SECURITY_EVENT_SEVERITIES)[number];
 export const SECURITY_EVENT_RESULTS = ['SUCCESS', 'FAILURE', 'DENIED'] as const;
 export type SecurityEventResult = (typeof SECURITY_EVENT_RESULTS)[number];
 
+// --- Migrations 4-6, sessions, tokens and MFA (EVT-021) ---------------------
+
+export const SESSION_CLIENT_TYPES = ['WEB', 'MOBILE_SCANNER'] as const;
+export type SessionClientType = (typeof SESSION_CLIENT_TYPES)[number];
+
+export const SESSION_STATUSES = [
+  'ACTIVE',
+  'REVOKED',
+  'EXPIRED',
+  'COMPROMISED',
+  'REPLACED',
+] as const;
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
+
+/** ADR-0005's `al` claim. */
+export const AUTHENTICATION_LEVELS = [
+  'PASSWORD',
+  'MFA',
+  'REAUTHENTICATED',
+] as const;
+export type AuthenticationLevel = (typeof AUTHENTICATION_LEVELS)[number];
+
+/**
+ * `REUSED` is what makes replay detectable: a consumed token presented again
+ * is not merely rejected, it is recorded, and the whole family falls.
+ */
+export const REFRESH_TOKEN_STATUSES = [
+  'ACTIVE',
+  'CONSUMED',
+  'REVOKED',
+  'EXPIRED',
+  'REUSED',
+] as const;
+export type RefreshTokenStatus = (typeof REFRESH_TOKEN_STATUSES)[number];
+
+export const PASSWORD_RESET_STATUSES = [
+  'PENDING',
+  'USED',
+  'EXPIRED',
+  'REVOKED',
+  'REPLACED',
+] as const;
+export type PasswordResetStatus = (typeof PASSWORD_RESET_STATUSES)[number];
+
+/** Not enumerated in Document A; fixed by DATABASE_SCHEMA.md §4.6. */
+export const EMAIL_VERIFICATION_STATUSES = [
+  'PENDING',
+  'VERIFIED',
+  'EXPIRED',
+  'REVOKED',
+  'REPLACED',
+] as const;
+export type EmailVerificationStatus =
+  (typeof EMAIL_VERIFICATION_STATUSES)[number];
+
+export const INVITATION_STATUSES = [
+  'PENDING',
+  'ACCEPTED',
+  'EXPIRED',
+  'REVOKED',
+  'REPLACED',
+] as const;
+export type InvitationStatus = (typeof INVITATION_STATUSES)[number];
+
+/** TOTP only at MVP. */
+export const MFA_METHOD_TYPES = ['TOTP'] as const;
+export type MfaMethodType = (typeof MFA_METHOD_TYPES)[number];
+
+export const MFA_METHOD_STATUSES = [
+  'PENDING',
+  'ACTIVE',
+  'DISABLED',
+  'COMPROMISED',
+] as const;
+export type MfaMethodStatus = (typeof MFA_METHOD_STATUSES)[number];
+
+/**
+ * The five states of IDEMPOTENCY_AND_CONCURRENCY.md §5.
+ *
+ * `FAILED_FINAL` is the one worth reading twice: a definitive 4xx is
+ * *memorised* rather than re-executed, because replaying an operation that
+ * will refuse identically spends resources to produce the same refusal.
+ */
+export const IDEMPOTENCY_STATUSES = [
+  'PENDING',
+  'COMPLETED',
+  'FAILED_RETRYABLE',
+  'FAILED_FINAL',
+  'EXPIRED',
+] as const;
+export type IdempotencyStatus = (typeof IDEMPOTENCY_STATUSES)[number];
+
 /**
  * Maps each CHECK constraint to the values it permits.
  *
@@ -221,4 +313,14 @@ export const CHECK_CONSTRAINT_VALUES: Readonly<
   ck_security_events_type: SECURITY_EVENT_TYPES,
   ck_security_events_severity: SECURITY_EVENT_SEVERITIES,
   ck_security_events_result: SECURITY_EVENT_RESULTS,
+  ck_sessions_client_type: SESSION_CLIENT_TYPES,
+  ck_sessions_status: SESSION_STATUSES,
+  ck_sessions_authentication_level: AUTHENTICATION_LEVELS,
+  ck_refresh_rotations_status: REFRESH_TOKEN_STATUSES,
+  ck_password_reset_tokens_status: PASSWORD_RESET_STATUSES,
+  ck_email_verification_tokens_status: EMAIL_VERIFICATION_STATUSES,
+  ck_invitations_status: INVITATION_STATUSES,
+  ck_mfa_methods_type: MFA_METHOD_TYPES,
+  ck_mfa_methods_status: MFA_METHOD_STATUSES,
+  ck_idempotency_records_status: IDEMPOTENCY_STATUSES,
 };

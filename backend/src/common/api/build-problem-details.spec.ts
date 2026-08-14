@@ -16,6 +16,7 @@ describe('buildProblemDetails', () => {
       instance: '/api/v1/events/evt_1',
       errors: [],
       retryable: false,
+      extensions: {},
     });
   });
 
@@ -29,5 +30,26 @@ describe('buildProblemDetails', () => {
     expect(problem.detail).toBe('custom detail');
     expect(problem.errors).toHaveLength(1);
     expect(problem.retryable).toBe(true);
+  });
+
+  /**
+   * RFC 9457 §3.2 extension members. The MFA gate needs one — a challenge id
+   * has to reach a client that is being refused — and the default has to stay
+   * an empty object so no other rejection starts carrying data by accident.
+   */
+  it('carries extension members when given them', () => {
+    const problem = buildProblemDetails(
+      'AUTH_MFA_REQUIRED',
+      '/api/v1/auth/sessions',
+      { extensions: { challengeId: 'mch_1' } },
+    );
+
+    expect(problem.extensions).toEqual({ challengeId: 'mch_1' });
+  });
+
+  it('defaults extensions to empty', () => {
+    const problem = buildProblemDetails('VALIDATION_ERROR', '/api/v1/events');
+
+    expect(problem.extensions).toEqual({});
   });
 });

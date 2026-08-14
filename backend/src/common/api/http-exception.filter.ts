@@ -10,6 +10,7 @@ import { PinoLogger } from 'nestjs-pino';
 import { AppException } from './app-exception';
 import { buildProblemDetails } from './build-problem-details';
 import { buildResponseMeta } from './build-response-meta';
+import { idempotencyMetaOf } from './idempotency-meta';
 import { isServerError, mapUnknownException } from './map-unknown-exception';
 import type { ApiEnvelope, ProblemDetails } from './problem-details.types';
 import { stripQueryString } from './strip-query-string';
@@ -64,6 +65,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
             detail: exception.detail,
             errors: exception.errors,
             retryable: exception.retryable,
+            extensions: exception.extensions,
           })
         : mapUnknownException(exception, instance);
 
@@ -72,7 +74,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const envelope: ApiEnvelope<null> = {
       data: null,
-      meta: buildResponseMeta(request.id),
+      // A replayed `FAILED_FINAL` leaves here rather than through the envelope
+      // interceptor, and it is still a replay — dropping the marker on the
+      // error path would make the memorised refusal indistinguishable from a
+      // fresh one.
+      meta: buildResponseMeta(request.id, idempotencyMetaOf(request)),
       error: problem,
     };
 

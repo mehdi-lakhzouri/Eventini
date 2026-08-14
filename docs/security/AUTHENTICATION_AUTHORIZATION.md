@@ -72,6 +72,12 @@ recovery      10 codes, 10 caractères Crockford base32, SHA-256, usage unique
 
 SHA-1 pour TOTP n'est pas une faiblesse : la RFC 6238 le prévoit, la sécurité repose sur l'entropie du secret et la fenêtre courte, et SHA-256 casse la compatibilité avec une partie des applications d'authentification.
 
+> ⚠️ **En code, la valeur est `'sha1'`, en minuscules.** `otplib` 13 type ce paramètre : `'SHA-1'` n'est pas un membre du type, n'est pas rejeté à l'exécution, et produit des **codes différents**. Une implémentation qui l'utilise reste cohérente avec elle-même — elle génère et vérifie avec la même mauvaise valeur — tout en étant incompatible avec toute application d'authentification réelle. Les **vecteurs de test de la RFC 6238 (annexe B)** sont dans la suite de tests pour cette raison : ils sont la seule référence externe qui distingue « correct » de « d'accord avec soi-même ».
+>
+> Même piège sur la dérive : la tolérance s'exprime en **secondes** via `epochTolerance`, pas en nombre de fenêtres. ±1 fenêtre s'écrit donc `1 × période`, soit 30.
+
+**Anti-rejeu d'un code dans sa propre fenêtre (RFC 6238 §5.2) — non implémenté.** Le §5.2 demande de refuser un second usage du même code. Cela suppose de mémoriser le dernier pas de temps accepté ; `mfa_methods` n'a pas de colonne prévue pour cela dans `DATABASE_SCHEMA.md` §4.7. **À spécifier avant d'implémenter.** Le risque résiduel est un code observé et rejoué dans les 30 secondes ; le challenge MFA, lui, est bien à usage unique, donc un rejeu ne peut pas produire une seconde session à partir du même challenge.
+
 ### 1.4 Rate limiting et lockout — [ADR-0013](../adr/0013-rate-limiting-and-lockout-baseline.md)
 
 Détail complet : [`RATE_LIMITING_AND_ABUSE_PREVENTION.md`](RATE_LIMITING_AND_ABUSE_PREVENTION.md).

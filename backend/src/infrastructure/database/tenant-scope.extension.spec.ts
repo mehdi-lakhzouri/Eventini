@@ -118,23 +118,6 @@ describe('tenant scope extension', () => {
       expect(error?.message).toContain('organizationId');
       expect(error?.message).toContain('$unscoped');
     });
-
-    /**
-     * The relation case gets its own message, or the reader is told to add a
-     * column that does not exist on this table.
-     */
-    it('names the relation when the model is scoped through one', async () => {
-      let error: TenantScopeViolationError | undefined;
-
-      try {
-        await client.membershipRoleAssignment.findMany();
-      } catch (thrown: unknown) {
-        error = thrown as TenantScopeViolationError;
-      }
-
-      expect(error?.model).toBe('MembershipRoleAssignment');
-      expect(error?.message).toContain('through membership');
-    });
   });
 
   /**

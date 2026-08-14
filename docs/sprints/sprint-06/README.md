@@ -21,9 +21,9 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 
 ## Critère de sortie
 
-- **un ID valide appartenant à un autre tenant retourne `403`** ;
-- une requête non scopée lève `TenantScopeViolationError` ;
-- `tenant-isolation.spec.ts` passe avec des **assertions réelles** (il contient aujourd'hui 2 `it.todo`).
+- ✅ **un ID valide appartenant à un autre tenant retourne `403`** ;
+- ✅ une requête non scopée lève `TenantScopeViolationError` ;
+- ✅ `tenant-isolation.spec.ts` passe avec des **assertions réelles** — les 2 `it.todo` qu'il portait sont remplacés, et le budget de placeholders du dépôt entier est à 0.
 
 ---
 
@@ -31,15 +31,59 @@ Invariant **O-5** : le multi-tenant précède toute feature métier. Ajouter l'i
 
 | # | Titre |
 |---|---|
-| [EVT-033](#evt-033) | Contexte tenant et activation d'organisation |
-| [EVT-034](#evt-034) | Résolution et cache des permissions |
-| [EVT-035](#evt-035) | Guards globaux et décorateurs |
-| [EVT-036](#evt-036) | Tests d'isolation cross-tenant |
+| [EVT-033](#evt-033) | Contexte tenant et activation d'organisation ✅ |
+| [EVT-034](#evt-034) | Résolution et cache des permissions ✅ |
+| [EVT-035](#evt-035) | Guards globaux et décorateurs ✅ |
+| [EVT-036](#evt-036) | Tests d'isolation cross-tenant ✅ |
 
 ---
 
 ## EVT-033 — Contexte tenant et activation d'organisation
 <a id="evt-033"></a>
+
+> ✅ **Fait le 5 août 2026.** 15 tests unitaires, 11 tests e2e contre PostgreSQL réel.
+
+### La rotation, et pourquoi ce n'est pas un `UPDATE`
+
+Mettre `user_sessions.organization_id` à jour sur place tiendrait en une instruction et serait faux deux fois : un refresh token capturé **avant** le changement continuerait de fonctionner **après**, pointant désormais sur la nouvelle organisation ; et la piste d'audit montrerait une session qui a silencieusement changé de tenant au lieu de deux sessions avec une transition explicite.
+
+Un test le prouve directement : après activation, l'ancienne session est `REPLACED`, sa famille de tokens est révoquée, et l'ancien cookie d'accès reçoit `401`.
+
+### 🔴 Le niveau d'authentification est **transporté**, jamais supposé
+
+Une première version câblait `authenticationLevel: 'MFA'` en dur. C'était une escalade de privilège dans une route qui ne prétend que changer d'organisation : chaque bascule aurait accordé une garantie MFA jamais obtenue. Câbler `'PASSWORD'` aurait le défaut inverse — perdre une vérification réellement faite, et faire refuser plus tard un `@RequireAuthLevel` à quelqu'un qui avait bien vérifié.
+
+Seul le niveau de la session remplacée est correct. Trois tests le vérifient, un par niveau.
+
+### L'identifiant du chemin ne construit jamais une requête
+
+Il sert uniquement à **retrouver un membership appartenant à l'appelant**. Un identifiant forgé ne trouve rien, au lieu de scoper une requête sur le tenant de quelqu'un d'autre. Le test utilise une organisation **réelle et active** dont l'utilisateur n'est pas membre — pas une chaîne inventée, parce que c'est l'identifiant réel qu'un attaquant utiliserait.
+
+Les deux refus sont **identiques au bit près** (hors `instance` et `requestId`, qui diffèrent par construction) : distinguer « pas de membership » de « organisation suspendue » permettrait d'énumérer les identifiants d'organisation.
+
+### 🔴 Trois règles d'architecture ont refusé ce ticket, et elles avaient raison
+
+| Règle | Ce qu'elle a attrapé | Résolution |
+|---|---|---|
+| `$unscoped` sur liste blanche | deux requêtes non scopées | ajoutées avec justification |
+| Repository → `TenantContext` d'abord | `OrganizationRepository` n'en prend pas | exempté, avec la raison |
+| Frontières de modules | 10 imports profonds dans `identity` | **surface publique explicite** |
+
+Les deux `$unscoped` sont structurellement nécessaires : « à quelles organisations j'appartiens » **est** l'ensemble des organisations, et une activation vise justement celle sur laquelle la session n'est pas encore scopée — filtrer sur le contexte courant rendrait tout changement impossible. Ce qui les rend sûres est le filtre `userId`.
+
+La troisième a produit le meilleur résultat du ticket : `modules/identity/index.ts` déclare désormais une **surface publique nommée** au lieu d'être un `export *`. Tout ce qui n'y figure pas est interne par construction, et l'élargir est une ligne visible en revue.
+
+### Structure livrée
+
+```
+organizations/domain/organization.repository.ts        le port
+organizations/infrastructure/prisma-organization.repository.ts
+organizations/application/{list,activate}-organization.use-case.ts
+organizations/controllers/organizations.controller.ts
+identity/tenant-access/tenant-context.service.ts       Caller → TenantContext
+```
+
+`SessionIssuer` gagne `issueResolved` : les étapes 14-15 avec l'organisation **déjà décidée**. Le login y arrive par `issue` qui résout d'abord ; la bascule y arrive directement, puisque la cible est choisie et déjà vérifiée. La session remplacée est retirée **dans la même transaction** que sa remplaçante — les valider séparément laisserait une fenêtre à deux sessions vivantes, ou à zéro.
 
 ```
 Branche  feat/EVT-033-tenant-context
@@ -88,6 +132,55 @@ POST /api/v1/organizations/{organizationId}/activation
 ## EVT-034 — Résolution et cache des permissions
 <a id="evt-034"></a>
 
+> ✅ **Fait le 5 août 2026.** 12 tests unitaires, 10 tests d'intégration contre PostgreSQL réel. La garde qui consomme ce résolveur arrive avec [EVT-035](#evt-035) — voir « ce qui n'est pas encore prouvé » plus bas.
+
+### L'invalidation par version, et ce qu'elle évite
+
+Incrémenter rend toutes les clés de l'ancienne version inatteignables d'un coup : aucune clé à retrouver, aucun `SCAN`, aucune suppression partielle. Une suppression par motif serait partielle sous charge, et une clé manquée signifie **une permission révoquée encore accordée** — exactement ce que ce mécanisme existe pour empêcher.
+
+### 🔴 Le compteur de version n'a **jamais** de TTL
+
+Le compteur et les entrées de cache vivent dans le même Redis. Si le compteur expirait pendant que des entrées survivent, la version redescendrait et les entrées périmées **redeviendraient atteignables**. Les perdre ensemble est inoffensif : il ne reste rien à ressusciter. D'où la règle : les entrées portent un TTL, les compteurs jamais.
+
+C'est écrit dans le code à l'endroit où quelqu'un serait tenté d'en ajouter un.
+
+### Trois scopes, trois tables, et une fenêtre de validité dans le SQL
+
+| Scope | Table | Particularité |
+|---|---|---|
+| `ORGANIZATION` | `membership_role_assignments` | révocation par `revoked_at` **seul** |
+| `PLATFORM` | `platform_role_assignments` | a `status` **et** `revoked_at` |
+| `EVENT` | `event_user_assignments` | fenêtre `valid_from` / `valid_until` dans le `WHERE` |
+
+**Les bornes de validité sont dans le filtre SQL**, pas vérifiées ensuite. Un filtre appliqué en code applicatif est un filtre qu'un `return` anticipé ou un refactor peut sauter ; une ligne hors de sa fenêtre ne doit pas être **retournée** du tout.
+
+**Les permissions d'événement ne sont pas mises en cache.** L'ensemble dépend de l'événement *et* de l'horloge : une copie en cache survivrait à la fenêtre dans laquelle elle a été calculée et continuerait d'accorder l'accès après expiration.
+
+### 🔴 Deux découvertes des tests d'intégration
+
+**`membership_role_assignments` n'a pas de colonne `status`.** Ma requête en filtrait une. C'est asymétrique avec `platform_role_assignments`, qui a les deux. Le test d'intégration l'a attrapé parce qu'il s'exécute contre le vrai schéma — un dépôt factice aurait répondu ce qu'on lui aurait dit de répondre.
+
+**INV-09 est un trigger, pas seulement une convention.** Le test « un rôle PLATFORM ne passe pas par une assignation de membership » ne peut même pas **insérer** la ligne : la base la refuse. C'est une garantie plus forte que le filtre `scope` de la requête, et le test asserte désormais la vraie. Le filtre reste comme seconde ligne de défense — c'est lui qui tiendrait si le trigger disparaissait dans une migration.
+
+### 🟡 Ce qui n'est pas encore prouvé, et pourquoi
+
+Le **test décisif d'ADR-0004** — révoquer un rôle puis appeler une route protégée avec le token existant ⇒ `403` immédiat — exige une route protégée. `PermissionsGuard` est EVT-035. La propriété est donc prouvée ici **au niveau SQL** (une assignation révoquée cesse d'accorder immédiatement) et **au niveau du cache** (un incrément de version rend l'ancienne entrée inatteignable) ; la preuve bout en bout arrive avec la garde.
+
+**La colonne miroir d'ADR-0004 n'est pas créée.** L'ADR décrit « un compteur Redis + une colonne miroir » ; le sprint 06 déclare **aucune migration**. Elle n'est pas nécessaire à la correction — compteur et cache partagent un Redis, donc ils se perdent ensemble, et un compteur qui repart de zéro ne peut pas exposer des entrées disparues avec lui. Ce qu'elle apporterait est la durabilité après une perte totale de Redis, à des fins d'audit. Noté comme limite plutôt que passé sous silence.
+
+### Structure livrée
+
+```
+authorization/domain/        permission.repository.ts · permission-cache.ts
+                             permissions-version.store.ts
+authorization/infrastructure/ prisma-permission.repository.ts
+                             redis-permission.cache.ts
+                             redis-permissions-version.store.ts
+authorization/application/   permission-resolver.service.ts
+```
+
+Redis est une optimisation, **jamais une autorité** : défaut de version, défaut de lecture et défaut d'écriture terminent tous dans PostgreSQL. Aucune branche ne renvoie « autorisé » parce qu'une recherche a échoué — trois tests l'exigent, un par mode de panne.
+
 ```
 Branche  feat/EVT-034-permission-resolution
 Commit   feat(identity): resolve scoped permissions with versioned Redis cache
@@ -126,6 +219,68 @@ perms:platform:{userId}:v{permissionsVersion}   TTL  60 s
 
 ## EVT-035 — Guards globaux et décorateurs
 <a id="evt-035"></a>
+
+> ✅ **Fait le 11 août 2026.** 11 tests e2e dédiés à la chaîne, contre PostgreSQL et Redis réels. Suite complète : 1046 unitaires, 139 d'intégration, 179 e2e.
+
+### 🔴 Protégé par défaut, ouvert par exception
+
+```
+RateLimit → Csrf → Authentication → TenantContext → Permissions
+```
+
+Le test qui porte tout le ticket : **une route sans aucun décorateur répond `401`**. Avec des guards posés route par route, un décorateur oublié produit une route ouverte qui répond `200`, et personne n'enquête sur un `200`. Inversé, le même oubli produit un `401`, qui remonte dans l'heure.
+
+`@Public()` est la seule sortie. Cinq routes la portent, et chacune a une raison qui tient en une phrase :
+
+| Route | Pourquoi |
+|---|---|
+| `POST /auth/sessions` | c'est la frontière elle-même |
+| `POST /auth/sessions/current/rotation` | s'authentifie sur le cookie refresh, précisément quand l'access token a expiré |
+| `POST /auth/mfa/challenges/{id}/verification` | seconde étape d'un login gaté : mot de passe prouvé, session pas encore créée |
+| `GET /auth/csrf-token` | délivre le jeton qui permet la première mutation, dont le login — l'exiger serait circulaire |
+| `POST /auth/password-reset*` | s'adresse à quelqu'un qui ne peut pas se connecter |
+
+Plus `/health/*` et `/metrics`, appelés par la plateforme et non par un utilisateur.
+
+### L'ordre est fixé à un seul endroit
+
+Nest exécute les `APP_GUARD` dans l'ordre d'initialisation des modules. Les enregistrer dans `AuthorizationModule` les aurait placés là où la liste d'imports d'`IdentityModule` les met — c'est-à-dire **avant `CsrfModule`**, par ordre alphabétique. Rien n'aurait paru anormal en lisant l'un ou l'autre fichier.
+
+D'où `GuardChainModule` : un module dont le seul rôle est de déclarer la séquence, importé par `AppModule` après `IdentityModule`. Deux tests e2e vérifient l'ordre par le comportement plutôt que par la lecture du code.
+
+### 🔴 Une exemption explicite plutôt qu'un cas particulier caché
+
+`TenantContextGuard` compare tout `organizationId` reçu — chemin, query **et** corps — au contexte de la session, et refuse une divergence. Or `POST /organizations/{id}/activation` en nomme délibérément une autre : c'est sa raison d'être.
+
+L'exemption est un décorateur, `@AllowsOrganizationSwitch()`, posé sur la route concernée, et non une liste de chemins à l'intérieur du guard. Une liste d'exceptions cachée dans un guard est une liste que personne ne relit ; un décorateur est lu par quiconque lit la route.
+
+### Ce que la chaîne a fait remonter
+
+**`infrastructure/` ne doit pas importer `modules/`.** `@Public()` vivait dans `identity/authorization/` ; les contrôleurs `health` et `metrics` en avaient besoin. Le décorateur est transversal, sa place est `common/decorators/` — c'est là qu'il est désormais, avant qu'EVT-036 ne fasse de cette arête une règle appliquée.
+
+**Trois suites e2e sondaient des routes sans session.** Les contrôleurs-sondes de `bootstrap/` et `logging/` testent le pipe de validation, l'enveloppe et le logger : les faire passer par la chaîne aurait fait dépendre ces tests d'une session et prouvé autre chose. Ils portent `@Public()`, avec la raison écrite au-dessus.
+
+### 🟡 Rien n'incrémente encore `permissionsVersion` en production
+
+Le test de révocation immédiate est passé au vert seulement après que le test lui-même incrémente le compteur. Ce n'est pas un échafaudage autour d'un défaut : c'est le contrat d'ADR-0004 — le compteur bouge **dans la transaction** qui change un rôle. Simplement, le use case qui possédera les deux moitiés est **EVT-044 (sprint 08)**, donc aucun appelant de `bumpMembership` n'existe encore.
+
+Conséquence à connaître : **un rôle modifié directement en base est périmé jusqu'au TTL de 300 s.** Le mécanisme est construit et prouvé ; son point d'appel arrive avec la gestion des rôles.
+
+### Structure livrée
+
+```
+common/decorators/public.decorator.ts          transversal, d'où common/
+identity/authorization/decorators/             RequirePermission · RequireAuthLevel
+                                               CurrentCaller · CurrentContext
+identity/authorization/guards/                 authentication.guard · permissions.guard
+identity/authorization/guard-chain.module.ts   l'ordre, en un seul endroit
+identity/tenant-access/tenant-context.guard.ts étapes 4-5
+identity/tenant-access/decorators/             AllowsOrganizationSwitch
+```
+
+`@RequireAuthLevel` compare des rangs, pas des égalités : une session `REAUTHENTICATED` satisfait une route qui demande `MFA`, parce qu'elle a prouvé **plus**, pas moins. Une égalité refuserait celui qui vient de ressaisir son mot de passe — le résultat le plus déroutant qu'un contrôle de sécurité puisse produire.
+
+Les étapes 7 et 8 ne sont pas ici et ne peuvent pas l'être : les décider suppose de charger la ressource, ce qui est le travail du use case. Elles sont portées par des méthodes de repository qui **exigent** un `TenantContext`.
 
 ```
 Branche  feat/EVT-035-authorization-guards
@@ -175,6 +330,8 @@ L'ouverture se fait par `@Public()`, explicite et visible en revue.
 ## EVT-036 — Tests d'isolation cross-tenant
 <a id="evt-036"></a>
 
+> ✅ **Fait le 12 août 2026.** 12 tests e2e cross-tenant contre deux tenants réels, 29 tests d'architecture, budget `it.todo` à **0**.
+
 ```
 Branche  test/EVT-036-tenant-isolation
 Commit   test(architecture): implement tenant isolation architecture tests
@@ -182,7 +339,32 @@ Commit   test(architecture): implement tenant isolation architecture tests
 
 > **C'est le ticket le plus important du sprint.** Il transforme une règle documentée en règle **appliquée**.
 
-**État actuel** — `backend/src/__architecture__/tenant-isolation.spec.ts` existe et contient exactement **deux `it.todo`**. `forbidden-imports.spec.ts` en contient trois.
+### 🔴 Deux failles réelles, trouvées parce que les tests utilisent un vrai second tenant
+
+Les étapes 4 et 5 de la chaîne d'autorisation n'avaient **jamais été implémentées**. EVT-035 comparait des identifiants et s'arrêtait là : une organisation suspendue et un membership révoqué continuaient de fonctionner jusqu'à l'expiration de la session — c'est-à-dire jusqu'à 30 jours. La requête de session porte désormais `organizationStatus`, `organizationEnabled` et `membershipStatus`, sur la ligne qu'elle lisait déjà, et le guard refuse.
+
+La seconde est plus discrète. `claimedOrganizationId` retournait le **premier** identifiant trouvé parmi le chemin, la query string et le corps. Une requête pouvait donc satisfaire la vérification avec un paramètre de chemin conforme tout en glissant un autre identifiant dans la query string — qu'un handler lira. Les trois sources sont maintenant toutes vérifiées.
+
+Aucune des deux n'était visible avec un identifiant inventé : il faut une organisation **réelle, active, appartenant à quelqu'un d'autre** pour que le code aille assez loin pour se tromper.
+
+### 🔴 Deux règles d'architecture étaient violées à l'instant où elles ont été écrites
+
+| Règle | Violation | Résolution |
+|---|---|---|
+| `tenant-access` n'importe jamais `authorization` | EVT-035 avait posé `TenantContextGuard` à côté du service qu'il appelle | guard déplacé dans `authorization`, seul côté autorisé à connaître les deux |
+| `domain/` ne dépend d'aucun framework | `rate-limiting/domain/client-ip.ts` importait le `Request` d'Express | déplacé dans `infrastructure/` |
+
+C'est l'argument même du ticket : une règle qui n'est pas exécutée n'est pas une règle. Les deux ont été **corrigées**, jamais exemptées.
+
+Le cycle entre modules est détecté par un parcours de graphe écrit à la main plutôt que par `madge` : les arêtes pertinentes sont module-à-module, et l'échec nomme le chemin complet.
+
+### Budget `it.todo` — 31 → 0
+
+Le dernier placeholder, `app.e2e-spec.ts`, attendait « le point d'entrée système ou observabilité quand il existera ». Il existe depuis EVT-012 et porte 14 tests réels dans `test/observability/`. Le fichier a été supprimé.
+
+Les deux garde-fous de CI échouaient sur **leur propre justification** — le compteur sur les commentaires qui expliquent la disparition des todos, le contrôle de terminologie sur le commentaire qui documente le renommage `tenantId` → `organizationId`. Les deux dépouillent maintenant les lignes de commentaire, comme le fait déjà le scanner de credentials des seeds. Un contrôle qui se déclenche sur sa propre raison d'être est un contrôle qu'on apprend à désactiver.
+
+`arch:tenant-isolation` est enfin le **nom réel** d'un script npm : un check requis dont le nom n'existe que dans un document ne peut pas être sélectionné dans la protection de branche.
 
 ### `tenant-isolation.spec.ts` — à implémenter
 
@@ -212,7 +394,9 @@ La matrice de strates et les arêtes interdites de [`MODULE_DEPENDENCY_MAP.md`](
 | Organisation suspendue | toutes les routes métier refusées |
 | Membership révoqué | sessions coupées dans la **même transaction** |
 
-**Le job CI `arch:tenant-isolation` devient bloquant à la fin de ce sprint.**
+**Le job CI `arch:tenant-isolation` est bloquant.** Ainsi que le budget `it.todo` (0) et le contrôle de terminologie tenant, qui traînait un `TODO(sprint 02)` depuis quatre sprints.
+
+Les sept tests e2e du tableau ci-dessus sont livrés, plus cinq autres : contrebande d'identifiant par la query string, exclusion du tenant voisin d'une liste, refus au niveau authentification avant même l'autorisation, échappatoire `$unscoped` vérifiée, et refus d'activation d'une organisation dont l'appelant n'est pas membre.
 
 ---
 

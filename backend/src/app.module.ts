@@ -18,6 +18,10 @@ import {
   RequestContextInterceptor,
 } from './infrastructure/logging';
 import { MetricsModule } from './infrastructure/metrics';
+import { RedisModule } from './infrastructure/redis';
+import { GuardChainModule } from './modules/identity/authorization/guard-chain.module';
+import { OrganizationsModule } from './modules/organizations';
+import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
 
 /**
@@ -65,8 +69,24 @@ if (!isProduction) {
     // Ahead of HealthModule: the database readiness indicator injects
     // PrismaService, so the module providing it has to be constructed first.
     PrismaModule,
+    // Ahead of everything that rate-limits or locks out: `RedisScriptRegistry`
+    // loads the four Lua scripts in its `onModuleInit`, and a failure there is
+    // fatal by design (REDIS_KEYS_AND_LUA_SCRIPTS.md §6) — the application must
+    // not start able to serve `/auth/sessions` with no limiter behind it.
+    RedisModule,
     HealthModule,
+    // Ahead of IdentityModule, and the order is load-bearing: Nest runs
+    // APP_GUARD providers in registration order, so this is what puts
+    // RateLimitGuard in front of CsrfGuard. §7.5 requires rate limiting to run
+    // before CSRF, before validation and above all before Argon2id — a login
+    // endpoint that hashes first and counts afterwards is its own DoS vector.
+    RateLimitingModule,
     IdentityModule,
+    // After IdentityModule, and that is deliberate: APP_GUARD providers run in
+    // module initialisation order, so this is what puts the authorization
+    // chain behind rate limiting and CSRF (§7.5).
+    GuardChainModule,
+    OrganizationsModule,
   ],
   providers: [
     // Registered here rather than in `main.ts` because all three need DI:

@@ -5,6 +5,7 @@ import type { Response } from 'express';
 // `common/api`'s exception filter, which imports `MetricsService` from here.
 import { RawResponse } from '../../common/api/raw-response.decorator';
 import { MetricsService } from './metrics.service';
+import { Public } from '../../common/decorators';
 
 /**
  * The Prometheus scrape endpoint.
@@ -26,6 +27,13 @@ import { MetricsService } from './metrics.service';
  * or personal data — §36's label allowlist guarantees it, and
  * `assertAllowedLabels` enforces it at startup.
  */
+/**
+ * Public: liveness, readiness and scraping are called by the platform, not
+ * by a user — a probe holds no session and a failing probe must report the
+ * service's health rather than its own lack of credentials. Exempt from
+ * CSRF and rate limiting for the same reason.
+ */
+@Public()
 @Controller('metrics')
 export class MetricsController {
   constructor(private readonly metricsService: MetricsService) {}

@@ -7,6 +7,8 @@
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".*\\.e2e-spec\\.ts$",
+  "//maxWorkers": "Serial since EVT-030. Database rows are partitioned by a per-suite suffix, but rate-limit counters are keyed on the client IP and every e2e request arrives from 127.0.0.1 — so parallel suites share one window and reset each other's counters mid-test. That is the limiter behaving correctly on shared state, not a defect to design around.",
+  "maxWorkers": 1,
   "setupFiles": [
     "<rootDir>/setup-e2e-env.ts"
   ],
