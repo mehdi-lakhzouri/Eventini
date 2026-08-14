@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
+import { AppProviders } from "@/providers/app-providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,7 +35,18 @@ export default function RootLayout({
         geistMono.variable
       )}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/*
+          AppProviders was written correctly and imported by nothing, so the
+          QueryClient, theme and i18n contexts never existed at runtime. The
+          first component to call useQuery would have thrown
+          "No QueryClient set, use QueryClientProvider to set one".
+
+          It stays a client boundary of its own: this layout remains a Server
+          Component, and only the provider subtree ships to the browser.
+        */}
+        <AppProviders>{children}</AppProviders>
+      </body>
     </html>
   );
 }

@@ -49,13 +49,17 @@ backend/
 "prisma:generate":     "prisma generate",
 "prisma:migrate:dev":  "prisma migrate dev",
 "prisma:migrate:deploy": "prisma migrate deploy",
-"prisma:migrate:diff": "prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma --shadow-database-url $SHADOW_DATABASE_URL --exit-code",
+"prisma:migrate:diff": "prisma migrate diff --from-migrations ./prisma/migrations --to-schema ./prisma/schema.prisma --exit-code",
 "prisma:studio":       "prisma studio",
 "db:seed":             "ts-node prisma/seed/index.ts",
 "db:reset":            "prisma migrate reset --force"
 ```
 
 `prisma:migrate:diff` avec `--exit-code` est le **gate CI** : il échoue si `schema.prisma` et les migrations divergent, c'est-à-dire si quelqu'un a modifié le schéma sans générer la migration correspondante.
+
+> **Corrigé au sprint 03 (EVT-014).** La commande initialement écrite ici utilisait `--to-schema-datamodel` et `--shadow-database-url`, deux drapeaux de Prisma 5/6 : le premier s'appelle `--to-schema` en Prisma 7, le second n'existe plus — l'URL de shadow database vient désormais de `prisma.config.ts`. La commande d'origine échouait en affichant l'aide, avec un code de sortie `1` qu'un CI aurait interprété comme un échec du gate plutôt que comme une erreur de syntaxe.
+
+**`prisma.config.ts` est obligatoire en Prisma 7.** Le bloc `datasource` de `schema.prisma` ne porte plus d'`url` : `env("DATABASE_URL")` n'y est plus le mécanisme. Le fichier de configuration à la racine de `backend/` fournit `datasource.url`, `datasource.shadowDatabaseUrl`, le chemin des migrations et la commande de seed — cette dernière ayant elle aussi quitté `package.json`.
 
 ---
 
@@ -205,7 +209,9 @@ Le seed est **idempotent** et rejouable sans effet cumulatif. Il n'insère jamai
 
 ### 8.1 Permissions et rôles — obligatoire dans tous les environnements
 
-`permissions`, `roles` et `role_permissions` sont du référentiel, pas de la donnée : ils sont livrés avec le code et appliqués par `upsert` sur `code`.
+`permissions`, `roles` et `role_permissions` sont du référentiel, pas de la donnée : ils sont livrés avec le code et rapprochés de la base sur la clé `code`.
+
+> 🔧 **Correction ([EVT-017](../sprints/sprint-03/README.md#evt-017)) : pas `upsert`, mais lecture puis écriture différentielle.** `Permission.updatedAt` porte `@updatedAt` ; un `upsert` inconditionnel réécrit donc l'horodatage des 30 lignes à chaque exécution — chaque déploiement, chaque job CI. Les lignes seraient identiques en contenu et différentes sur disque, ce qui rend « quand cette permission a-t-elle changé ? » sans réponse et rend le critère de sortie du sprint (« deux exécutions ⇒ même état ») littéralement faux. Chaque étape compare donc d'abord et n'écrit que ce qui diffère réellement, ce qui rend la seconde exécution observablement nulle (`created: 0, updated: 0`) plutôt que simplement silencieuse.
 
 | Fichier | Contenu |
 |---|---|
@@ -230,6 +236,8 @@ Procédure :
 5. le passage à `ACTIVE` n'a lieu qu'après enrôlement MFA réussi.
 
 **Aucun mot de passe n'est jamais écrit dans un seed**, y compris en développement. Un mot de passe de seed finit systématiquement en production.
+
+> ⏳ **Étape 3 différée à [EVT-021](../sprints/sprint-04/README.md#evt-021).** `email_verification_tokens` arrive avec la migration 4 : il n'existe aujourd'hui aucune table où persister un token à usage unique. En afficher un serait afficher une chaîne que **rien ne peut vérifier** — pire que rien, parce qu'elle ressemble à un identifiant valide. [EVT-017](../sprints/sprint-03/README.md#evt-017) implémente donc les étapes 1, 2, 4 et 5, laisse le compte `PENDING` sans credentials, et l'annonce explicitement sur la sortie standard.
 
 ### 8.3 Données de démonstration — développement uniquement
 

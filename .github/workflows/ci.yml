@@ -67,10 +67,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # TODO(EVT-002, sprint 01): remove continue-on-error once strict mode lands.
+      # Blocking since EVT-002: strict, noImplicitAny, strictBindCallApply,
+      # noUncheckedIndexedAccess and friends are on, and the tree is clean.
       - name: Typecheck
         run: npm run typecheck
-        continue-on-error: true
 
       - name: Unit tests
         run: npm test -- --ci --passWithNoTests
@@ -106,11 +106,13 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           NODE_ENV: test
 
-      # TODO(EVT-036, sprint 06): remove continue-on-error. This is the job that
-      # proves cross-tenant isolation; it must become blocking.
+      # Blocking since EVT-018. It was advisory while `tenant-isolation.spec.ts`
+      # held two `it.todo`, which is a step that cannot fail and therefore
+      # verifies nothing. It now carries the four checks ADR-0003 §4 asks for —
+      # including that `PrismaModule` does not export the unguarded client —
+      # and every one of them is a rule someone could break by accident.
       - name: Architecture tests
-        run: npm test -- --ci --testPathPattern=__architecture__
-        continue-on-error: true
+        run: npm test -- --ci --testPathPatterns=__architecture__
 
       - name: Build
         run: npm run build
@@ -157,11 +159,29 @@ jobs:
             echo "::notice::No prisma/schema.prisma yet — migration checks skipped (EVT-014)."
           fi
 
+      # The generated client is git-ignored, and since EVT-017 the integration
+      # suite uses it: seed.integration-spec.ts drives the real seed functions
+      # rather than re-implementing them in raw SQL, which is the only way the
+      # reconciliation logic is actually under test. The other specs talk to
+      # `pg` directly, so this job got away without generating until now.
+      - name: Generate Prisma client
+        if: steps.schema.outputs.present == 'true'
+        run: npm run prisma:generate
+
       - name: Apply migrations on a clean database
         if: steps.schema.outputs.present == 'true'
         run: npm run prisma:migrate:deploy
         env:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+
+      # `migrate diff --from-migrations` replays every migration into a shadow
+      # database, so one has to exist first: Prisma creates a shadow database
+      # itself only for `migrate dev`, not when the URL is supplied.
+      - name: Create the shadow database
+        if: steps.schema.outputs.present == 'true'
+        run: |
+          PGPASSWORD=eventini_ci createdb -h localhost -U eventini eventini_shadow || \
+            echo "shadow database already present"
 
       # Fails when schema.prisma and prisma/migrations/ have drifted, i.e. when
       # someone edited the schema without generating the migration.
@@ -172,11 +192,29 @@ jobs:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
           SHADOW_DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_shadow?schema=public
 
+      # Before the integration suite, so the first run seeds a genuinely empty
+      # database and the log shows the real creation counts. The suite seeds in
+      # its own `beforeAll` — it has to, since a seed's job is to converge
+      # rather than to demand a blank slate — so running it first would leave
+      # this step with nothing to create and quietly weaken it.
+      #
+      # The second run carries `--assert-no-op`, which exits non-zero if the
+      # seed wrote anything. Without it the step only proved that the script
+      # does not crash twice: running a command and reading neither result is
+      # not a test of idempotency.
       - name: Seed is idempotent
         if: steps.schema.outputs.present == 'true'
         run: |
           npm run db:seed
-          npm run db:seed
+          npm run db:seed -- --assert-no-op
+        env:
+          DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
+
+      # Constraint tests against the real database: a CHECK, a partial unique
+      # index and a trigger can only be verified by asking PostgreSQL.
+      - name: Schema constraint tests
+        if: steps.schema.outputs.present == 'true'
+        run: npm run test:integration
         env:
           DATABASE_URL: postgresql://eventini:eventini_ci@localhost:5432/eventini_test?schema=public
 
@@ -202,20 +240,20 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # TODO(EVT-003, sprint 01): remove continue-on-error. Currently 7 files
-      # import ../types, a barrel that does not exist.
+      # Blocking since EVT-003: the ../types barrel exists, the lib/features
+      # cycle is gone and the api-client typing is fixed. 0 errors.
       - name: Typecheck
-        run: npx tsc --noEmit
-        continue-on-error: true
+        run: npm run typecheck
 
-      # TODO(EVT-005, sprint 01): remove --if-present once vitest is configured.
+      # Blocking since EVT-005: vitest is configured and --if-present is no
+      # longer a fig leaf for a missing script.
       - name: Unit tests
-        run: npm run test --if-present
+        run: npm test
 
-      # TODO(EVT-003, sprint 01): remove continue-on-error.
+      # Blocking since EVT-003. The build used to fail outright — first on the
+      # missing barrel, then on next-intl prerendering without a locale.
       - name: Build
         run: npm run build
-        continue-on-error: true
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:3001/api/v1
           NEXT_PUBLIC_APP_URL: http://localhost:3000

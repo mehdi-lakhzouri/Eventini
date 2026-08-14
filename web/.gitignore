@@ -32,6 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# The template must be committed: it is the only record of which variables a
+# fresh clone needs. The create-next-app default `.env*` swallowed it, so
+# web/.env.example could never have been added — the same class of gap that
+# left docker/.env.example empty and unusable.
+!.env.example
 
 # vercel
 .vercel

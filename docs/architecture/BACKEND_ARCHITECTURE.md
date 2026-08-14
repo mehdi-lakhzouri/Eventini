@@ -19,7 +19,7 @@
 | `main.ts` | 8 lignes, aucun middleware |
 | `src/config/*` | 7 × `export const xConfig = {};` |
 | `src/common/*` | 9 répertoires, chacun un `index.ts` = `export {};` |
-| `src/shared/*` | 6 répertoires, **uniquement des `.gitkeep`** |
+| ~~`src/shared/*`~~ | ~~6 répertoires, uniquement des `.gitkeep`~~ — ✅ **supprimé par EVT-004** |
 | `src/infrastructure/logging/*` | **13 fichiers de 0 octet** |
 | Modules métier hors identity | 14 répertoires, chacun un `index.ts` d'1 octet |
 
@@ -104,7 +104,7 @@ backend/
 └── test/                                e2e
 ```
 
-**À supprimer au sprint 01** : le squelette DDD parallèle non documenté (`src/application/`, `src/domain/`, `src/presentation/`) qui duplique la découpe par module, et `src/shared/` qui ne contient que des `.gitkeep`. Deux taxonomies concurrentes garantissent que le code finira réparti au hasard entre les deux.
+> ✅ **Résolu par EVT-004** (30 juillet 2026) : le squelette DDD parallèle non documenté (`src/application/`, `src/domain/`, `src/presentation/` — 0 fichier chacun, jamais suivis par git) et `src/shared/` (6 `.gitkeep`) ont été supprimés. Deux taxonomies concurrentes garantissaient que le code finirait réparti au hasard entre les deux.
 
 ---
 

@@ -49,7 +49,7 @@ Commit   chore(infra): remove nested web git repository and create initial commi
 PR       [EVT-001] chore(infra): repository hygiene
 ```
 
-> ✅ **Fait le 30 juillet 2026** — `web/.git` supprimé, commit initial sur `master`, `develop` créée, les deux poussées. Reste : appliquer les règles de protection de branche dans les paramètres GitHub.
+> ✅ **Fait le 30 juillet 2026** — `web/.git` supprimé, commit initial sur `master`, `develop` créée, les deux poussées, **protection de branche appliquée et vérifiée** (11 checks requis, push direct rejeté). Voir [`GIT_STRATEGY.md` §7](../../operations/GIT_STRATEGY.md).
 
 **Scope** — supprimer `web/.git` ; commit initial sur `master` ; créer `develop` ; protéger les deux branches selon [`GIT_STRATEGY.md` §7](../../operations/GIT_STRATEGY.md).
 
@@ -156,6 +156,8 @@ Conséquence : le premier `useQuery` monté lève **« No QueryClient set »**. 
 ## EVT-004 — Nettoyer les structures mortes
 <a id="evt-004"></a>
 
+> ✅ **Fait le 30 juillet 2026.**
+
 ```
 Branche  chore/EVT-004-remove-dead-structures
 Commit   chore(repo): remove duplicated and dead directory structures
@@ -163,19 +165,21 @@ Commit   chore(repo): remove duplicated and dead directory structures
 
 **Scope**
 
-| À supprimer | Pourquoi |
-|---|---|
-| `web/src/shared/` | 7 répertoires de `.gitkeep` doublant conceptuellement `src/lib` + `src/features` |
-| `backend/src/application/`, `src/domain/`, `src/presentation/` | squelette DDD parallèle non documenté, doublant la découpe par module |
-| `backend/src/shared/` | 6 répertoires ne contenant que des `.gitkeep` |
-| `web/tsconfig.sidebar-test.tsbuildinfo` | 119 Ko orphelins — aucun `tsconfig.sidebar-test.json` n'existe |
-| `backend/dist/` | build committé en arborescence |
+| Supprimé | Pourquoi | Résultat |
+|---|---|---|
+| `web/src/shared/` | 7 répertoires de `.gitkeep` doublant conceptuellement `src/lib` + `src/features` | 7 fichiers retirés |
+| `backend/src/application/`, `src/domain/`, `src/presentation/` | squelette DDD parallèle non documenté, doublant la découpe par module | **jamais suivis par git** — 0 fichier dans chacun, confirmé avant suppression ; retirés du disque quand même |
+| `backend/src/shared/` | 6 répertoires ne contenant que des `.gitkeep` | 6 fichiers retirés |
+| `web/tsconfig.sidebar-test.tsbuildinfo` | 119 Ko orphelins — aucun `tsconfig.sidebar-test.json` n'existe | supprimé (déjà gitignoré, donc invisible en diff) |
+| `backend/dist/` | build committé en arborescence | **vérifié non suivi par git** (0 fichier, déjà gitignoré) — aucune action nécessaire, la mention initiale était inexacte |
 
-**Décision requise** — `(public)` et `(scanner)` ne produisent **aucune route** (ni `layout.tsx` ni `page.tsx`), mais contiennent `error.tsx`, `loading.tsx` et 8 `.gitkeep`. Soit on crée leurs pages, soit on supprime les groupes. Laisser un groupe de routes fantôme induit en erreur.
+**Décision prise** — `(public)` et `(scanner)` ne produisaient **aucune route** (ni `layout.tsx` ni `page.tsx`), seulement `error.tsx`, `loading.tsx` et 8 `.gitkeep`. **Supprimés plutôt que stubbés** : fabriquer des pages maintenant aurait anticipé du contenu non scopé (`(scanner)` n'a de sens qu'au sprint 12, `(public)` n'est même pas planifié). Aucune référence externe (`grep` sur `web/src`) ne pointait vers ces groupes. Ils seront recréés avec du contenu réel quand leur sprint arrive.
 
-**Pourquoi** — deux taxonomies concurrentes garantissent que le code finira réparti au hasard entre les deux, et qu'aucune ne sera complète.
+**Pourquoi** — deux taxonomies concurrentes garantissent que le code finira réparti au hasard entre les deux, et qu'aucune ne sera complète. Un groupe de routes fantôme induit en erreur de la même façon.
 
-**Checks** — `lint` `typecheck` `build`
+**Documentation mise à jour dans le même changement** — `FRONTEND_ARCHITECTURE.md` (F-8, F-10, F-12 marqués résolus), `BACKEND_ARCHITECTURE.md` (`src/shared/*` et le squelette DDD marqués résolus), `SYSTEM_ARCHITECTURE.md` (§3.3 et §3.5 — **B-1 est également marqué résolu ici**, ayant été traité par EVT-001 avant ce ticket), `IDEMPOTENCY_AND_CONCURRENCY.md` (référence à `shared/idempotency/.gitkeep` mise à jour). C'était un rattrapage : EVT-003 avait corrigé F-1/F-2 sans mettre à jour ces tableaux, contrairement à la règle de `PROJECT_DOCUMENTATION_INDEX.md` §8.
+
+**Checks** — `lint` `typecheck` `build` `test` sur les deux projets, plus `arch` (le test `modularity.spec.ts` gère déjà un `src/shared` absent via `existsSync`, aucune modification requise)
 
 ---
 
@@ -256,40 +260,87 @@ docker compose ps          # les 3 conteneurs doivent devenir "healthy"
 ## EVT-074 — Remédiation des vulnérabilités de dépendances
 <a id="evt-074"></a>
 
+> ✅ **Fait le 30 juillet 2026.** Toutes les advisories atteignables depuis une dépendance **de production** sont corrigées et **vérifiées fonctionnellement**, pas seulement installées. Ce qui reste est confiné à de l'outillage de développement sans correctif disponible, documenté précisément plutôt que masqué.
+
 ```
 Branche  chore/EVT-074-dependency-remediation
-Commit   chore(deps): resolve high-severity production advisories
+Commit   chore(deps): resolve production advisories with scoped overrides
 ```
 
-**Découvert le 30 juillet 2026** par le premier passage de CI. Documenté comme risque accepté **RA-10** dans [`THREAT_MODEL.md` §5](../../security/THREAT_MODEL.md).
+**Découvert le 30 juillet 2026** par le premier passage de CI. Documenté initialement comme risque accepté **RA-10** dans [`THREAT_MODEL.md` §5](../../security/THREAT_MODEL.md) ; RA-10 est désormais scindé en trois entrées précises (RA-10/11/12) reflétant ce qui est réellement corrigé contre ce qui ne l'est pas et pourquoi.
 
-### Les advisories
+### Ce qui a été corrigé
 
-| Chaîne | Advisory |
-|---|---|
-| `exceljs → archiver → archiver-utils → glob → minimatch → brace-expansion` | DoS par expansion non bornée (`GHSA-mh99-v99m-4gvg`) |
-| `@nestjs/swagger → js-yaml` | temps de parsing exponentiel sur les collections flow |
-| `rimraf → glob`, `zip-stream → archiver-utils`, `readdir-glob → minimatch` | même racine |
+| Chaîne | Advisory | Chemin | Mécanisme |
+|---|---|---|---|
+| `@nestjs/swagger → js-yaml@5.2.1` | DoS parsing exponentiel (`GHSA-pm4m-ph32-ghv5`) | **production** — génération OpenAPI | `overrides.js-yaml = "5.2.2"` |
+| `exceljs → archiver → readdir-glob → minimatch → brace-expansion@2.1.2` | DoS expansion non bornée (`GHSA-mh99-v99m-4gvg`) | **production** — imports/exports participants (sprint 10) | override **scopé** au chemin exact `exceljs.archiver.readdir-glob.minimatch.brace-expansion` |
+| `exceljs → uuid@8.3.2` | dépassement de tampon v3/v5/v6 (`GHSA-w5hq-g745-h8pq`, modérée) | **production** | override scopé `exceljs.uuid = "11.1.1"` |
+| `next → postcss@8.4.31` (web) | XSS + lecture de fichier arbitraire (`GHSA-qx2v-qp2m-jg93`, `GHSA-6g55-p6wh-862q`, `GHSA-r28c-9q8g-f849`) | **production** — pipeline CSS du build | `overrides.postcss = "8.5.25"` — même version déjà utilisée avec succès ailleurs dans l'arbre |
 
-### 🔴 Ce ne sont PAS des dépendances de développement
+### 🔴 Pourquoi un override global a d'abord cassé ESLint
 
-Le réflexe naturel — passer l'audit CI en `--omit=dev` — aurait été **factuellement faux**. `exceljs` sert aux imports et exports de participants (sprint 10) et `@nestjs/swagger` à la documentation d'API : les deux sont des dépendances d'exécution.
+La première tentative forçait `brace-expansion` à `^5.0.9` **globalement**. `npm run lint` a immédiatement échoué : `minimatch@3.1.5`, embarqué par `@eslint/eslintrc`, déclare `brace-expansion@^1.1.7` et son code interne ne comprend pas la forme du module à partir de la version 2. C'est ESLint qui a détecté l'incompatibilité, pas une supposition a priori.
 
-`npm audit fix` sans `--force` ne résout rien. Seul `--force` le fait, au prix d'une montée de version cassante d'ESLint.
+La correction a été un override **scopé au chemin exact** (`exceljs.archiver.readdir-glob.minimatch.brace-expansion`) plutôt que global — la seule installation de `brace-expansion` réellement atteinte depuis une dépendance de production passe par ce chemin unique.
 
-**Gate CI en attendant** — `critical` bloque (aucun aujourd'hui), `high` est remonté en avertissement et suivi par ce ticket.
+### Chaque correctif a été exercé, pas seulement installé
 
-### Scope
+```js
+// backend : construit un classeur, ajoute une mise en forme conditionnelle
+// (le seul point d'appel réel de uuid.v4() dans exceljs), l'écrit, le relit
+const workbook = new ExcelJS.Workbook();
+sheet.addConditionalFormatting({ /* ... */ });
+const buffer = await workbook.xlsx.writeBuffer();
+await readBack.xlsx.load(buffer);   // round-trip OK
+```
 
-- monter `exceljs` vers une version dont l'arbre `archiver` est assaini, ou remplacer par une alternative maintenue ;
-- monter `@nestjs/swagger` vers une version dépendant d'un `js-yaml` corrigé ;
-- vérifier qu'aucune régression n'apparaît sur l'import/export et sur la génération OpenAPI ;
-- **retirer le `continue-on-error`** de l'étape « Audit — high » dans `security.yml` ;
-- activer Dependabot ou Renovate pour que ce cas ne se reproduise pas silencieusement.
+```
+# web : le build Next.js exerce réellement le pipeline postcss patché
+$ npm run build
+✓ Compiled successfully
+233 647 bytes de CSS Tailwind réel généré
+```
 
-**Atténuation d'ici là** — Swagger désactivé en production (`SWAGGER_ENABLED=false`), imports bornés à 10 Mo et 50 000 lignes, rate limit de 5 imports par heure et par organisation.
+### Ce qui reste, et pourquoi c'est correctement documenté plutôt que corrigé
 
-**Vérification** — `npm audit --audit-level=high` retourne 0 sur les deux projets, sans `--omit=dev`.
+| Advisory | Portée | Pourquoi non corrigé | Détail |
+|---|---|---|---|
+| `brace-expansion` dans `minimatch@3.1.5` (ESLint) et `minimatch@9.0.9` (Jest) | **dev uniquement** | Aucune version corrigée n'existe sur ces lignes majeures — le correctif était une réécriture, jamais rétroporté. Bumper ESLint/Jest est une rupture hors périmètre | RA-10 |
+| `sharp` (web, via `next`) | **production, mais optionnelle** | `next` déclare `^0.34.5` — en caret sur une version `0.x`, ceci **exclut structurellement** le correctif `0.35.x`. Bindings natifs (libvips), non certifié par Next.js | RA-11 |
+| `@hono/node-server` (web, via `shadcn`) | **dev uniquement** | Atteint uniquement par la sous-commande MCP optionnelle du CLI `shadcn`, jamais invoquée | RA-12 |
+
+### Un artefact de `npm audit` à connaître
+
+Après correction, `npm audit --audit-level=high` **continue de citer** `archiver`, `glob`, `minimatch`, `exceljs`, `readdir-glob`, `rimraf`, `zip-stream` comme « high ». Ce n'est pas un signe d'échec : `npm audit` établit son rapport à partir de la **plage déclarée** dans le `package.json` de chaque paquet intermédiaire, pas de la version réellement résolue par `overrides`. Vérifié par inspection directe du disque :
+
+```bash
+$ find node_modules -name brace-expansion
+  5.0.9   node_modules/brace-expansion                                    # patché, hoisté
+  1.1.18  node_modules/minimatch/node_modules/brace-expansion             # ESLint, dev, sans correctif possible
+  2.1.4   node_modules/@jest/reporters/node_modules/brace-expansion       # Jest, dev, idem ×3
+```
+
+Une seule copie non patchée par chemin de production, et elle n'existe pas — le résultat visible de `npm audit` seul aurait été trompeur dans les deux sens sans cette vérification.
+
+### Gate CI — remplacé, pas assoupli
+
+L'étape « high, tracked, not blocking » avec `continue-on-error` est remplacée par une **liste blanche d'identifiants GHSA exacts**, testée localement pour prouver qu'elle bloque bien une advisory non listée (pas seulement qu'elle laisse passer les connues) :
+
+```
+backend  GHSA-mh99-v99m-4gvg
+web      GHSA-mh99-v99m-4gvg GHSA-f88m-g3jw-g9cj GHSA-frvp-7c67-39w9
+```
+
+Toute advisory `high`/`critical` en dehors de cette liste **fait échouer le build**.
+
+### Vérification
+
+- `npm audit --audit-level=critical` → `0` sur les deux projets (inchangé, déjà vrai avant ce ticket) ;
+- allowlist Python testée en local : `0` advisory inattendue sur les deux projets **et** détection positive prouvée sur une advisory simulée hors liste ;
+- `exceljs` : test fonctionnel réel (écriture + relecture + mise en forme conditionnelle) ;
+- web : build réel, 233 Ko de CSS généré, 13 routes (inchangé) ;
+- lint, typecheck, build, test : verts sur les deux projets.
 
 ---
 
@@ -300,4 +351,4 @@ Le réflexe naturel — passer l'audit CI en `--omit=dev` — aurait été **fac
 | `rm -rf web/.git` exécuté sans vérifier son contenu | EVT-001 étape 1 : inspecter `git log` avant |
 | `docker/.env` committé avec de vrais mots de passe | `secret-scan` bloquant + job « no `.env` tracked » |
 | La strictness TypeScript révèle beaucoup d'erreurs d'un coup | Le code réel est quasi inexistant : 3 fichiers avec de la logique. C'est précisément pourquoi on le fait **maintenant** |
-| `(public)` / `(scanner)` laissés en l'état « pour plus tard » | Décision explicite exigée par EVT-004 |
+| ~~`(public)` / `(scanner)` laissés en l'état « pour plus tard »~~ | ✅ Résolu — supprimés par EVT-004, recréés à leur sprint réel |

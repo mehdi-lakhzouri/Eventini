@@ -712,11 +712,14 @@ SESSION_REVOKED
 REFRESH_TOKEN_REUSE_DETECTED
 CSRF_VALIDATION_FAILED
 TENANT_ACCESS_DENIED
+UNSCOPED_QUERY_EXECUTED
 ROLE_CHANGED
 ORGANIZATION_SUSPENDED
 SLOW_DATABASE_QUERY
 SLOW_HTTP_REQUEST
 ```
+
+> ➕ **`UNSCOPED_QUERY_EXECUTED` ajouté par [EVT-018](../sprints/sprint-03/README.md#evt-018).** [ADR-0003](../adr/0003-tenant-isolation-strategy.md) §3 et [`BACKEND_ARCHITECTURE.md` §6](../architecture/BACKEND_ARCHITECTURE.md) exigent tous deux que l'échappatoire `prisma.$unscoped` soit journalisée en `warn` avec **exactement** ce code, et que toute occurrence en production déclenche une alerte. Il était absent de cette liste : un code que l'architecture impose et que le catalogue ne contient pas ne peut pas être alerté, ce qui est la seule raison d'être de l'échappatoire journalisée. Il existait déjà comme `SecurityEventType` — les deux espaces de noms sont distincts (§10, ADR-0008), donc il devait être déclaré dans les deux.
 
 Créer un catalogue central :
 

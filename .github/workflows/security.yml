@@ -42,8 +42,13 @@ jobs:
       # left in place at deploy time. Cross-checked by env validation rule 9.
       - name: No obvious placeholder secrets in source
         run: |
-          PATTERNS='(CHANGE_?ME|REPLACE_?ME|your[-_]secret|s3cr3t|password123|admin123)'
-          HITS=$(grep -rniE "$PATTERNS" backend/src web/src 2>/dev/null || true)
+          # The trailing (?![A-Za-z]) matters: without it, `REPLACE_?ME` under
+          # -i matches the ordinary English word "replacement", and the job
+          # fails on a code comment. A placeholder is always followed by a
+          # non-letter (=, ", whitespace, _) so the guard costs no detection —
+          # REPLACE_ME_SECRET still matches, "replacement" no longer does.
+          PATTERNS='(CHANGE_?ME|REPLACE_?ME|your[-_]secret|s3cr3t|password123|admin123)(?![A-Za-z])'
+          HITS=$(grep -rniP "$PATTERNS" backend/src web/src 2>/dev/null || true)
           if [ -n "$HITS" ]; then
             echo "::error::placeholder secret found in source:"
             echo "$HITS"
@@ -68,27 +73,82 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.project }}/package-lock.json
 
-      # Critical blocks immediately. High is surfaced and tracked, not silenced:
-      # the current high findings are real PRODUCTION dependencies
-      # (exceljs -> archiver -> glob -> minimatch -> brace-expansion, and
-      # @nestjs/swagger -> js-yaml). `npm audit fix` cannot resolve them without
-      # a breaking upgrade, so they are owned by ticket EVT-074 rather than
-      # papered over with --omit=dev, which would have been false: these are not
-      # dev-only. See docs/security/THREAT_MODEL.md section 5, RA-9.
+      # Critical always blocks. There are none today.
       - name: Audit — critical (blocking)
         working-directory: ${{ matrix.project }}
         run: npm audit --audit-level=critical
 
-      # TODO(EVT-074, sprint 01): remove continue-on-error once the transitive
-      # brace-expansion and js-yaml advisories are resolved upstream or pinned.
-      - name: Audit — high (tracked, not blocking)
+      # EVT-074 resolved every high/critical advisory reachable from a
+      # PRODUCTION dependency (js-yaml via @nestjs/swagger, uuid and
+      # brace-expansion via exceljs -> archiver -> readdir-glob; postcss via
+      # Next's own build pipeline on web) using npm `overrides` scoped to the
+      # exact vulnerable path, each verified by actually exercising the code
+      # (an exceljs workbook written with conditional formatting -- the one
+      # real call site of uuid.v4() -- round-tripped; the Next build emitted
+      # 233 KB of real Tailwind CSS through the patched postcss).
+      #
+      # What remains is an allowlist of GHSA IDs confined to dev tooling with
+      # no compatible fix available (ESLint's and Jest's own bundled
+      # minimatch@3.x / 9.x pull an old brace-expansion with no patched
+      # release on that line -- the fix was a breaking rewrite, not a
+      # backport) plus, on web, Next's optional `sharp` (a caret range on a
+      # 0.x version structurally excludes the patched minor; native bindings
+      # make forcing it too risky to do blind) and `@hono/node-server`
+      # (reachable only through the shadcn CLI's optional MCP sub-command,
+      # never invoked by anything in this repository).
+      #
+      # `npm audit` keeps reporting archiver/glob/minimatch/exceljs by name
+      # even though they are fixed: a known limitation where it matches a
+      # dependency's DECLARED range rather than what `overrides` actually
+      # installed. Verified instead by direct inspection --
+      # `find node_modules -name brace-expansion` -- confirming exactly one
+      # unpatched physical copy per project, both accounted for below.
+      #
+      # A new advisory outside this allowlist fails the build. See
+      # docs/security/THREAT_MODEL.md section 5, RA-10/RA-11/RA-12.
+      - name: Audit — high (allowlisted exceptions only)
         working-directory: ${{ matrix.project }}
-        continue-on-error: true
         run: |
-          npm audit --audit-level=high || {
-            echo "::warning::High-severity advisories present. Owned by EVT-074."
+          if [ "${{ matrix.project }}" = "web" ]; then
+            ALLOWED="GHSA-mh99-v99m-4gvg GHSA-f88m-g3jw-g9cj GHSA-frvp-7c67-39w9"
+          else
+            ALLOWED="GHSA-mh99-v99m-4gvg"
+          fi
+
+          npm audit --audit-level=high --json > audit-report.json || true
+
+          UNEXPECTED=$(python3 - "$ALLOWED" <<'PY'
+          import json, sys
+
+          allowed = set(sys.argv[1].split())
+          report = json.load(open("audit-report.json", encoding="utf-8"))
+          unexpected = []
+
+          for name, entry in report.get("vulnerabilities", {}).items():
+              if entry.get("severity") not in ("high", "critical"):
+                  continue
+              for via in entry.get("via", []):
+                  if not isinstance(via, dict):
+                      continue
+                  ghsa = (via.get("url") or "").rsplit("/", 1)[-1]
+                  if ghsa and ghsa not in allowed:
+                      unexpected.append(f"{name}: {via.get('title')} ({ghsa})")
+
+          for line in sorted(set(unexpected)):
+              print(line)
+          PY
+          )
+
+          rm -f audit-report.json
+
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::New high/critical advisory outside the allowlist:"
+            echo "$UNEXPECTED"
+            echo "::error::Add it to THREAT_MODEL.md section 5 with a real justification, or fix it."
             exit 1
-          }
+          fi
+
+          echo "no advisory outside the documented allowlist"
 
       - name: Lockfile is committed and in sync
         working-directory: ${{ matrix.project }}
@@ -168,6 +228,29 @@ jobs:
           else
             echo "no raw SQL"
           fi
+
+      # EVT-017: a seed must never write a password, including in development.
+      # A seeded password is committed, identical across environments, and
+      # created before anyone is watching — it reaches production every time.
+      # Blocking, not a warning: this is the one rule the whole bootstrap
+      # procedure is built around.
+      - name: No credential written by a seed
+        run: |
+          # Comment lines are stripped first. Without that the check matches
+          # the doc comment in 04-bootstrap-super-admin.seed.ts that explains
+          # why no credential is written — a scanner that fires on its own
+          # rationale trains people to disable it.
+          HITS=$(grep -rn --include='*.ts' -vE '^\s*(\*|//|/\*)' \
+                   backend/prisma/seed 2>/dev/null \
+                 | grep -iE \
+                   'passwordHash|password_hash|argon2|bcrypt|user_credentials|userCredential' \
+                 || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::a seed must never write a credential (EVT-017):"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "no credential written by any seed"
 
       # ADR-0006: organizationId is the only permitted term for the tenant.
       # TODO(sprint 02): make this blocking once the codebase adopts the term.

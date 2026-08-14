@@ -62,6 +62,72 @@ services:
     networks:
       - eventini
 
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: eventini-backend:local
+    container_name: eventini-backend
+    restart: unless-stopped
+    # Secrets and the ~130 validated variables come from the developer's own
+    # backend/.env — the same file `npm run start:dev` uses, so there is one
+    # place to keep in sync rather than two.
+    env_file:
+      - ../backend/.env
+    environment:
+      # `environment` wins over `env_file`, which is the point: backend/.env
+      # points at localhost and the published ports, both wrong from inside
+      # the network. Here the service names resolve over Docker DNS and the
+      # ports are the containers' own, not the host mappings.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      # The image defaults to production, which is right for a deployment and
+      # wrong here: production refuses to start without `COOKIE_SECURE=true`
+      # and https-only origins (environment rules 2 and 5), and this stack is
+      # plain http on localhost. Overriding to development is the honest
+      # local setting rather than weakening those rules.
+      NODE_ENV: development
+      PORT: 3001
+      LOG_FORMAT: json
+      LOG_PRETTY: "false"
+      CORS_ALLOWED_ORIGINS: http://localhost:${WEB_PORT}
+    ports:
+      - "${API_PORT}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - eventini
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Baked in at build time: Next.js inlines NEXT_PUBLIC_* into the
+        # client bundle, so this cannot be changed by restarting the
+        # container. The browser talks to the published host port, not the
+        # Docker-internal one, because the request originates outside the
+        # network.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${API_PORT}/api/v1
+    image: eventini-web:local
+    container_name: eventini-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "${WEB_PORT}:3000"
+    # `service_started`, not `service_healthy`: the frontend renders without
+    # the API, and gating on it would leave the web container down for the
+    # whole time the API takes to validate its environment and connect.
+    depends_on:
+      - backend
+    networks:
+      - eventini
+
 networks:
   eventini:
     name: Eventini

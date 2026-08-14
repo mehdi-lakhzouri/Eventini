@@ -19,20 +19,22 @@
 
 ### 1.2 Les défauts bloquants
 
-| # | Défaut | Conséquence |
-|---|---|---|
-| **F-1** | **7 fichiers importent `../types`, un barrel qui n'existe pas.** `features/authentication/types/` contient `authentication.types.ts`, `permission.types.ts`, `session.types.ts` — mais **pas d'`index.ts`** | TS2307. Fichiers touchés : `authentication.api.ts`, `mfa.api.ts`, `password.api.ts`, `sessions.api.ts`, `auth-guard.tsx`, `use-permissions.ts`, `authentication.utils.ts` |
-| **F-2** | **`AppProviders` n'est monté nulle part.** Il compose correctement `InternationalizationProvider > ThemeProvider > QueryProvider`, et le layout racine ne l'importe pas | Tout `useQuery` lèvera « No QueryClient set » dès qu'une page d'authentification montera un hook |
-| **F-3** | **`AuthGuard` déclare `requiredRole` et ne le lit jamais.** Il détructure `{ children }` seulement | `(super-admin)/layout.tsx` passe `requiredRole="SUPER_ADMIN"` — **silencieusement ignoré** |
-| **F-4** | **`middleware.ts` est un pass-through de 8 lignes** — pas de `matcher`, pas de lecture de cookie, pas de redirection | Aucune redirection UX ; s'exécute sur chaque requête pour rien |
-| **F-5** | **Base URL par défaut `http://localhost:3000`** — le même port que le backend, et il n'existe aucun `.env` | Le serveur Next s'appelle lui-même. Chaque appel API donne 404 |
-| **F-6** | **Pas de retry sur 401.** `refreshSession()` et `useRefreshSession()` existent et **rien ne les appelle** | Une session expirée déconnecte l'utilisateur au lieu de se rafraîchir |
-| **F-7** | **Le corps d'erreur n'est jamais lu.** `throw new ApiError(response.statusText, response.status)` | L'enveloppe RFC 9457 du backend est jetée. `ApiError.details` n'est jamais rempli |
-| **F-8** | **`(public)` et `(scanner)` ne produisent aucune route** — ni `layout.tsx` ni `page.tsx` | Deux groupes de routes fantômes |
-| **F-9** | **i18n vide** — `messages={{}}`, pas de `locale`, aucun fichier de traduction, pas de plugin dans `next.config.ts`, zéro `useTranslations` | `next-intl` est une dépendance installée avec un wrapper inutilisé |
-| **F-10** | **Structure dupliquée** — `src/shared/{api,auth,config,hooks,lib,types,ui}` (7 répertoires de `.gitkeep`) double conceptuellement `src/lib` + `src/features` | Deux taxonomies concurrentes |
-| **F-11** | **Code mort** — `routes.ts`, `permissions.ts`, `auth-ui.store.ts`, les 4 schémas Zod, `app-sidebar.tsx` : **importés par rien** | Aucun `useForm`, aucun `zodResolver` n'existe dans le dépôt |
-| **F-12** | `tsconfig.sidebar-test.tsbuildinfo` (119 Ko) orphelin ; vitest et Playwright installés **sans config ni test ni script** | |
+Snapshot du 30 juillet 2026, matin. La colonne **Statut** est mise à jour au fil des tickets ; le reste de la ligne reste le constat d'origine, non réécrit.
+
+| # | Défaut | Conséquence | Statut |
+|---|---|---|---|
+| **F-1** | **7 fichiers importent `../types`, un barrel qui n'existe pas.** `features/authentication/types/` contient `authentication.types.ts`, `permission.types.ts`, `session.types.ts` — mais **pas d'`index.ts`** | TS2307. Fichiers touchés : `authentication.api.ts`, `mfa.api.ts`, `password.api.ts`, `sessions.api.ts`, `auth-guard.tsx`, `use-permissions.ts`, `authentication.utils.ts` | ✅ **EVT-003** |
+| **F-2** | **`AppProviders` n'est monté nulle part.** Il compose correctement `InternationalizationProvider > ThemeProvider > QueryProvider`, et le layout racine ne l'importe pas | Tout `useQuery` lèvera « No QueryClient set » dès qu'une page d'authentification montera un hook | ✅ **EVT-003** |
+| **F-3** | **`AuthGuard` déclare `requiredRole` et ne le lit jamais.** Il détructure `{ children }` seulement | `(super-admin)/layout.tsx` passe `requiredRole="SUPER_ADMIN"` — **silencieusement ignoré** | ⏳ EVT-039 (sprint 07) |
+| **F-4** | **`middleware.ts` est un pass-through de 8 lignes** — pas de `matcher`, pas de lecture de cookie, pas de redirection | Aucune redirection UX ; s'exécute sur chaque requête pour rien | ⏳ EVT-039 (sprint 07) |
+| **F-5** | **Base URL par défaut `http://localhost:3000`** — le même port que le backend, et il n'existe aucun `.env` | Le serveur Next s'appelle lui-même. Chaque appel API donne 404 | ⏳ EVT-008/013 (sprint 02) |
+| **F-6** | **Pas de retry sur 401.** `refreshSession()` et `useRefreshSession()` existent et **rien ne les appelle** | Une session expirée déconnecte l'utilisateur au lieu de se rafraîchir | ⏳ EVT-038 (sprint 07) |
+| **F-7** | **Le corps d'erreur n'est jamais lu.** `throw new ApiError(response.statusText, response.status)` | L'enveloppe RFC 9457 du backend est jetée. `ApiError.details` n'est jamais rempli | ⏳ EVT-037 (sprint 07) — `put`/`patch` déjà ajoutés par EVT-003 |
+| **F-8** | **`(public)` et `(scanner)` ne produisent aucune route** — ni `layout.tsx` ni `page.tsx` | Deux groupes de routes fantômes | ✅ **EVT-004** — supprimés, recréés quand scopés |
+| **F-9** | **i18n vide** — `messages={{}}`, pas de `locale`, aucun fichier de traduction, pas de plugin dans `next.config.ts`, zéro `useTranslations` | `next-intl` est une dépendance installée avec un wrapper inutilisé | ◐ **EVT-003** a ajouté `locale` (défaut requis par next-intl v4) ; catalogues et plugin restent EVT-047 |
+| **F-10** | **Structure dupliquée** — `src/shared/{api,auth,config,hooks,lib,types,ui}` (7 répertoires de `.gitkeep`) double conceptuellement `src/lib` + `src/features` | Deux taxonomies concurrentes | ✅ **EVT-004** |
+| **F-11** | **Code mort** — `routes.ts`, `permissions.ts`, `auth-ui.store.ts`, les 4 schémas Zod, `app-sidebar.tsx` : **importés par rien** | Aucun `useForm`, aucun `zodResolver` n'existe dans le dépôt | ⏳ EVT-040/041 (sprint 07) |
+| **F-12** | `tsconfig.sidebar-test.tsbuildinfo` (119 Ko) orphelin ; vitest et Playwright installés **sans config ni test ni script** | | ✅ **EVT-004** (fichier) / **EVT-005** (tooling) |
 
 `middleware.ts` sans effet et `AuthGuard` sans logique ne sont **pas** des failles : le frontend n'est jamais une frontière de sécurité (AUTH-INV-011). Ce sont des défauts d'ergonomie. Mais il ne faudra jamais compter dessus pour protéger quoi que ce soit.
 
@@ -47,8 +49,8 @@ web/src/
 │   ├── (auth)/                     login, mot de passe, MFA, invitation
 │   ├── (admin)/                     tableau de bord, événements, participants, compte
 │   ├── (super-admin)/              administration plateforme
-│   ├── (scanner)/                  scan web — à créer ou à supprimer
-│   └── (public)/                   pages publiques — à créer ou à supprimer
+│   ├── (scanner)/                  scan web — recréé au sprint 12 (EVT-070)
+│   └── (public)/                   pages publiques — recréé quand scopé
 ├── features/
 │   ├── authentication/             api · components · hooks · schemas · stores · types · utils
 │   ├── organizations/  events/  event-sessions/  participants/
@@ -69,6 +71,9 @@ web/src/
 ```
 
 `src/shared/` est **supprimé** au sprint 01 (F-10). Deux taxonomies garantissent une répartition arbitraire du code.
+
+> ✅ **F-10 résolu par EVT-004** (30 juillet 2026) : `src/shared/` supprimé, 7 répertoires de `.gitkeep`.
+> ✅ **F-8 résolu par EVT-004** : `(public)/` et `(scanner)/` supprimés plutôt que stubbés — aucune route n'existait (ni `layout.tsx` ni `page.tsx`), et fabriquer des pages maintenant aurait anticipé des sprints (12 pour le scanner, non planifié pour le public) sans contenu réel à y mettre. Ils seront recréés avec du contenu véritable quand leur sprint arrive, pas avant.
 
 ---
 
@@ -344,22 +349,22 @@ Le kit Base UI est accessible par construction. Règles à ne pas casser : navig
 
 ## 13. Corrections par sprint
 
-| # | Correction | Sprint |
-|---|---|---:|
-| F-1 | créer `features/authentication/types/index.ts` | 01 |
-| F-2 | monter `AppProviders` dans le layout racine | 01 |
-| F-10 | supprimer `src/shared/` | 01 |
-| F-12 | supprimer le `.tsbuildinfo` orphelin ; configurer vitest et Playwright | 01 |
-| F-8 | créer ou supprimer `(public)` et `(scanner)` | 01 |
-| F-5 | créer `web/.env.example`, port backend distinct (3001) | 02 |
-| F-7 | lire le corps d'erreur, remplir `ApiError` | 07 |
-| F-6 | rotation en vol unique sur 401 | 07 |
-| F-3 | `AuthGuard` applique `requiredRole` et `requiredPermission` | 07 |
-| F-4 | `middleware.ts` avec `matcher` et redirections | 07 |
-| F-11 | brancher schémas Zod, routes, permissions, sidebar | 07 |
-| F-9 | i18n complet | 08 |
+| # | Correction | Sprint | Statut |
+|---|---|---:|---|
+| F-1 | créer `features/authentication/types/index.ts` | 01 | ✅ |
+| F-2 | monter `AppProviders` dans le layout racine | 01 | ✅ |
+| F-10 | supprimer `src/shared/` | 01 | ✅ |
+| F-12 | supprimer le `.tsbuildinfo` orphelin ; configurer vitest et Playwright | 01 | ✅ |
+| F-8 | créer ou supprimer `(public)` et `(scanner)` | 01 | ✅ supprimés |
+| F-5 | créer `web/.env.example`, port backend distinct (3001) | 02 | |
+| F-7 | lire le corps d'erreur, remplir `ApiError` | 07 | |
+| F-6 | rotation en vol unique sur 401 | 07 | |
+| F-3 | `AuthGuard` applique `requiredRole` et `requiredPermission` | 07 | |
+| F-4 | `middleware.ts` avec `matcher` et redirections | 07 | |
+| F-11 | brancher schémas Zod, routes, permissions, sidebar | 07 | |
+| F-9 | i18n complet | 08 | ◐ `locale` posé par EVT-003 |
 
-**F-1, F-2 et F-5 sont bloquants** : sans eux, la première page qui monte un hook plante, et aucun appel API n'aboutit.
+**F-1, F-2 et F-5 étaient bloquants** : sans eux, la première page qui montait un hook plantait, et aucun appel API n'aboutissait. F-1 et F-2 sont résolus ; F-5 reste ouvert jusqu'au sprint 02.
 
 ### Dépendances
 

@@ -186,32 +186,58 @@ Passage à une cadence **mensuelle** — `MINOR` par mois, `PATCH` à la demande
 
 ## 7. Protection des branches
 
-### `master`
+> ✅ **Appliquée le 30 juillet 2026** et vérifiée par un push direct volontairement rejeté :
+> `remote: error: GH006: Protected branch update failed` — « Changes must be made through a pull request », « 11 of 11 required status checks are expected ».
 
-| Règle | |
-|---|---|
-| Push direct | **interdit**, y compris pour les administrateurs |
-| Source de PR autorisée | `release/*` et `hotfix/*` **uniquement** |
-| Revues | 1 approbation minimum + `CODEOWNERS` sur les chemins sensibles |
-| Checks requis | **tous**, aucun `continue-on-error` toléré |
-| Force-push, suppression | interdits |
-| Historique | linéaire non exigé — les merges de release sont explicites |
-| Signature | recommandée, obligatoire à partir de v1.0.0 |
+### État réellement appliqué
 
-### `develop`
+| Réglage | `master` | `develop` |
+|---|---|---|
+| Push direct | 🔒 interdit | 🔒 interdit |
+| Checks requis | **11 sur 11** | **11 sur 11** |
+| Branche à jour avant merge (`strict`) | ✔ | ✔ |
+| `enforce_admins` | **✔ oui** | ✖ non — voir ci-dessous |
+| Approbations requises | **0** — voir ci-dessous | **0** |
+| Revue `CODEOWNERS` | ✖ | ✖ |
+| Force-push | ✖ interdit | ✖ interdit |
+| Suppression de branche | ✖ interdite | ✖ interdite |
+| Résolution des conversations | ✔ exigée | ✔ exigée |
+| Historique linéaire | ✖ non exigé — les merges de release sont explicites | ✖ |
 
-| Règle | |
-|---|---|
-| Push direct | **interdit** |
-| Source de PR autorisée | `feat/*`, `fix/*`, `chore/*`, `docs/*`, `test/*`, `release/*`, `hotfix/*` |
-| Revues | 1 approbation minimum |
-| Checks requis | ceux actifs au sprint courant ([`SPRINT_PLAN.md` §6](../sprints/SPRINT_PLAN.md)) |
-| Branche à jour avant merge | exigé |
-| Force-push, suppression | interdits |
+**Les 11 checks requis** — `Backend` · `Web` · `Migrations` · `Redis Lua scripts` · `Branch hygiene` · `Documentation` · `Secret scan` · `Dependency audit (backend)` · `Dependency audit (web)` · `Forbidden security patterns` · `CodeQL`
+
+### 🔴 Pourquoi 0 approbation requise, et non 1
+
+**GitHub interdit d'approuver sa propre pull request.** Sur un dépôt à un seul contributeur, exiger 1 approbation rend **tout merge définitivement impossible** — y compris pour un administrateur, y compris via l'interface. C'est un blocage total, pas une friction.
+
+Le mécanisme de PR reste **obligatoire** : le passage par une PR et les 11 checks sont imposés. Seule l'approbation humaine est à 0, faute d'un second humain.
+
+**À passer à 1 dès l'arrivée d'un deuxième contributeur**, en activant en même temps la revue `CODEOWNERS` :
+
+```bash
+gh api -X PATCH repos/mehdi-lakhzouri/Eventini/branches/master/protection/required_pull_request_reviews \
+  -F required_approving_review_count=1 -F require_code_owner_reviews=true
+# puis la même commande pour develop
+```
+
+### Pourquoi `enforce_admins` diffère entre les deux branches
+
+| Branche | Choix | Raison |
+|---|---|---|
+| `master` | **`true`** | La production doit être inviolable. Aucune exception, y compris pour l'auteur du dépôt. |
+| `develop` | `false` | Soupape de secours pour un développeur seul. Si un check requis se bloque durablement, l'intégration reste déblocable sans désactiver la protection. Le flux normal reste la PR. |
+
+Ce n'est pas une tolérance permanente : `enforce_admins` passe à `true` sur `develop` dès qu'une équipe existe.
+
+### Ce que la protection GitHub ne sait pas faire
+
+La protection de branche classique **ne peut pas** restreindre les branches sources d'une PR. La règle « seuls `release/*` et `hotfix/*` peuvent viser `master` » est donc appliquée par le job CI **`Branch hygiene`**, qui échoue si une PR vers `master` provient d'autre chose.
+
+Ce même job vérifie qu'aucun dépôt git imbriqué n'est réapparu, que `web/src` reste réellement suivi, et que `master` est bien un ancêtre de `develop` après une release.
 
 ### `release/*` et `hotfix/*`
 
-Protégées pendant leur durée de vie : push direct interdit, checks requis, suppression après merge.
+À protéger à leur création, pendant leur durée de vie : push direct interdit, checks requis, suppression après merge.
 
 ---
 

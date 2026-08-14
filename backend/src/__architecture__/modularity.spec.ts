@@ -77,7 +77,14 @@ describe('backend module boundaries', () => {
         const matches = [...content.matchAll(importPattern)];
 
         return matches.flatMap((match) => {
+          // The pattern has two alternative capture groups; exactly one fills
+          // on any successful match. Skipping when neither did keeps this
+          // honest instead of asserting a non-null the compiler cannot verify.
           const importPath = match[1] ?? match[2];
+          if (importPath === undefined) {
+            return [];
+          }
+
           const resolvedImport = resolveInternalImport(filePath, importPath);
 
           if (resolvedImport === null) {
@@ -119,6 +126,10 @@ describe('backend module boundaries', () => {
 
       return matches.flatMap((match) => {
         const importPath = match[1] ?? match[2];
+        if (importPath === undefined) {
+          return [];
+        }
+
         const resolvedImport = resolveInternalImport(filePath, importPath);
 
         if (resolvedImport !== null && isInside(resolvedImport, modulesRoot)) {
