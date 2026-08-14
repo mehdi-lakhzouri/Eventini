@@ -1,4 +1,22 @@
-export type Role = "SUPER_ADMIN" | "CLIENT_ADMIN" | "SCANNER";
+/**
+ * Les six rôles du catalogue seedé, `prisma/seed/authorization-catalogue.ts`.
+ *
+ * 🔴 Trois manquaient — `EVENT_ADMIN`, `REPORT_VIEWER`, `SESSION_MANAGER`.
+ * Un `AuthGuard` comparant `user.role` à l'un d'eux n'aurait pas compilé, et
+ * une comparaison recevant l'un d'eux depuis l'API l'aurait traité comme un
+ * rôle inconnu — donc refusé.
+ *
+ * `SUPER_ADMIN` est le seul de portée `PLATFORM` ; les cinq autres sont
+ * `ORGANIZATION` ou `EVENT`. La portée n'apparaît pas ici parce que le client
+ * ne la choisit pas : elle suit la session (ADR-0002).
+ */
+export type Role =
+  | "SUPER_ADMIN"
+  | "CLIENT_ADMIN"
+  | "EVENT_ADMIN"
+  | "REPORT_VIEWER"
+  | "SESSION_MANAGER"
+  | "SCANNER";
 
 export type SessionClientType = "WEB" | "MOBILE_SCANNER" | "PLATFORM";
 
