@@ -94,6 +94,14 @@ throw new ApiError({
 ## EVT-038 — Rotation en vol unique sur 401
 <a id="evt-038"></a>
 
+> ✅ **Fait le 14 août 2026.** 90 tests unitaires, dont 11 sur la rotation. Le critère de sortie du sprint — **10 × `401` ⇒ 1 rotation** — est vérifié.
+>
+> **L'exclusion des routes d'authentification est structurelle, pas déclarative.** Le coordinateur émet son propre `fetch` vers la route de rotation au lieu de passer par `apiClient` : il ne repasse donc jamais par le chemin qui rattrape les `401`, et il n'y a aucune liste de chemins à tenir à jour. Une liste s'oublie ; une impossibilité non.
+>
+> **Deux garde-fous que le ticket ne demandait pas**, ajoutés parce que les tests les ont rendus visibles. Un verrou coupe les rotations tant qu'aucune reconnexion n'a eu lieu : sans lui, dix requêtes en vol après un échec produisent dix rotations vouées à échouer et dix événements de sécurité, pendant que la redirection se joue. Et `useRefreshSession` délègue désormais au coordinateur — appeler la route directement rouvrait exactement la faille que ce ticket ferme.
+>
+> Le `QueryClient` reçoit au passage ses options par défaut : `400/401/403/404/409/422` ne sont jamais réessayés, le reste suit le `retryable` de l'enveloppe RFC 9457 qu'EVT-037 fait remonter.
+
 ```
 Branche  feat/EVT-038-single-flight-refresh
 Commit   feat(web): add single-flight token rotation on 401

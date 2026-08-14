@@ -6,6 +6,7 @@ import {
   parseProblemBody,
   type ApiEnvelope,
 } from "./problem-details";
+import { refreshSessionOnce } from "./session-refresh";
 import {
   serializeRequestBody,
   shouldSetJsonContentType,
@@ -75,9 +76,33 @@ async function readBody(response: Response): Promise<unknown> {
 }
 
 /**
+ * Les chemins qui ne doivent jamais déclencher de rotation sur `401`.
+ *
+ * `POST /auth/sessions` est la connexion : un `401` y signifie « identifiants
+ * refusés », et tenter une rotation reviendrait à répondre à un mauvais mot de
+ * passe en rafraîchissant une session qui n'existe pas.
+ *
+ * La route de rotation elle-même est exclue par construction — le coordinateur
+ * émet son propre `fetch` et ne repasse pas ici — mais elle figure dans la
+ * liste pour que quiconque la câblerait un jour via `apiClient` ne réintroduise
+ * pas la récursion.
+ */
+const NO_RETRY_PATHS = ["/auth/sessions", "/auth/sessions/current/rotation"];
+
+function isRetryablePath(path: string, method: string): boolean {
+  // Seul le POST vers /auth/sessions est la connexion. Le GET liste les
+  // sessions et mérite un rattrapage comme n'importe quelle lecture.
+  if (path === "/auth/sessions" && method.toUpperCase() !== "POST") {
+    return true;
+  }
+
+  return !NO_RETRY_PATHS.includes(path);
+}
+
+/**
  * Une requête, et l'enveloppe complète qu'elle rend.
  *
- * Sépare de `request` parce que `meta` porte la pagination par curseur
+ * Séparée de `request` parce que `meta` porte la pagination par curseur
  * (`API_CONVENTIONS.md` §6) et le marqueur de rejeu d'idempotence : une liste
  * paginée a besoin de `meta.pagination.nextCursor`, que dépaqueter `data`
  * jetterait.
@@ -86,6 +111,12 @@ async function requestEnvelope<T>(
   path: string,
   method: string,
   options: ApiRequestOptions = {},
+  /**
+   * Faux dès la seconde tentative. Une requête ne provoque **jamais** deux
+   * rotations : `401 → rotation → 401 → rotation` boucle jusqu'à ce que le
+   * backend traite le client comme un attaquant.
+   */
+  mayRetry = true,
 ): Promise<ApiEnvelope<T>> {
   const response = await fetch(`${environment.apiBaseUrl}${path}`, {
     ...options,
@@ -110,6 +141,27 @@ async function requestEnvelope<T>(
         apiVersion: "v1",
       },
     };
+  }
+
+  /*
+    Le rattrapage sur 401 — EVT-038.
+
+    Placé avant la lecture du corps : la réponse expirée n'a rien à apprendre à
+    l'appelant, seule la seconde tentative compte. Placé après le cas 204, qui
+    ne peut pas être un 401.
+
+    `refreshSessionOnce` déduplique : dix requêtes expirées en même temps
+    produisent une seule rotation. Sans cela, les neuf retardataires
+    présenteraient un refresh token déjà consommé et le backend révoquerait la
+    famille entière pour rejeu — voir `session-refresh.ts`.
+  */
+  if (
+    response.status === 401 &&
+    mayRetry &&
+    isRetryablePath(path, method) &&
+    (await refreshSessionOnce())
+  ) {
+    return requestEnvelope<T>(path, method, options, false);
   }
 
   const body = await readBody(response);
