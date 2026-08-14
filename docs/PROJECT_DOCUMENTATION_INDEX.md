@@ -224,6 +224,7 @@ Le corpus n'avait **aucune** valeur pour ces éléments. Vérifié par `grep`.
 | Seuil de requête lente | 500 ms | [`ENVIRONMENT_VARIABLES.md`](operations/ENVIRONMENT_VARIABLES.md) |
 | **Catalogue de variables d'environnement** | complet, 14 règles de validation croisée | [`ENVIRONMENT_VARIABLES.md`](operations/ENVIRONMENT_VARIABLES.md) |
 | **Modèle de branches, PR, CI** | trunk-based, Conventional Commits, checks | [ADR-0017](adr/0017-delivery-model.md) |
+| **Design system** | palette ajustée AA, `--brand` distinct de `--accent`, mouvement expressif, élévation teintée | [ADR-0019](adr/0019-design-system-foundation.md) · [`DESIGN_SYSTEM.md`](design/DESIGN_SYSTEM.md) |
 
 ### Domaines entiers ajoutés
 

@@ -31,6 +31,7 @@ Chaque ADR fige une décision qui était **ouverte, contradictoire ou absente** 
 | [0016](0016-pre-session-csrf-binding.md) | Liaison CSRF pré-session + rebinding au login | C-16, C-18, C-19 | Accepté |
 | [0017](0017-delivery-model.md) | Sprints de 2 semaines, Conventional Commits, checks requis | trou total | Accepté — modèle de branches supersédé par 0018 |
 | [0018](0018-git-branching-model.md) | Modèle de branches `master` + `develop`, releases aux jalons | — | Accepté |
+| [0019](0019-design-system-foundation.md) | Socle de design system : palette ajustée AA, mouvement expressif, élévation teintée | — | Accepté |
 
 ## Gabarit
 
