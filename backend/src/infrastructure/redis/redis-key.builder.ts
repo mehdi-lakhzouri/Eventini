@@ -40,6 +40,16 @@ export const redisKeys = {
     passwordResetIp: (ip: string | null): string =>
       `rl:pwd_reset_ip:${ipSegment(ip)}`,
 
+    /**
+     * L'acceptation d'invitation, par IP — EVT-043.
+     *
+     * Par IP et non par jeton : limiter par jeton ne freinerait rien, puisque
+     * un attaquant qui force en essaie précisément un nouveau à chaque
+     * tentative. C'est l'origine des tentatives qui est la dimension utile.
+     */
+    invitationAcceptanceIp: (ip: string | null): string =>
+      `rl:invite_accept_ip:${ipSegment(ip)}`,
+
     checkInDevice: (deviceId: string): string =>
       `rl:checkin_device:${idSegment(deviceId)}`,
     importOrganization: (organizationId: string): string =>

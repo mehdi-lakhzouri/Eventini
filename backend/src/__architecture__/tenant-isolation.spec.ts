@@ -220,6 +220,29 @@ describe('repositories take a TenantContext first', () => {
       'prisma-organization.repository.ts',
     ),
     /**
+     * The invitation repository, added by EVT-043.
+     *
+     * Three of its methods precede any tenant context and cannot take one.
+     * `findAssignableRole` reads `roles`, a global reference table with no
+     * `organization_id` at all. `findByTokenHash` and `accept` run *before* a
+     * session exists — accepting an invitation is what someone does when they
+     * have no account yet, so there is no organization to scope on and
+     * demanding one would make the type a lie.
+     *
+     * What keeps those two safe is that the token hash is the **only**
+     * criterion: the caller does not choose which organization they query,
+     * they present a secret that designates one. The remaining methods —
+     * `create`, `listForOrganization`, `revoke` — do take the context, and are
+     * the ones an authenticated administrator reaches.
+     */
+    join('modules', 'organizations', 'domain', 'invitation.repository.ts'),
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-invitation.repository.ts',
+    ),
+    /**
      * The permission repository resolves the context rather than consuming
      * one: it is step 6 of the chain, and steps 4 and 5 have only just decided
      * which membership is in play. Requiring a `TenantContext` here would
@@ -342,6 +365,28 @@ describe('$unscoped stays on its allow-list', () => {
       'organizations',
       'infrastructure',
       'prisma-organization.repository.ts',
+    ),
+    /**
+     * Invitation acceptance happens before any session exists (EVT-043), so
+     * there is no organization to scope on — the guard is right to stop the
+     * query, and this is the explicit, logged exemption rather than a flag
+     * that could outlive the operation.
+     *
+     * Three call sites, each narrow. Two resolve the invitation and the
+     * account behind the invited address, keyed on the token hash and on the
+     * normalized email the invitation itself carries — never on anything the
+     * caller chose. The third wraps the acceptance transaction, which must
+     * write a membership *into* the organization the invitation names, and so
+     * cannot be filtered by a context that does not exist yet.
+     *
+     * A fourth reads `roles`, a global reference table with no
+     * `organization_id`.
+     */
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-invitation.repository.ts',
     ),
   ]);
 

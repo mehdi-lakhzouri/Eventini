@@ -55,3 +55,14 @@ export {
   RequirePermission,
   type PermissionScope,
 } from './authorization/decorators';
+
+/**
+ * Le hacheur de mot de passe — ajouté au sprint 08 (EVT-043).
+ *
+ * L'acceptation d'invitation crée un compte, donc pose un premier mot de
+ * passe. Le paramétrage Argon2id d'ADR-0007 doit être **le même** partout :
+ * réimplémenter un hachage dans le module organisations reviendrait à créer un
+ * second profil de coût, qui divergerait au premier ajustement.
+ */
+export { PasswordHasher } from './passwords/domain/password-hasher';
+export { PasswordsModule } from './passwords';
