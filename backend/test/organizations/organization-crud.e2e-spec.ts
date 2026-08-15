@@ -240,9 +240,7 @@ describeWithDatabase('GET|PATCH /api/v1/organizations/{organizationId}', () => {
         .set('Cookie', jar)
         .expect(200);
 
-      const raw = JSON.stringify(
-        (response.body as ApiEnvelope<unknown>).data,
-      );
+      const raw = JSON.stringify((response.body as ApiEnvelope<unknown>).data);
 
       expect(raw).not.toContain('version');
       expect(raw).not.toContain('createdBy');
@@ -358,9 +356,9 @@ describeWithDatabase('GET|PATCH /api/v1/organizations/{organizationId}', () => {
         .set('Cookie', jar)
         .expect(200);
 
-      expect(
-        (after.body as ApiEnvelope<OrganizationResponse>).data!.name,
-      ).toBe('Premier arrivé');
+      expect((after.body as ApiEnvelope<OrganizationResponse>).data!.name).toBe(
+        'Premier arrivé',
+      );
     });
   });
 

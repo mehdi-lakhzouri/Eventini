@@ -28,7 +28,7 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 | # | Titre | Permission |
 |---|---|---|
 | [EVT-042](#evt-042) | CRUD organisation contrôlé ✅ | `organizations.read` / `.manage` |
-| [EVT-043](#evt-043) | Invitations | `users.invite` |
+| [EVT-043](#evt-043) | Invitations ✅ | `users.invite` |
 | [EVT-044](#evt-044) | Membres et assignation de rôles | `users.read` / `users.manage_roles` |
 | [EVT-045](#evt-045) | Suspension et révocation de membership | `users.manage_roles` |
 | [EVT-046](#evt-046) | UI d'administration d'organisation | — |
@@ -86,6 +86,30 @@ Tables   user_invitations, organization_memberships, users
 | Un `CLIENT_ADMIN` ne peut inviter qu'avec des rôles de portée `ORGANIZATION` | INV-09 |
 
 **Transaction** — création de l'utilisateur, du membership et de l'assignation de rôle dans **une seule** transaction. Un membership sans rôle, ou l'inverse, est un état incohérent.
+
+> ✅ **Fait le 14 août 2026.** 1076 tests unitaires, 232 e2e dont 16 sur ce ticket.
+>
+> ### L'envoi d'email n'est pas dans ce ticket
+>
+> [EVT-073](../sprint-12/README.md#evt-073) possède explicitement « invitation organisation et utilisateur », et [EVT-065](../sprint-11/README.md#evt-065) construit le premier job BullMQ. Les deux paquets sont installés et inutilisés ; les câbler ici aurait doublé le périmètre et anticipé quatre sprints.
+>
+> **Décision produit** — en attendant, le jeton est **rendu une seule fois** dans le 201 de création, comme un jeton d'API. `GET` ne le renvoie jamais.
+>
+> 🔴 **Conséquence assumée** : l'invitant voit le jeton, donc il peut accepter l'invitation à la place de l'invité, depuis n'importe quelle adresse. La possession du jeton cesse de prouver le contrôle de la boîte mail. L'audit d'EVT-044 enregistrera qui a réellement accepté.
+>
+> ### Session honorée à l'acceptation
+>
+> Le jeton suffit — accepter une invitation est ce qu'on fait quand on n'a pas encore de compte. Mais **si une session est ouverte, elle doit être celle de l'adresse invitée**. Sans cela, Ana connectée ouvre le lien destiné à Karim et le membership atterrit sur le compte d'Ana, en paraissant avoir fonctionné.
+>
+> Ne protège pas contre un jeton intercepté utilisé en navigation privée : ce cas exigerait une connexion préalable, écartée pour ne pas imposer un détour à chaque invité.
+>
+> ### Trois décisions d'anti-énumération
+>
+> Un rôle `PLATFORM` demandé à l'invitation tombe dans **la même branche** qu'un rôle inexistant — distinguer énumérerait le catalogue plateforme. `NOT_FOUND`, `EXPIRED` et `ALREADY_USED` se répondent **à l'identique** à l'acceptation. Et le rate limit est **par IP, jamais par jeton** : limiter par jeton ne freine rien, puisqu'un attaquant en essaie un nouveau à chaque tentative.
+>
+> ### L'acceptation n'ouvre pas de session
+>
+> Émettre une session depuis une route publique contournerait la limitation de débit de la connexion et la porte MFA — cela donnerait à un jeton d'invitation le pouvoir d'un mot de passe. L'invité se connecte ensuite normalement.
 
 ---
 

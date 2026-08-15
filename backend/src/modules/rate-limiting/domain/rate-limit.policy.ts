@@ -125,6 +125,22 @@ export function rulesFor(
     });
   }
 
+  /**
+   * `10 / h` par IP sur l'acceptation d'invitation — sprint 08, EVT-043.
+   *
+   * Le jeton fait 32 octets : le forcer est hors de portée, limite ou pas. Ce
+   * que cette règle borne est le coût d'un balayage — chaque tentative est une
+   * lecture indexée plus un HMAC, et rien n'empêcherait sinon d'en lancer des
+   * milliers par seconde depuis une seule origine.
+   */
+  if (isRoute(facts, 'POST', '/auth/invitation-acceptances')) {
+    rules.push({
+      key: redisKeys.rateLimit.invitationAcceptanceIp(facts.ip),
+      limit: 10,
+      windowMs: HOUR,
+    });
+  }
+
   if (isRoute(facts, 'POST', '/auth/password-resets')) {
     rules.push({
       key: redisKeys.rateLimit.passwordResetIp(facts.ip),
