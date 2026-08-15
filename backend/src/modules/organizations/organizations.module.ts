@@ -13,9 +13,12 @@ import { ListOrganizationsUseCase } from './application/list-organizations.use-c
 import { UpdateOrganizationUseCase } from './application/update-organization.use-case';
 import { InvitationsController } from './controllers/invitations.controller';
 import { MembersController } from './controllers/members.controller';
+import { ChangeMembershipStatusUseCase } from './application/change-membership-status.use-case';
 import { ListMembersUseCase } from './application/list-members.use-case';
 import { ReplaceMemberRolesUseCase } from './application/replace-member-roles.use-case';
 import { MemberRepository } from './domain/member.repository';
+import { MembershipLifecycleRepository } from './domain/membership-lifecycle.repository';
+import { PrismaMembershipLifecycleRepository } from './infrastructure/prisma-membership-lifecycle.repository';
 import { PrismaMemberRepository } from './infrastructure/prisma-member.repository';
 import { OrganizationsController } from './controllers/organizations.controller';
 import { AcceptInvitationUseCase } from './application/accept-invitation.use-case';
@@ -61,6 +64,11 @@ import { PrismaOrganizationRepository } from './infrastructure/prisma-organizati
     { provide: MemberRepository, useClass: PrismaMemberRepository },
     ListMembersUseCase,
     ReplaceMemberRolesUseCase,
+    {
+      provide: MembershipLifecycleRepository,
+      useClass: PrismaMembershipLifecycleRepository,
+    },
+    ChangeMembershipStatusUseCase,
   ],
   exports: [OrganizationRepository],
 })
