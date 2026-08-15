@@ -30,7 +30,7 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 | [EVT-042](#evt-042) | CRUD organisation contrôlé ✅ | `organizations.read` / `.manage` |
 | [EVT-043](#evt-043) | Invitations ✅ | `users.invite` |
 | [EVT-044](#evt-044) | Membres et assignation de rôles ✅ | `users.read` / `users.manage_roles` |
-| [EVT-045](#evt-045) | Suspension et révocation de membership | `users.manage_roles` |
+| [EVT-045](#evt-045) | Suspension et révocation de membership ✅ | `users.manage_roles` |
 | [EVT-046](#evt-046) | UI d'administration d'organisation | — |
 | [EVT-047](#evt-047) | i18n complet | — |
 | [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` ✅ | — |
@@ -194,6 +194,24 @@ membership → REVOKED
 **Scénario métier** — un administrateur quitte l'organisation cliente et conserve ses cookies. L'étape 5 de la chaîne d'autorisation échoue immédiatement, sans attendre l'expiration de l'access token.
 
 **Test** — révoquer un membership, puis appeler une route de cette organisation avec le token existant ⇒ `403`.
+
+> ✅ **Fait le 15 août 2026.** 259 tests e2e, dont 14 sur ce ticket.
+>
+> ### 🔴 Le refus est un `401`, pas le `403` annoncé — et c'est plus fort
+>
+> Le ticket suppose que la session survit et que l'étape 5 la refuse. Mais la révocation **coupe aussi les sessions** : l'étape 2 — la validité de la session elle-même — échoue donc **avant** que l'étape 5 ne soit atteinte. La session n'est pas refusée, elle n'existe plus. Un second test le confirme par l'autre bout : le refresh token ne peut plus produire de nouvelle session.
+>
+> ### La suspension ne coupe pas les sessions, délibérément
+>
+> Elle n'en a pas besoin : l'étape 5 lit `membershipStatus` à chaque requête depuis EVT-036, donc un membership suspendu cesse d'autoriser immédiatement sur le jeton existant — vérifié. Couper en plus rendrait la réactivation inutilement brutale, l'intéressé devant se reconnecter alors que rien ne l'exige. Un test vérifie qu'après réactivation, **le même cookie** fonctionne à nouveau.
+>
+> ### Deux règles ajoutées au-delà du ticket
+>
+> **On ne se suspend ni ne se révoque soi-même.** Couper sa propre session en cours d'opération est le moindre problème ; le vrai est qu'une organisation à un seul administrateur se retrouverait sans personne pour la rouvrir — et la réactivation exige justement le droit qu'on vient de se retirer.
+>
+> **Un départ est définitif.** Réactiver un membership `REVOKED` est refusé en `409` : le retour passe par une nouvelle invitation, ce qui laisse une trace de la décision au lieu de faire réapparaître un accès silencieusement.
+>
+> Le statut attendu est dans le `WHERE` de chaque écriture : deux suspensions concurrentes n'en appliquent qu'une, et c'est la base qui arbitre.
 
 ---
 
