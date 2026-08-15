@@ -66,3 +66,28 @@ export {
  */
 export { PasswordHasher } from './passwords/domain/password-hasher';
 export { PasswordsModule } from './passwords';
+
+/**
+ * Le compteur de version des permissions — ajouté au sprint 08 (EVT-044).
+ *
+ * Tout module métier qui change un rôle, un membership ou le statut d'une
+ * organisation doit l'incrémenter **dans la même transaction** : c'est ce qui
+ * rend la révocation immédiate au lieu d'attendre le TTL du cache (ADR-0004).
+ * Le laisser hors de la surface publique obligerait chaque feature à importer
+ * un chemin profond dans `identity/authorization`, que `modularity.spec.ts`
+ * interdit.
+ */
+export { PermissionsVersionStore } from './authorization/domain/permissions-version.store';
+export { AuthorizationModule } from './authorization/authorization.module';
+
+/**
+ * Le lecteur de contexte d'autorisation — ajouté au sprint 08 (EVT-044).
+ *
+ * Le journal d'audit enregistre le rôle de l'acteur **au moment de l'action**,
+ * et le `Caller` ne le porte pas : il s'arrête aux étapes 1 à 3 de la chaîne.
+ * Résoudre ce rôle demande la lecture qu'EVT-039 a déjà construite.
+ */
+export {
+  AuthorizationContextReader,
+  type AuthorizationContext,
+} from './authentication/domain/authorization-context.reader';
