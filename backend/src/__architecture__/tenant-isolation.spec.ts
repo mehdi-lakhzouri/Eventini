@@ -220,6 +220,29 @@ describe('repositories take a TenantContext first', () => {
       'prisma-organization.repository.ts',
     ),
     /**
+     * The audit log repository, added by EVT-076.
+     *
+     * `audit_logs` is a mixed-scope table like `user_sessions`:
+     * `organization_id` is nullable, because a retention purge, a scheduled
+     * job and a `SUPER_ADMIN` acting outside any tenant (ADR-0002) all write
+     * rows that belong to no organization. Demanding a `TenantContext` would
+     * make the type a lie for every one of those.
+     *
+     * Its first parameter is a `TransactionalClient` instead, and that is the
+     * point of the port: EVT-044 and EVT-045 require the audit entry in the
+     * same transaction as the change it describes, because a failure between
+     * the two leaves a change with no trace — the worse of the two outcomes,
+     * since nothing then says it happened. The organization, when there is
+     * one, comes from the `TenantContext` that `AuditRecorder` takes.
+     */
+    join('modules', 'audit', 'domain', 'audit-log.repository.ts'),
+    join(
+      'modules',
+      'audit',
+      'infrastructure',
+      'prisma-audit-log.repository.ts',
+    ),
+    /**
      * The invitation repository, added by EVT-043.
      *
      * Three of its methods precede any tenant context and cannot take one.
