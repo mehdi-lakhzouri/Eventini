@@ -29,7 +29,7 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 |---|---|---|
 | [EVT-042](#evt-042) | CRUD organisation contrôlé ✅ | `organizations.read` / `.manage` |
 | [EVT-043](#evt-043) | Invitations ✅ | `users.invite` |
-| [EVT-044](#evt-044) | Membres et assignation de rôles | `users.read` / `users.manage_roles` |
+| [EVT-044](#evt-044) | Membres et assignation de rôles ✅ | `users.read` / `users.manage_roles` |
 | [EVT-045](#evt-045) | Suspension et révocation de membership | `users.manage_roles` |
 | [EVT-046](#evt-046) | UI d'administration d'organisation | — |
 | [EVT-047](#evt-047) | i18n complet | — |
@@ -146,6 +146,26 @@ L'incrément de `permissionsVersion` **dans la transaction** est ce qui rend la 
 Ces trois vérifications ne dépendent **pas du seul code applicatif** : ce sont les voies les plus directes d'une élévation de privilège.
 
 **Membres listés** — le résultat n'expose que les données nécessaires : pas de hash, pas de secret MFA, pas d'adresse IP de session.
+
+> ✅ **Fait le 15 août 2026.** 1076 tests unitaires, 245 e2e dont 13 sur ce ticket.
+>
+> ### 🔴 Un seul rôle est assignable par cette route
+>
+> Le catalogue seedé ne contient qu'**un** rôle de portée `ORGANIZATION` : `CLIENT_ADMIN`. `EVENT_ADMIN`, `REPORT_VIEWER`, `SCANNER` et `SESSION_MANAGER` sont de portée **`EVENT`** et s'accordent par `event_user_assignments` — une autre table, un autre sprint. `SUPER_ADMIN` est `PLATFORM`.
+>
+> Le ticket parle d'« assignation de rôles » au pluriel ; en pratique, aujourd'hui, cette route accorde ou retire `CLIENT_ADMIN`. Ce n'est pas un défaut de l'implémentation, c'est ce que le modèle prévoit — mais il valait mieux le constater que le découvrir au sprint 09.
+>
+> ### Ce qui a été ajouté au-delà du ticket
+>
+> **On ne modifie pas ses propres rôles.** S'accorder un rôle est une élévation de privilège en une requête, par quelqu'un qui a déjà le droit d'en accorder aux autres ; se retirer le sien est un verrouillage sans recours. Refusé en `403`.
+>
+> **`security_events` n'a aucun écrivain** — la table est vide, et les trois événements de sécurité du dépôt partent en logs Pino. `ROLE_CHANGED` suit le même chemin ; un ticket dédié construira l'écrivain face à l'ensemble de ses émetteurs. La trace qui fait autorité est `audit_logs`, écrite **dans** la transaction.
+>
+> ### L'incrément Redis dans une transaction PostgreSQL
+>
+> Le compteur n'est pas transactionnel avec la base : c'est **l'ordre** qui rend l'échec inoffensif. L'incrément précède le commit, donc un rollback laisse une version avancée pour rien — un cache manqué, une relecture, rien de plus. L'ordre inverse laisserait un changement commité avec un cache périmé, c'est-à-dire un rôle révoqué qui continue d'autoriser jusqu'au TTL.
+>
+> Un test le prouve de bout en bout : sur le **même jeton d'accès**, un rôle accordé devient effectif immédiatement, et sa révocation aussi.
 
 ---
 

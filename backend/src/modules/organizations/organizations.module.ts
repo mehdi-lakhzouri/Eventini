@@ -1,11 +1,22 @@
 import { Module } from '@nestjs/common';
 
-import { AuthenticationModule, CsrfModule, PasswordsModule } from '../identity';
+import {
+  AuthenticationModule,
+  AuthorizationModule,
+  CsrfModule,
+  PasswordsModule,
+} from '../identity';
+import { AuditModule } from '../audit';
 import { ActivateOrganizationUseCase } from './application/activate-organization.use-case';
 import { GetOrganizationUseCase } from './application/get-organization.use-case';
 import { ListOrganizationsUseCase } from './application/list-organizations.use-case';
 import { UpdateOrganizationUseCase } from './application/update-organization.use-case';
 import { InvitationsController } from './controllers/invitations.controller';
+import { MembersController } from './controllers/members.controller';
+import { ListMembersUseCase } from './application/list-members.use-case';
+import { ReplaceMemberRolesUseCase } from './application/replace-member-roles.use-case';
+import { MemberRepository } from './domain/member.repository';
+import { PrismaMemberRepository } from './infrastructure/prisma-member.repository';
 import { OrganizationsController } from './controllers/organizations.controller';
 import { AcceptInvitationUseCase } from './application/accept-invitation.use-case';
 import { InviteMemberUseCase } from './application/invite-member.use-case';
@@ -24,8 +35,18 @@ import { PrismaOrganizationRepository } from './infrastructure/prisma-organizati
  * access it is supposed to decide.
  */
 @Module({
-  imports: [AuthenticationModule, CsrfModule, PasswordsModule],
-  controllers: [OrganizationsController, InvitationsController],
+  imports: [
+    AuthenticationModule,
+    AuthorizationModule,
+    AuditModule,
+    CsrfModule,
+    PasswordsModule,
+  ],
+  controllers: [
+    OrganizationsController,
+    InvitationsController,
+    MembersController,
+  ],
   providers: [
     { provide: OrganizationRepository, useClass: PrismaOrganizationRepository },
     ListOrganizationsUseCase,
@@ -37,6 +58,9 @@ import { PrismaOrganizationRepository } from './infrastructure/prisma-organizati
     ListInvitationsUseCase,
     RevokeInvitationUseCase,
     AcceptInvitationUseCase,
+    { provide: MemberRepository, useClass: PrismaMemberRepository },
+    ListMembersUseCase,
+    ReplaceMemberRolesUseCase,
   ],
   exports: [OrganizationRepository],
 })

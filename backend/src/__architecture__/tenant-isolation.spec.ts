@@ -390,6 +390,19 @@ describe('$unscoped stays on its allow-list', () => {
       'prisma-organization.repository.ts',
     ),
     /**
+     * `roles` is a global reference table with no `organization_id` at all
+     * (EVT-044). Reading the catalogue to resolve a role code cannot be scoped
+     * to a tenant, and the scope filter that matters — `ORGANIZATION` only —
+     * is in the same WHERE clause, which is what stops a PLATFORM role from
+     * being assigned through the organization API.
+     */
+    join(
+      'modules',
+      'organizations',
+      'infrastructure',
+      'prisma-member.repository.ts',
+    ),
+    /**
      * Invitation acceptance happens before any session exists (EVT-043), so
      * there is no organization to scope on — the guard is right to stop the
      * query, and this is the explicit, logged exemption rather than a flag
