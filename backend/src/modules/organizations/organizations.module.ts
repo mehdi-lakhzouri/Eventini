@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 
 import { AuthenticationModule, CsrfModule } from '../identity';
 import { ActivateOrganizationUseCase } from './application/activate-organization.use-case';
+import { GetOrganizationUseCase } from './application/get-organization.use-case';
 import { ListOrganizationsUseCase } from './application/list-organizations.use-case';
+import { UpdateOrganizationUseCase } from './application/update-organization.use-case';
 import { OrganizationsController } from './controllers/organizations.controller';
 import { OrganizationRepository } from './domain/organization.repository';
 import { PrismaOrganizationRepository } from './infrastructure/prisma-organization.repository';
@@ -21,6 +23,8 @@ import { PrismaOrganizationRepository } from './infrastructure/prisma-organizati
     { provide: OrganizationRepository, useClass: PrismaOrganizationRepository },
     ListOrganizationsUseCase,
     ActivateOrganizationUseCase,
+    GetOrganizationUseCase,
+    UpdateOrganizationUseCase,
   ],
   exports: [OrganizationRepository],
 })

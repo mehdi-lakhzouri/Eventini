@@ -2,12 +2,62 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { TENANT_SCOPED_PRISMA } from '../../../infrastructure/database/prisma.tokens';
 import type { TenantScopedPrismaClient } from '../../../infrastructure/database/tenant-scope.extension';
+import type { TenantContext } from '../../../common/types/tenant-context';
 import {
   OrganizationRepository,
   type ActivationRefusal,
   type ActivationTarget,
   type MembershipSummary,
+  type OrganizationChanges,
+  type OrganizationProfile,
+  type OrganizationWriteFailure,
 } from '../domain/organization.repository';
+
+/** Les colonnes rendues au client, nommées une fois. */
+const PROFILE_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  status: true,
+  licensePlan: true,
+  userLimit: true,
+  eventLimit: true,
+  isEnabled: true,
+  version: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+type ProfileRow = {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  licensePlan: string;
+  userLimit: number | null;
+  eventLimit: number | null;
+  isEnabled: boolean;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+const toProfile = (row: ProfileRow): OrganizationProfile => ({
+  organizationId: row.id,
+  name: row.name,
+  slug: row.slug,
+  status: row.status,
+  licensePlan: row.licensePlan,
+  userLimit: row.userLimit,
+  eventLimit: row.eventLimit,
+  isEnabled: row.isEnabled,
+  version: row.version,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+/** Le code PostgreSQL d'une violation de contrainte d'unicité. */
+const UNIQUE_VIOLATION = 'P2002';
 
 @Injectable()
 export class PrismaOrganizationRepository extends OrganizationRepository {
@@ -107,5 +157,90 @@ export class PrismaOrganizationRepository extends OrganizationRepository {
     }
 
     return { organizationId, membershipId: membership.id };
+  }
+
+  /**
+   * L'organisation de la session, lue avec son `organization_id` en filtre.
+   *
+   * Le filtre est présent **malgré** la clé primaire. C'est la règle de la
+   * garde Prisma, sans exception pour les lectures par identifiant : une
+   * lecture qui ne porte que sur `id` est une lecture qu'un identifiant forgé
+   * suffirait à détourner le jour où l'identifiant vient d'ailleurs que de la
+   * session.
+   */
+  async findProfile(
+    context: TenantContext,
+  ): Promise<OrganizationProfile | null> {
+    const row = await this.prisma.organization.findFirst({
+      where: { id: context.organizationId, deletedAt: null },
+      select: PROFILE_SELECT,
+    });
+
+    return row === null ? null : toProfile(row);
+  }
+
+  /**
+   * Écriture versionnée — EVT-032.
+   *
+   * `version` est dans le `WHERE`, pas dans une vérification préalable. Lire
+   * puis écrire laisse entre les deux une fenêtre où un autre administrateur
+   * peut commettre son changement ; c'est précisément la perte de mise à jour
+   * que ce mécanisme existe pour empêcher. Zéro ligne affectée signifie donc
+   * « quelqu'un est passé avant vous », et non « la ressource est absente ».
+   *
+   * D'où la relecture qui suit : elle seule distingue une organisation
+   * supprimée d'une organisation modifiée entre-temps, et le client a besoin
+   * des deux réponses — l'une est définitive, l'autre invite à recommencer.
+   */
+  async updateProfile(
+    context: TenantContext,
+    expectedVersion: number,
+    changes: OrganizationChanges,
+    actorId: string,
+  ): Promise<OrganizationProfile | OrganizationWriteFailure> {
+    try {
+      const affected = await this.prisma.organization.updateMany({
+        where: {
+          id: context.organizationId,
+          version: expectedVersion,
+          deletedAt: null,
+        },
+        data: {
+          ...changes,
+          version: { increment: 1 },
+          updatedBy: actorId,
+        },
+      });
+
+      if (affected.count === 0) {
+        const current = await this.findProfile(context);
+
+        return current === null ? 'NOT_FOUND' : 'CONFLICT';
+      }
+    } catch (error: unknown) {
+      /*
+        L'index `ux_organizations_slug_active` est partiel sur `deleted_at` et
+        global aux organisations vivantes : le slug demandé peut appartenir à
+        une organisation que l'appelant n'a pas le droit de voir. Le refus ne
+        le nomme donc pas — répondre « pris par Congrès Alpha » ferait de cette
+        route un moyen d'énumérer les organisations de la plateforme.
+      */
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        (error as { code?: unknown }).code === UNIQUE_VIOLATION
+      ) {
+        return 'SLUG_TAKEN';
+      }
+
+      throw error;
+    }
+
+    const updated = await this.findProfile(context);
+
+    // La relecture suit immédiatement une écriture réussie dans la même
+    // requête : `null` ici voudrait dire que la ligne a disparu entre les
+    // deux, ce que seule une suppression concurrente produit.
+    return updated ?? 'NOT_FOUND';
   }
 }
