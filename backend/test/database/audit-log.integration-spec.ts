@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import { Test } from '@nestjs/testing';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
-import { AppModule } from '../../src/app.module';
-import { TransactionManager } from '../../src/infrastructure/database/transaction.manager';
-import { AuditModule, AuditRecorder } from '../../src/modules/audit';
+import { PrismaClient } from '../../src/infrastructure/database/prisma/generated/client';
+import {
+  withTenantScope,
+  type TenantScopedPrismaClient,
+} from '../../src/infrastructure/database/tenant-scope.extension';
+import { AuditRecorder } from '../../src/modules/audit';
+import { PrismaAuditLogRepository } from '../../src/modules/audit/infrastructure/prisma-audit-log.repository';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
@@ -21,9 +25,9 @@ const describeWithDatabase = DATABASE_URL ? describe : describe.skip;
  */
 describeWithDatabase('Audit log (EVT-076)', () => {
   let recorder: AuditRecorder;
-  let transactions: TransactionManager;
+  let prisma: PrismaClient;
+  let scoped: TenantScopedPrismaClient;
   let pool: Pool;
-  let close: () => Promise<void>;
 
   const unique = (): string => randomUUID().replaceAll('-', '').slice(0, 12);
   const suffix = unique();
@@ -65,35 +69,27 @@ describeWithDatabase('Audit log (EVT-076)', () => {
   }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      /*
-        `AppModule` plutôt qu'un assemblage minimal, et c'est délibéré.
+    /*
+      Construit à la main, sans conteneur Nest — comme tous les autres tests de
+      cette suite.
 
-        Monter `ConfigModule.forRoot` à la main retombe dans le piège que
-        documente `app.module.ts` : la validation réécrit les durées en
-        millisecondes dans `process.env`, et la seconde passe des factories
-        refuse `"600000"` là où elle attend `"10m"`. L'application l'évite en
-        préchargeant `.env` **avant** `forRoot`. Reproduire cette précaution
-        ici en ferait une seconde copie à maintenir, pour un test dont le sujet
-        n'est pas l'amorçage.
-      */
-      imports: [
-        AppModule,
-        /*
-          Importé explicitement : `AppModule` ne le monte pas encore, faute de
-          consommateur avant EVT-044. C'est délibéré — un module sans appelant
-          dans l'arbre de l'application est un module dont on ne sait pas s'il
-          est réellement câblé.
-        */
-        AuditModule,
-      ],
-    }).compile();
+      Le job `Migrations` de la CI exécute `test:integration` avec **seulement**
+      `DATABASE_URL` : ni `.env`, ni secrets. Démarrer `AppModule` y échoue à la
+      validation d'environnement, et c'est ainsi que ce test a cassé la CI au
+      premier passage. Or rien de ce qu'il vérifie n'a besoin du conteneur : le
+      sujet est ce que PostgreSQL fait d'une transaction et d'un trigger.
+    */
+    prisma = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: DATABASE_URL }),
+    });
 
-    const app = await moduleRef.createNestApplication().init();
-    close = () => app.close();
-
-    recorder = app.get(AuditRecorder, { strict: false });
-    transactions = app.get(TransactionManager, { strict: false });
+    /*
+      Enveloppé par la garde tenant, comme l'application le fait : c'est d'elle
+      que dérive le type `TransactionalClient`, et tester contre un client nu
+      exercerait un chemin que la production n'emprunte jamais.
+    */
+    scoped = withTenantScope(prisma);
+    recorder = new AuditRecorder(new PrismaAuditLogRepository());
 
     pool = new Pool({ connectionString: DATABASE_URL, max: 2 });
     pool.on('error', () => undefined);
@@ -125,13 +121,13 @@ describeWithDatabase('Audit log (EVT-076)', () => {
 
     await pool.query(`DELETE FROM organizations WHERE id = $1`, [ids.org]);
     await pool.end();
-    await close();
+    await prisma.$disconnect();
   });
 
   it("remplit l'acteur, la cible et la requête depuis le contexte", async () => {
     const action = `test.recorded.${unique()}`;
 
-    await transactions.runInTransaction((tx) =>
+    await scoped.$transaction((tx) =>
       recorder.record(
         tx,
         context,
@@ -170,7 +166,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
     const action = `test.rolled-back.${unique()}`;
 
     await expect(
-      transactions.runInTransaction(async (tx) => {
+      scoped.$transaction(async (tx) => {
         await recorder.record(
           tx,
           context,
@@ -193,7 +189,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
   it('remplace les valeurs sensibles sans supprimer leur clé', async () => {
     const action = `test.redacted.${unique()}`;
 
-    await transactions.runInTransaction((tx) =>
+    await scoped.$transaction((tx) =>
       recorder.record(
         tx,
         context,
@@ -225,7 +221,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
   it('accepte une action de portée plateforme, sans organisation', async () => {
     const action = `test.platform.${unique()}`;
 
-    await transactions.runInTransaction((tx) =>
+    await scoped.$transaction((tx) =>
       recorder.recordPlatformAction(
         tx,
         { userId: ids.user, sessionId: null },
@@ -243,7 +239,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
   it('accepte une action système sans acteur', async () => {
     const action = `test.system.${unique()}`;
 
-    await transactions.runInTransaction((tx) =>
+    await scoped.$transaction((tx) =>
       recorder.recordPlatformAction(
         tx,
         { userId: null, sessionId: null },
@@ -266,7 +262,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
   it('écrit SQL NULL, et non le littéral JSON null, quand il n y a pas de diff', async () => {
     const action = `test.nodiff.${unique()}`;
 
-    await transactions.runInTransaction((tx) =>
+    await scoped.$transaction((tx) =>
       recorder.record(
         tx,
         context,
@@ -293,7 +289,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
     it('refuse une mise à jour', async () => {
       const action = `test.immutable.${unique()}`;
 
-      await transactions.runInTransaction((tx) =>
+      await scoped.$transaction((tx) =>
         recorder.record(
           tx,
           context,
@@ -313,7 +309,7 @@ describeWithDatabase('Audit log (EVT-076)', () => {
     it('refuse une suppression hors purge de rétention', async () => {
       const action = `test.undeletable.${unique()}`;
 
-      await transactions.runInTransaction((tx) =>
+      await scoped.$transaction((tx) =>
         recorder.record(
           tx,
           context,
