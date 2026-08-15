@@ -37,3 +37,21 @@ export {
 export { CsrfModule, CsrfService } from './csrf';
 export { TenantAccessModule, AllowsOrganizationSwitch } from './tenant-access';
 export { TenantContextService } from './tenant-access/tenant-context.service';
+
+/**
+ * Les décorateurs d'autorisation — ajoutés au sprint 08 (EVT-042).
+ *
+ * Un module métier qui expose une route en a besoin des deux : `RequirePermission`
+ * pour déclarer ce qu'elle exige, `CurrentContext` pour lire le tenant que le
+ * guard a résolu. Les laisser hors de la surface obligerait chaque feature à
+ * importer un chemin profond dans `identity/authorization`, ce que
+ * `modularity.spec.ts` interdit — et ce que cette liste existe pour rendre
+ * inutile.
+ */
+export {
+  CurrentCaller,
+  CurrentContext,
+  RequireAuthLevel,
+  RequirePermission,
+  type PermissionScope,
+} from './authorization/decorators';

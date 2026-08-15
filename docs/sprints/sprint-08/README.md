@@ -27,13 +27,13 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 
 | # | Titre | Permission |
 |---|---|---|
-| [EVT-042](#evt-042) | CRUD organisation contrôlé | `organizations.read` / `.manage` |
+| [EVT-042](#evt-042) | CRUD organisation contrôlé ✅ | `organizations.read` / `.manage` |
 | [EVT-043](#evt-043) | Invitations | `users.invite` |
 | [EVT-044](#evt-044) | Membres et assignation de rôles | `users.read` / `users.manage_roles` |
 | [EVT-045](#evt-045) | Suspension et révocation de membership | `users.manage_roles` |
 | [EVT-046](#evt-046) | UI d'administration d'organisation | — |
 | [EVT-047](#evt-047) | i18n complet | — |
-| [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` | — |
+| [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` ✅ | — |
 
 ---
 
@@ -45,6 +45,16 @@ Branche  feat/EVT-042-organization-crud
 Routes   GET /organizations · GET|PATCH /organizations/{organizationId}
 Tables   organizations
 ```
+
+> ✅ **Fait le 14 août 2026, avec [EVT-032](#evt-032).** 1076 tests unitaires, 216 e2e, 29 architecture.
+>
+> **Décision produit** — le `slug` **est** modifiable. Conséquence assumée : tout lien portant l'ancien casse, aucune redirection n'étant conservée faute de table d'historique. Le format est contraint (minuscules, chiffres, tirets simples, 3 à 63 caractères) et quinze segments sont réservés — sans quoi une organisation nommée `api` ou `admin` rendrait ambiguë toute URL de la forme `/{slug}/…`, et l'ambiguïté se résoudrait en sa faveur.
+>
+> **La collision de slug est un `409` distinct du conflit de version.** Deux `409` de causes opposées : l'un dit que quelqu'un est passé avant vous, l'autre que la valeur demandée est prise pour toujours. Les confondre laisserait un client réessayer indéfiniment. Le refus **ne nomme pas** l'organisation propriétaire — l'index est global aux organisations vivantes, et la nommer ferait de cette route un moyen d'énumérer la plateforme.
+>
+> **Un corps vide est refusé.** Accepté, il incrémenterait la version et invaliderait l'`ETag` de tous les autres lecteurs pour un changement qui n'a pas eu lieu.
+>
+> **L'audit n'est pas écrit par ce ticket** — `src/modules/audit/` est une souche vide, et le module sera construit avec [EVT-044](#evt-044), où le ticket l'impose « dans la même transaction ». Décision assumée : un renommage ne laisse donc aucune trace d'ici là.
 
 `GET /organizations` liste les organisations **où l'appelant a un membership actif** — jamais toutes. `PATCH` exige `If-Match` (verrou optimiste).
 
