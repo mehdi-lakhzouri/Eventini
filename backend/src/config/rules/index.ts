@@ -1,12 +1,14 @@
 import type { Env } from '../env.schema';
 import type { EnvironmentRule } from './rule.types';
 import { coherenceRule } from './coherence.rule';
+import { cookiePrefixRule } from './cookie-prefix.rule';
 import { keyPairRule } from './key-pair.rule';
 import { productionHardeningRule } from './production-hardening.rule';
 import { secretHygieneRule } from './secret-hygiene.rule';
 
 export type { EnvironmentRule } from './rule.types';
 export { coherenceRule } from './coherence.rule';
+export { cookiePrefixRule } from './cookie-prefix.rule';
 export { keyPairRule } from './key-pair.rule';
 export { productionHardeningRule } from './production-hardening.rule';
 export { secretHygieneRule } from './secret-hygiene.rule';
@@ -17,6 +19,7 @@ export const ENVIRONMENT_RULES: readonly EnvironmentRule[] = [
   secretHygieneRule,
   keyPairRule,
   coherenceRule,
+  cookiePrefixRule,
 ];
 
 /**

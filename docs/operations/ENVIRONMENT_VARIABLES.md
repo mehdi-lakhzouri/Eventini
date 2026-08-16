@@ -3,7 +3,7 @@
 > **Statut :** Spécification normative · **Version :** 1.0 · **Date :** 30 juillet 2026
 > **Validation :** bloquante au démarrage — [`BACKEND_ARCHITECTURE.md` §9](../architecture/BACKEND_ARCHITECTURE.md)
 
-> ✅ **Implémenté par EVT-008** (30 juillet 2026). `backend/.env.example` et `web/.env.example` existent, la validation est en place dans `backend/src/config/`, et les 14 règles croisées du §17 sont vérifiées de bout en bout.
+> ✅ **Implémenté par EVT-008** (30 juillet 2026). `backend/.env.example` et `web/.env.example` existent, la validation est en place dans `backend/src/config/`, et les règles croisées du §17 sont vérifiées de bout en bout (15 depuis EVT-078).
 >
 > Pour un `.env` de développement complet en une commande :
 >
@@ -342,8 +342,19 @@ La validation ne se contente pas de vérifier la présence. Elle applique des r�
 | 12 | `SESSION_IDLE_TTL_*` ≤ `SESSION_ABSOLUTE_TTL_*` | `fatal` |
 | 13 | `LOCKOUT_THRESHOLDS` et `LOCKOUT_DURATIONS` ont la même longueur | `fatal` |
 | 14 | `ARGON2_MEMORY_COST` ≥ 19456 | `fatal` — sous ce seuil, on quitte la recommandation OWASP |
+| 15 | Un nom de cookie préfixé `__Host-` / `__Secure-` ⇒ `COOKIE_SECURE=true` | `fatal` — sinon le navigateur jette le cookie **en silence** |
 
 Les règles 8, 9 et 10 sont celles qui attrapent les vraies erreurs de déploiement : un copier-coller de secret, un exemple laissé en place, une paire de clés dépareillée.
+
+### 🔴 Règle 15 — le défaut qu'elle ferme
+
+`.env.example` livrait `COOKIE_SECURE=false` avec **quatre** noms préfixés. La spécification des préfixes de cookies impose au navigateur de refuser un cookie `__Host-` ou `__Secure-` dépourvu de l'attribut `Secure` : Chrome les jetait donc tous les quatre.
+
+Le symptôme, observé le 16 août 2026 sur un poste de développement : `GET /auth/csrf-token` répond `200` avec son jeton, aucun cookie n'est stocké, `document.cookie` reste vide, le client n'envoie pas d'en-tête `X-CSRF-Token`, et **toute connexion locale échoue en `403 AUTH_CSRF_INVALID`** avec des identifiants parfaitement valides.
+
+Ce qui rend le cas coûteux à diagnostiquer, c'est qu'aucun des deux côtés n'a tort. Le serveur refuse à juste titre, le client n'a rien à envoyer, et le seul endroit où quelque chose se perd est un rejet du navigateur qui n'apparaît dans aucun log — ni côté serveur, ni côté client, ni dans l'onglet réseau, où la réponse `200` du jeton semble parfaitement normale.
+
+**Le réglage retenu est `COOKIE_SECURE=true`, y compris en local.** Les navigateurs traitent `http://localhost` comme une origine sûre et acceptent `Secure` dessus, donc cela ne coûte rien ; et cela garde des noms de cookies **identiques** entre développement et production, ce qui empêche un bug lié au nom de n'apparaître qu'en production. Retirer les préfixes est l'autre option valide — la règle accepte les deux, et refuse leur mélange.
 
 > ✅ **Implémentées et testées** — `backend/src/config/rules/`, une règle par fichier, chacune couverte par des tests qui vérifient le **refus**, pas seulement l'acceptation. Comportement observé sur un démarrage réel sans `.env` : les 25 variables manquantes sont nommées dans un seul message, avec un code de sortie non nul.
 >

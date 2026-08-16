@@ -61,7 +61,18 @@ export function buildValidEnv(
     COOKIE_SECRET: generateSecret(),
 
     CORS_ALLOWED_ORIGINS: 'http://localhost:3000',
-    COOKIE_SECURE: 'false',
+    /*
+      🔴 `true`, parce que les noms de cookies par défaut portent les préfixes
+      `__Host-` / `__Secure-`. La fixture encodait `false`, c'est-à-dire
+      exactement la combinaison que `cookie-prefix.rule.ts` refuse désormais —
+      et que `.env.example` livrait, au prix de connexions locales
+      systématiquement refusées en `AUTH_CSRF_INVALID`.
+
+      Un cas qui a besoin de `COOKIE_SECURE=false` doit désormais surcharger
+      aussi les noms de cookies, ce qui est le bon couplage : les deux vont
+      ensemble ou ne vont pas.
+    */
+    COOKIE_SECURE: 'true',
 
     SMTP_HOST: 'localhost',
     SMTP_PORT: '1025',
