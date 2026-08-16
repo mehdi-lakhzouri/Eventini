@@ -136,7 +136,7 @@ export function LoginForm() {
       initial={reduceMotion ? false : "hidden"}
       animate="visible"
       variants={authCardIn}
-      className="eventini-auth-card eventini-login-card min-h-[640px] w-full rounded-[22px] border border-[#e5e7eb] bg-white px-7 py-8 shadow-[0_12px_35px_rgba(15,23,42,0.09)] sm:px-10"
+      className="eventini-auth-card eventini-login-card min-h-0 w-full rounded-[22px] border border-[#e5e7eb] bg-white px-7 py-8 shadow-[0_12px_35px_rgba(15,23,42,0.09)] sm:min-h-[640px] sm:px-10"
     >
       <header className="text-center">
         <EventiniLogo

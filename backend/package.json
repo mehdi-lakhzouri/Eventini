@@ -27,7 +27,9 @@
     "prisma:migrate:diff": "prisma migrate diff --from-migrations ./prisma/migrations --to-schema ./prisma/schema.prisma --exit-code",
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed/index.ts",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "dev:activate-bootstrap-admin": "ts-node scripts/dev-only/activate-bootstrap-super-admin.ts",
+    "email:preview": "ts-node scripts/email-preview.ts"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",

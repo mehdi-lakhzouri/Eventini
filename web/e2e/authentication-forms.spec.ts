@@ -14,6 +14,26 @@ import { expect, test } from "@playwright/test";
  */
 
 test.describe("écran de connexion", () => {
+  test("la carte compacte tient dans un écran portable", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/login");
+
+    const box = await page.locator(".eventini-login-card").boundingBox();
+
+    expect(box).not.toBeNull();
+    expect(box?.width ?? Infinity).toBeLessThanOrEqual(560);
+    expect((box?.y ?? -1) >= 0).toBe(true);
+    expect(
+      (box?.y ?? Infinity) + (box?.height ?? Infinity),
+    ).toBeLessThanOrEqual(720);
+
+    await page.setViewportSize({ width: 390, height: 667 });
+    await page.reload();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollHeight))
+      .toBeLessThanOrEqual(667);
+  });
+
   test("rend le formulaire avec ses libellés associés", async ({ page }) => {
     await page.goto("/login");
 
@@ -197,6 +217,28 @@ test.describe("écran de connexion", () => {
 });
 
 test.describe("écrans dérivés", () => {
+  test("la récupération compacte tient dans un écran portable", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/forgot-password");
+
+    const box = await page.locator(".eventini-auth-card").boundingBox();
+
+    expect(box).not.toBeNull();
+    expect(box?.width ?? Infinity).toBeLessThanOrEqual(560);
+    expect((box?.y ?? -1) >= 0).toBe(true);
+    expect(
+      (box?.y ?? Infinity) + (box?.height ?? Infinity),
+    ).toBeLessThanOrEqual(720);
+
+    await page.setViewportSize({ width: 390, height: 667 });
+    await page.reload();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollHeight))
+      .toBeLessThanOrEqual(667);
+  });
+
   test("le mot de passe oublié respecte le mouvement réduit", async ({
     page,
   }) => {
