@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 
 import type { TenantContext } from '../../../common/types/tenant-context';
+import { SecurityEventRecorder } from '../../identity';
 import {
   MembershipLifecycleRepository,
   type LifecycleOutcome,
@@ -22,6 +23,7 @@ export class ChangeMembershipStatusUseCase {
   constructor(
     private readonly lifecycle: MembershipLifecycleRepository,
     private readonly logger: PinoLogger,
+    private readonly securityEvents: SecurityEventRecorder,
   ) {}
 
   async setSuspended(
@@ -53,6 +55,34 @@ export class ChangeMembershipStatusUseCase {
 
     this.report(result, command, 'MEMBERSHIP_REVOKED');
 
+    if (typeof result !== 'string') {
+      /*
+        Émis ici, dans le use case, une fois `revoke` rendu — donc après le
+        commit. Le repository, lui, écrit l'entrée d'audit **dans** la
+        transaction : les deux traces ne répondent pas à la même question, et
+        n'ont donc pas la même règle de placement. Voir
+        `SecurityEventRepository`.
+      */
+      await this.securityEvents.recordForContext(
+        'MEMBERSHIP_REVOKED',
+        command.context,
+        {
+          requestId: command.requestId,
+          ipAddress: command.ipAddress,
+          reasonCode: 'REVOKED_BY_ADMINISTRATOR',
+          // 🔴 Le membership retiré, pas celui de l'acteur — que le contexte
+          // aurait rempli par défaut.
+          membershipId: command.membershipId,
+          metadata: {
+            previousStatus: result.previousStatus,
+            revokedSessions: result.revokedSessions,
+            revokedEventAssignments: result.revokedEventAssignments,
+            actorRole: command.actorRole,
+          },
+        },
+      );
+    }
+
     return result;
   }
 
@@ -71,11 +101,17 @@ export class ChangeMembershipStatusUseCase {
   }
 
   /**
-   * `security_events` n'a toujours pas d'écrivain — la table est vide et un
-   * ticket dédié la construira face à l'ensemble de ses émetteurs. En
-   * attendant, l'événement suit le même chemin que les autres.
+   * La ligne de log, qui reste **en plus** de l'événement de sécurité.
    *
-   * La trace qui fait autorité est `audit_logs`, écrite dans la transaction.
+   * Les deux catalogues sont des espaces de noms séparés (§10, ADR-0008) et
+   * leurs lecteurs aussi : un tableau de bord interroge l'index de logs, une
+   * enquête interroge PostgreSQL. Supprimer la ligne parce que la table existe
+   * maintenant casserait le premier sans rien apporter au second.
+   *
+   * 🔴 La suspension et la réactivation n'ont **aucun type** dans le catalogue
+   * de §8 : `MEMBERSHIP_REVOKED` y est, `MEMBERSHIP_SUSPENDED` non. Elles
+   * restent donc en log et en audit uniquement, et ce n'est pas une omission de
+   * ce ticket — c'est le catalogue qui n'a pas prévu le cas. Voir la note.
    */
   private report(
     result: LifecycleOutcome | LifecycleRefusal,

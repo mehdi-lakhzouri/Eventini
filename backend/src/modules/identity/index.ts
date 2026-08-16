@@ -91,3 +91,18 @@ export {
   AuthorizationContextReader,
   type AuthorizationContext,
 } from './authentication/domain/authorization-context.reader';
+
+/**
+ * Le journal des événements de sécurité — ajouté au sprint 08 (EVT-077).
+ *
+ * Exposé parce que ses émetteurs ne vivent pas tous dans `identity` : le
+ * changement de rôle et la révocation de membership sont dans `organizations`,
+ * le dépassement de quota dans `rate-limiting`, et les billets rejoués
+ * arriveront au sprint 11. Un journal de sécurité que seul son module d'accueil
+ * peut alimenter n'enregistrerait qu'une partie de la sécurité.
+ */
+export {
+  SecurityEventRecorder,
+  SecurityEventsModule,
+  type SecurityEventFacts,
+} from './security-events';

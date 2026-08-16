@@ -64,6 +64,17 @@ export const LOG_EVENT_CODES = {
    */
   UNSCOPED_QUERY_EXECUTED: 'SECURITY',
 
+  /**
+   * A row could not be written to `security_events` — EVT-077.
+   *
+   * `SecurityEventRecorder` never rethrows, because a recording failure must
+   * not turn an otherwise valid login into a 500. That choice is only
+   * defensible if the failure is loud somewhere else, and this is where: a
+   * security table that quietly stops filling up is worth less than no table
+   * at all, because people trust it.
+   */
+  SECURITY_EVENT_WRITE_FAILED: 'SECURITY',
+
   // Business and audit
   ROLE_CHANGED: 'AUDIT',
   ORGANIZATION_SUSPENDED: 'AUDIT',
