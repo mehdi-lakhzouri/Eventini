@@ -115,7 +115,11 @@ export class AuthenticationController {
     }
 
     const result = await this.refresh
-      .execute(presented)
+      .execute(presented, {
+        userAgent: readUserAgent(request),
+        ipAddress: request.ip ?? null,
+        requestId: (request as RequestWithId).id,
+      })
       .catch((error: unknown) => {
         // Replay clears the cookies on the way out: the family is gone, so
         // leaving a dead token in the browser only produces more failures.

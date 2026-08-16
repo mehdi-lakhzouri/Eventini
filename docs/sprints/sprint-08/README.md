@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Tickets** | EVT-042 → EVT-047 · **EVT-032** (reporté du sprint 05) |
+| **Tickets** | EVT-042 → EVT-047 · **EVT-032** (reporté du sprint 05) · **EVT-076**, **EVT-077** (socles nés du sprint) |
 | **Prérequis** | Sprint 06 (et 07 pour l'UI) |
 | **Migrations** | aucune |
 | **Parallélisable avec** | Sprint 07 |
@@ -34,6 +34,10 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 | [EVT-046](#evt-046) | UI d'administration d'organisation | — |
 | [EVT-047](#evt-047) | i18n complet | — |
 | [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` ✅ | — |
+| [EVT-076](#evt-076) | Journal d'audit métier ✅ | — |
+| [EVT-077](#evt-077) | Journal des événements de sécurité ✅ | — |
+
+Les deux derniers ne figuraient pas au plan initial. Ils en sont sortis : quatre tickets du sprint exigeaient une entrée d'audit, et huit tickets du corpus annonçaient écrire dans `security_events` — une table qui n'avait **aucun écrivain** dans tout le dépôt. Les livrer séparément les rend relisibles isolément plutôt que noyés dans l'assignation de rôles.
 
 ---
 
@@ -280,6 +284,87 @@ Le filtre `organization_id` est présent **même avec un `id` de clé primaire**
 **Les colonnes `version` existent déjà** sur les quatre tables — le report n'a coûté aucune migration.
 
 **Tests** — sans `If-Match` ⇒ `428` · `If-Match` périmé ⇒ `412` · deux `PATCH` concurrents ⇒ un `409`.
+
+---
+
+## EVT-076 — Journal d'audit métier
+<a id="evt-076"></a>
+
+```
+Branche  feat/EVT-076-audit-log
+Commit   feat(audit): add the business audit log writer
+```
+
+**Pourquoi un ticket à part** — EVT-042, EVT-043, EVT-044 et EVT-045 exigent tous une entrée dans `audit_logs`. Le construire dans l'un des quatre l'aurait dessiné pour un seul cas.
+
+**La règle qui porte tout** — `AuditLogRepository.record(tx, entry)` prend la transaction de l'appelant **en premier paramètre, obligatoire**. Le repository n'injecte donc aucun client Prisma : il n'en a pas besoin, et en avoir un ouvrirait la porte à une écriture hors transaction. Un changement commité sans sa trace est le pire des deux états — plus rien ne dit qu'il a eu lieu.
+
+> ✅ **Fait le 15 août 2026.** Écrit par les quatre tickets qui l'ont motivé.
+
+---
+
+## EVT-077 — Journal des événements de sécurité
+<a id="evt-077"></a>
+
+```
+Branche  feat/EVT-077-security-events
+Commit   feat(security): add the security event writer
+```
+
+**Le constat qui l'a déclenché** — le module `identity/security-events` existait en **squelette vide** depuis le sprint 02, déjà importé par `AuthenticationModule` et `IdentityModule`. Huit tickets du corpus annoncent écrire dans `security_events` ; la table n'avait aucun écrivain nulle part, et les événements partaient en logs Pino.
+
+### 🔴 L'exact inverse de l'audit, et la symétrie est le piège
+
+| | `audit_logs` | `security_events` |
+|---|---|---|
+| Transaction de l'appelant | **obligatoire**, premier paramètre | **jamais** |
+| Écrit depuis | un repository, **dans** la transaction | un use case, **après** le commit |
+| En cas de rollback | disparaît, et c'est voulu | survit, et c'est voulu |
+
+Les deux se ressemblent assez pour qu'on place le second comme le premier. Or les événements qui comptent le plus — `LOGIN_FAILED`, `TENANT_ACCESS_DENIED`, `ROLE_ESCALATION_ATTEMPTED` — sont émis **quand rien n'est commité**. Dans la transaction de l'appelant, la table serait vide exactement des lignes pour lesquelles elle existe.
+
+Symétriquement, un succès émis **avant** le commit affirmerait un changement qui peut encore échouer. D'où la règle de placement, tenue par `__architecture__/security-event-emission.spec.ts` : aucun repository n'atteint `SecurityEventRecorder`, aucun use case n'atteint `AuditRecorder`.
+
+### Ce que l'écrivain décide à la place de l'appelant
+
+**La gravité et l'issue viennent du type, pas du site d'émission.** `severity` n'a de valeur que comparée : la seule question posée à cette colonne est « tout ce qui est `HIGH` ou au-dessus depuis une heure ». Si chaque appelant choisissait la sienne, deux personnes classeraient le même fait différemment et la requête cesserait de vouloir dire quoi que ce soit — sans que rien ne casse. Les 33 profils sont dans `domain/security-event-profile.ts`.
+
+**Le recorder ne relance jamais.** Un échec d'écriture ne doit pas transformer un login valide en 500, ni un refus légitime en 500 qui ressemble à un bug. En contrepartie l'échec est bruyant : `SECURITY_EVENT_WRITE_FAILED`, un code alertable — une table de sécurité qui cesse de se remplir sans que personne ne le sache vaut moins qu'une table absente, parce qu'on lui fait confiance.
+
+### 🔴 Deux primitives de suppression fermées
+
+**Le volume est choisi par l'attaquant, pas par nous.** Les plus gros émetteurs de cette table sont tous pilotés par l'adversaire. Une ligne par tentative sur une paire déjà verrouillée ferait de `security_events` une amplification de son propre déni de service. Donc : `ACCOUNT_LOCKED` est émis **une fois**, au franchissement du seuil ; une tentative sur une paire déjà verrouillée n'écrit **rien**. Le verrou est la trace.
+
+**Une adresse IP malformée ne doit pas effacer l'événement.** `ip_address` est de type `INET` et sa valeur vient d'`request.ip`, donc potentiellement d'un `X-Forwarded-For`. PostgreSQL refuse une valeur malformée et le recorder ne relance pas : sans validation, envoyer un en-tête invalide suffirait à ne laisser aucune trace de ses tentatives. L'adresse est vérifiée avant l'insertion — on perd l'adresse, jamais l'événement.
+
+### Émetteurs câblés
+
+| Famille | Événements | Ce qu'elle prouve |
+|---|---|---|
+| `login.use-case.ts` | `LOGIN_SUCCEEDED` `LOGIN_FAILED` `ACCOUNT_LOCKED` `MFA_CHALLENGE_CREATED` | l'événement précède l'identité — colonnes d'acteur nulles |
+| `refresh-session.use-case.ts` | `REFRESH_TOKEN_REUSE_DETECTED` `SESSION_COMPROMISED` | émission après une transaction, sur les deux `CRITICAL` |
+| `replace-member-roles.use-case.ts` | `ROLE_CHANGED` `ROLE_ESCALATION_ATTEMPTED` | contexte tenant complet, à côté de l'audit |
+| `change-membership-status.use-case.ts` | `MEMBERSHIP_REVOKED` | idem, avec la cascade |
+
+**La table préserve la distinction que la réponse HTTP cache.** §5.3 impose un 401 générique pour `UNKNOWN_ACCOUNT`, `NO_CREDENTIAL`, `BAD_PASSWORD` et `USER_NOT_ACTIVE` — dire lequel confirmerait l'existence du compte. `reason_code` est interne : c'est le seul endroit où la distinction survit.
+
+> ✅ **Fait le 15 août 2026.** 21 tests unitaires, 9 d'intégration contre PostgreSQL réel.
+>
+> ### 🔴 Un cycle d'import invisible partout sauf en e2e
+>
+> Importer `SecurityEventRecorder` par le baril `../../security-events` referme un cycle `authentication → security-events → authentication`, puisque `AuthenticationModule` importe déjà `SecurityEventsModule`. Sous les modules VM de Jest, ce cycle **bloque** la résolution : `NestFactory.create` ne rend jamais la main, et **les 20 suites e2e échouent, les 259 tests**, en `Exceeded timeout of 5000 ms for a hook` — y compris `health-metrics`, qui ne touche à rien de tout cela.
+>
+> Rien ne le signale avant : `tsc`, le lint, les 1097 tests unitaires, les 156 d'intégration, les 32 d'architecture et `nest build` passent tous, et l'application démarre en **443 ms** sous `ts-node`. Le symptôme ne ressemble pas non plus à sa cause — un timeout uniforme sur des suites sans rapport, pas une `UnknownDependenciesException`.
+>
+> Correctif : chemin direct vers le fichier, ce qui est déjà la convention du dossier (`MfaChallengeStore` et `PasswordHasher` sont importés ainsi). Le baril reste correct **entre** modules — `organizations` importe bien depuis `../../identity`, et ses 5 suites passent.
+>
+> ### Trois constats à reprendre
+>
+> **Le catalogue de §8 n'a pas de type pour la suspension.** `MEMBERSHIP_REVOKED` y est, `MEMBERSHIP_SUSPENDED` non. Suspension et réactivation restent donc en log et en audit uniquement. Ce n'est pas une omission de ce ticket : c'est le catalogue qui n'a pas prévu le cas.
+>
+> **`SESSION_REFRESHED` n'est pas émis, délibérément.** Il serait le plus gros contributeur en lignes de toute la table — une par session active toutes les dix minutes, des dizaines de millions par an sur douze mois de rétention — pour dupliquer ce que `refresh_token_rotations` enregistre déjà, et mieux : cette table porte la chaîne complète (`previous_token_id`, `replaced_by_token_id`, `consumed_at`), pas seulement l'horodatage.
+>
+> **21 des 33 types n'ont toujours pas d'émetteur.** CSRF, origine, rate limit, `TENANT_ACCESS_DENIED`, `UNSCOPED_QUERY_EXECUTED`, mots de passe, MFA, billets et scanners. L'écrivain est conçu face à l'ensemble du catalogue — les 33 sont écrits pour de vrai dans le test d'intégration, donc les trois contraintes `CHECK` sont vérifiées pour chacun — mais brancher les 21 restants demande de toucher autant de sites, ce qui ferait de cette PR une revue impossible. Le câblage restant est mécanique ; la conception ne l'était pas.
 
 ---
 

@@ -21,6 +21,7 @@ import {
   type SessionEstablished,
 } from './login.use-case';
 import type { LockoutStore } from '../../../rate-limiting';
+import type { SecurityEventRecorder } from '../../security-events/application/security-event-recorder.service';
 import { SessionIssuer } from './session-issuer';
 
 const PASSWORD = 'correct horse battery staple';
@@ -186,13 +187,14 @@ function build(found: AuthenticationCandidate | null) {
 
   const lockoutCalls: string[] = [];
   let locked = false;
+  let ladderLocks = false;
 
   const lockouts = {
     isLocked: () => Promise.resolve(locked),
     registerFailure: (ip: string | null, email: string) => {
       lockoutCalls.push(`fail:${ip ?? 'none'}:${email}`);
 
-      return Promise.resolve({ locked: false, attempts: 1 });
+      return Promise.resolve({ locked: ladderLocks, attempts: 5 });
     },
     countEmailFailure: (email: string) => {
       lockoutCalls.push(`detect:${email}`);
@@ -206,7 +208,27 @@ function build(found: AuthenticationCandidate | null) {
     },
   } as unknown as LockoutStore;
 
-  const useCase = new LoginUseCase(users, hasher, challenges, issuer, lockouts);
+  const securityEvents: Array<{
+    type: string;
+    facts: Record<string, unknown>;
+  }> = [];
+
+  const recorder = {
+    record: (type: string, facts: Record<string, unknown>) => {
+      securityEvents.push({ type, facts });
+
+      return Promise.resolve();
+    },
+  } as unknown as SecurityEventRecorder;
+
+  const useCase = new LoginUseCase(
+    users,
+    hasher,
+    challenges,
+    issuer,
+    lockouts,
+    recorder,
+  );
 
   return {
     useCase,
@@ -214,8 +236,12 @@ function build(found: AuthenticationCandidate | null) {
     created,
     challengesOpened,
     lockoutCalls,
+    securityEvents,
     lock: () => {
       locked = true;
+    },
+    lockOnNextFailure: () => {
+      ladderLocks = true;
     },
   };
 }
@@ -547,5 +573,115 @@ describe('login', () => {
 
     expect(noAccount).toBeGreaterThan(wrongPassword / 4);
     expect(noAccount).toBeLessThan(wrongPassword * 4);
+  });
+
+  /** EVT-077 — ce que le login dépose dans `security_events`. */
+  describe('security events', () => {
+    it('records a success carrying the session it just issued', async () => {
+      const { useCase, securityEvents } = build(await candidate());
+
+      const result = await useCase.execute(command());
+
+      expect(securityEvents).toHaveLength(1);
+      expect(securityEvents[0]).toMatchObject({
+        type: 'LOGIN_SUCCEEDED',
+        facts: {
+          userId: 'usr_1',
+          sessionId: sessionOf(result).sessionId,
+          ipAddress: '127.0.0.1',
+        },
+      });
+    });
+
+    /**
+     * 🔴 La réponse HTTP est un 401 générique dans les trois cas — §5.3
+     * l'impose, dire lequel confirmerait l'existence du compte. La table, elle,
+     * est interne : c'est le seul endroit où la distinction survit, et sans
+     * elle « combien d'adresses inexistantes ont été essayées » n'a pas de
+     * réponse.
+     */
+    it.each([
+      ['UNKNOWN_ACCOUNT', null],
+      ['BAD_PASSWORD', 'known'],
+      ['USER_NOT_ACTIVE', 'suspended'],
+    ] as const)(
+      'distinguishes %s where the response does not',
+      async (reasonCode, account) => {
+        const subject =
+          account === null
+            ? build(null)
+            : build(
+                await candidate(
+                  account === 'suspended' ? { status: 'SUSPENDED' } : {},
+                ),
+              );
+
+        await subject.useCase
+          .execute(
+            command(account === 'known' ? { password: 'wrong' } : undefined),
+          )
+          .catch(() => {});
+
+        expect(subject.securityEvents[0]).toMatchObject({
+          type: 'LOGIN_FAILED',
+          facts: { reasonCode },
+        });
+      },
+    );
+
+    it('names the address that was targeted even when nobody owns it', async () => {
+      const { useCase, securityEvents } = build(null);
+
+      await useCase.execute(command()).catch(() => {});
+
+      const facts = securityEvents[0]?.facts ?? {};
+      const metadata = facts.metadata as Record<string, unknown>;
+
+      expect(facts.userId).toBeNull();
+      expect(metadata.attemptedEmail).toBe('admin@example.com');
+    });
+
+    /**
+     * 🔴 Le franchissement du seuil est émis une fois, pas à chaque tentative.
+     *
+     * Une ligne par requête sur une paire déjà verrouillée ferait de la table
+     * une amplification du déni de service de l'attaquant : c'est lui qui
+     * choisirait notre volume d'écritures.
+     */
+    it('records the lockout on the attempt that crosses the threshold', async () => {
+      const subject = build(await candidate());
+      subject.lockOnNextFailure();
+
+      await subject.useCase
+        .execute(command({ password: 'wrong' }))
+        .catch(() => {});
+
+      expect(subject.securityEvents.map((event) => event.type)).toEqual([
+        'LOGIN_FAILED',
+        'ACCOUNT_LOCKED',
+      ]);
+    });
+
+    it('records nothing at all once the pair is already locked', async () => {
+      const { useCase, securityEvents, lock } = build(await candidate());
+      lock();
+
+      await useCase.execute(command()).catch(() => {});
+
+      expect(securityEvents).toEqual([]);
+    });
+
+    /** Un mot de passe correct n'achète qu'un `challengeId`, et le dit. */
+    it('records the challenge rather than a login when MFA is required', async () => {
+      const { useCase, securityEvents } = build(
+        await candidate({ hasActiveMfa: true }),
+      );
+
+      await useCase.execute(command());
+
+      expect(securityEvents.map((event) => event.type)).toEqual([
+        'MFA_CHALLENGE_CREATED',
+      ]);
+    });
   });
 });

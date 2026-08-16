@@ -243,6 +243,38 @@ describe('repositories take a TenantContext first', () => {
       'prisma-audit-log.repository.ts',
     ),
     /**
+     * The security event repository, added by EVT-077.
+     *
+     * `security_events` is mixed-scope like `audit_logs`, and more so: every
+     * actor column on it is nullable, because an event can precede identity
+     * entirely. A failed login has no user, an origin rejection has no
+     * session, a rate-limit denial has neither. `tenant-ownership.ts`
+     * classifies the model `TENANT_OPTIONAL` for exactly that reason, so the
+     * guard already exempts its queries; demanding a `TenantContext` in the
+     * signature would contradict the classification.
+     *
+     * Unlike the audit port, it takes no transactional client either — and
+     * that is the ticket's central decision rather than an omission. An event
+     * written inside the caller's transaction vanishes with a rollback, which
+     * is precisely the case the failure and denial events exist to record.
+     * `SecurityEventRecorder` fills the organization from the `TenantContext`
+     * when there is one, through `recordForContext`.
+     */
+    join(
+      'modules',
+      'identity',
+      'security-events',
+      'domain',
+      'security-event.repository.ts',
+    ),
+    join(
+      'modules',
+      'identity',
+      'security-events',
+      'infrastructure',
+      'prisma-security-event.repository.ts',
+    ),
+    /**
      * The invitation repository, added by EVT-043.
      *
      * Three of its methods precede any tenant context and cannot take one.

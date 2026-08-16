@@ -5,6 +5,7 @@ import {
   AuthorizationModule,
   CsrfModule,
   PasswordsModule,
+  SecurityEventsModule,
 } from '../identity';
 import { AuditModule } from '../audit';
 import { ActivateOrganizationUseCase } from './application/activate-organization.use-case';
@@ -44,6 +45,7 @@ import { PrismaOrganizationRepository } from './infrastructure/prisma-organizati
     AuditModule,
     CsrfModule,
     PasswordsModule,
+    SecurityEventsModule,
   ],
   controllers: [
     OrganizationsController,

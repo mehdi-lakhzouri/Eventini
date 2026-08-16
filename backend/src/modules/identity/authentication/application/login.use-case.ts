@@ -5,6 +5,22 @@ import { normalizeEmail } from '../../../../infrastructure/database/normalize-em
 import { LockoutStore } from '../../../rate-limiting';
 import { MfaChallengeStore } from '../../mfa/domain/mfa-challenge.store';
 import { PasswordHasher } from '../../passwords/domain/password-hasher';
+/*
+  🔴 Le chemin direct, pas le baril `../../security-events`.
+
+  Le baril réexporte `security-events.module.ts`, que `AuthenticationModule`
+  importe déjà. Passer par lui referme un cycle `authentication → security-events
+  → authentication`, et sous les modules VM de Jest ce cycle **bloque** la
+  résolution : `NestFactory.create` ne rend jamais la main et les 20 suites e2e
+  échouent toutes en `Exceeded timeout of 5000 ms for a hook`, y compris celles
+  qui ne touchent à rien de tout cela. En `ts-node` le même cycle passe
+  inaperçu — l'application démarre en 443 ms — donc rien ne le signale avant
+  l'e2e.
+
+  C'est aussi la convention du dossier : `MfaChallengeStore` et `PasswordHasher`
+  sont importés par chemin direct juste au-dessus, pour la même raison.
+*/
+import { SecurityEventRecorder } from '../../security-events/application/security-event-recorder.service';
 import { AuthenticationError } from '../domain/authentication.errors';
 import { AuthenticationRepository } from '../domain/authentication.repository';
 import { SessionIssuer, type IssuedSession } from './session-issuer';
@@ -41,6 +57,7 @@ export class LoginUseCase {
     private readonly challenges: MfaChallengeStore,
     private readonly issuer: SessionIssuer,
     private readonly lockouts: LockoutStore,
+    private readonly securityEvents: SecurityEventRecorder,
   ) {}
 
   async execute(command: LoginCommand): Promise<LoginResult> {
@@ -53,6 +70,19 @@ export class LoginUseCase {
     // that a lockout exists, because that both confirms the account and tells
     // an attacker their denial of service worked.
     if (await this.lockouts.isLocked(command.ipAddress, normalizedEmail)) {
+      /*
+        🔴 Aucun événement de sécurité ici, et c'est délibéré.
+
+        Un attaquant qui tient une paire verrouillée continue de frapper : une
+        ligne par tentative ferait de `security_events` une amplification de
+        son propre déni de service — il choisirait le volume d'écritures de
+        notre base. Le verrou **est** la trace : `ACCOUNT_LOCKED` a été émis
+        une fois, au franchissement du seuil, et il porte le compte d'échecs.
+
+        Ce qu'on perd — savoir combien de temps l'attaquant a insisté — est
+        déjà dans les logs d'accès HTTP et dans les compteurs du rate limiter,
+        qui sont conçus pour du volume. Pas cette table.
+      */
       throw new AuthenticationError('BAD_PASSWORD');
     }
 
@@ -67,10 +97,14 @@ export class LoginUseCase {
       // failures, the presence or absence of a lockout would itself answer
       // "does this address exist?" — the question step 7's decoy hash is
       // spending time to avoid.
-      await this.registerFailure(command.ipAddress, normalizedEmail);
-      throw new AuthenticationError(
-        candidate === null ? 'UNKNOWN_ACCOUNT' : 'NO_CREDENTIAL',
-      );
+      const reason = candidate === null ? 'UNKNOWN_ACCOUNT' : 'NO_CREDENTIAL';
+
+      await this.registerFailure(command, normalizedEmail, {
+        reason,
+        userId: candidate?.userId ?? null,
+      });
+
+      throw new AuthenticationError(reason);
     }
 
     const verification = await this.hasher.verify(
@@ -79,7 +113,10 @@ export class LoginUseCase {
     );
 
     if (!verification.valid) {
-      await this.registerFailure(command.ipAddress, normalizedEmail);
+      await this.registerFailure(command, normalizedEmail, {
+        reason: 'BAD_PASSWORD',
+        userId: candidate.userId,
+      });
       throw new AuthenticationError('BAD_PASSWORD');
     }
 
@@ -89,6 +126,19 @@ export class LoginUseCase {
     // Step 9. Checked after the hash, not before: returning early for a
     // suspended account would make it answer faster than an active one.
     if (candidate.status !== 'ACTIVE') {
+      /*
+        Un mot de passe correct sur un compte désactivé. Le compteur d'échecs
+        n'est pas incrémenté — le comportement existant, et il est correct :
+        ce n'est pas une tentative de devinette. L'événement, lui, est émis,
+        parce que quelqu'un détient un secret valide pour un compte fermé.
+      */
+      await this.securityEvents.record('LOGIN_FAILED', {
+        ...requestFacts(command),
+        reasonCode: 'USER_NOT_ACTIVE',
+        userId: candidate.userId,
+        metadata: { userStatus: candidate.status },
+      });
+
       throw new AuthenticationError('USER_NOT_ACTIVE');
     }
 
@@ -103,6 +153,20 @@ export class LoginUseCase {
         clientType: command.clientType,
       });
 
+      /*
+        Le `challengeId` n'est pas un secret — il est renvoyé au client dans la
+        réponse. Le code TOTP attendu, lui, n'existe nulle part côté serveur, et
+        le secret qui le dérive ne sort jamais de sa couche.
+      */
+      await this.securityEvents.record('MFA_CHALLENGE_CREATED', {
+        ...requestFacts(command),
+        userId: candidate.userId,
+        metadata: {
+          challengeId: challenge.challengeId,
+          clientType: command.clientType,
+        },
+      });
+
       return { outcome: 'MFA_REQUIRED', challengeId: challenge.challengeId };
     }
 
@@ -113,6 +177,22 @@ export class LoginUseCase {
       userAgent: command.userAgent,
       ipAddress: command.ipAddress,
       requestId: command.requestId,
+    });
+
+    /*
+      Émis **après** l'émission de la session, jamais avant. Un
+      `LOGIN_SUCCEEDED` écrit en amont affirmerait une connexion que l'insertion
+      de la session peut encore faire échouer — et une table qui enregistre des
+      connexions qui n'ont pas eu lieu est pire qu'inutile pour qui enquête.
+    */
+    await this.securityEvents.record('LOGIN_SUCCEEDED', {
+      ...requestFacts(command),
+      userId: candidate.userId,
+      sessionId: session.sessionId,
+      metadata: {
+        clientType: command.clientType,
+        authenticationLevel: 'PASSWORD',
+      },
     });
 
     return { outcome: 'SESSION_ESTABLISHED', ...session };
@@ -128,12 +208,80 @@ export class LoginUseCase {
    * blocking are deliberately different mechanisms here.
    */
   private async registerFailure(
-    ip: string | null,
+    command: LoginCommand,
     normalizedEmail: string,
+    failure: { reason: string; userId: string | null },
   ): Promise<void> {
-    await this.lockouts.registerFailure(ip, normalizedEmail);
-    await this.lockouts.countEmailFailure(normalizedEmail);
+    const ladder = await this.lockouts.registerFailure(
+      command.ipAddress,
+      normalizedEmail,
+    );
+    const emailFailures =
+      await this.lockouts.countEmailFailure(normalizedEmail);
+
+    const facts = requestFacts(command);
+
+    await this.securityEvents.record('LOGIN_FAILED', {
+      ...facts,
+      reasonCode: failure.reason,
+      userId: failure.userId,
+      metadata: {
+        /*
+          L'adresse visée, normalisée. Sans elle, un `LOGIN_FAILED` contre un
+          compte inexistant n'a aucun acteur — ni `user_id`, ni `session_id` —
+          et ne répond donc pas à la seule question qu'on lui posera : « qui
+          était visé ». C'est aussi ce qui rend lisible la détection que §5.2
+          décrit, la tentative distribuée contre un seul compte.
+
+          Ce n'est pas un secret au sens de §8 : rien de ce qui y figure — mot
+          de passe, jetons, secret MFA, codes de récupération — n'est ici.
+        */
+        attemptedEmail: normalizedEmail,
+        clientType: command.clientType,
+        ladderAttempts: ladder.attempts,
+        emailFailuresLastHour: emailFailures,
+      },
+    });
+
+    /*
+      🔴 Le franchissement du seuil, émis **une seule fois**.
+
+      `registerFailure` renvoie l'état d'après la tentative : `locked` n'est
+      vrai que sur celle qui verrouille. Les suivantes ressortent en amont, sur
+      le `isLocked` en tête d'`execute`, qui n'émet rien — c'est ce qui empêche
+      un attaquant de choisir notre volume d'écritures.
+    */
+    if (ladder.locked) {
+      await this.securityEvents.record('ACCOUNT_LOCKED', {
+        ...facts,
+        reasonCode: 'LOCKOUT_THRESHOLD_REACHED',
+        userId: failure.userId,
+        metadata: {
+          attemptedEmail: normalizedEmail,
+          ladderAttempts: ladder.attempts,
+        },
+      });
+    }
   }
+}
+
+/**
+ * Ce que la requête apporte et que le domaine ne porte pas.
+ *
+ * `traceId` reste absent : le contexte de trace n'est pas propagé jusqu'ici, et
+ * mettre `null` explicitement vaut mieux que d'inventer une corrélation qui
+ * n'existe pas. `request_id` suffit à rejoindre la ligne de log.
+ */
+function requestFacts(command: LoginCommand): {
+  requestId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+} {
+  return {
+    requestId: command.requestId,
+    ipAddress: command.ipAddress,
+    userAgent: command.userAgent,
+  };
 }
 
 /**
