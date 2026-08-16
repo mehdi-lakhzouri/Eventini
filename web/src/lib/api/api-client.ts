@@ -89,6 +89,10 @@ async function readBody(response: Response): Promise<unknown> {
  */
 const NO_RETRY_PATHS = ["/auth/sessions", "/auth/sessions/current/rotation"];
 
+function isPreAuthenticationPath(path: string): boolean {
+  return path.startsWith("/auth/mfa/challenges/");
+}
+
 function isRetryablePath(path: string, method: string): boolean {
   // Seul le POST vers /auth/sessions est la connexion. Le GET liste les
   // sessions et mérite un rattrapage comme n'importe quelle lecture.
@@ -96,7 +100,10 @@ function isRetryablePath(path: string, method: string): boolean {
     return true;
   }
 
-  return !NO_RETRY_PATHS.includes(path);
+  // La validation MFA se déroule avant qu'une session authentifiée existe.
+  // Tenter une rotation sur son 401 masque l'erreur du challenge et ajoute une
+  // requête sans objet vers un refresh token qui n'existe pas encore.
+  return !NO_RETRY_PATHS.includes(path) && !isPreAuthenticationPath(path);
 }
 
 /**

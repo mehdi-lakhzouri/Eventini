@@ -4,6 +4,6 @@
  * the type backing `mfa.api.ts` is where you would look for it.
  */
 export type MfaVerificationInput = {
-  /** Six digits, SHA-1, 30-second period (AUTHENTICATION_AUTHORIZATION.md §1.3). */
+  /** TOTP à six chiffres ou code de secours ; le backend essaie les deux. */
   code: string;
 };

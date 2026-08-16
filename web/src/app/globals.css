@@ -324,3 +324,75 @@
     }
   }
 }
+
+@layer components {
+  .auth-brand-panel {
+    background:
+      radial-gradient(
+        circle at 12% 74%,
+        rgb(24 82 224 / 0.24),
+        transparent 34%
+      ),
+      radial-gradient(
+        circle at 91% 55%,
+        rgb(34 101 255 / 0.28),
+        transparent 38%
+      ),
+      linear-gradient(145deg, #071b67 0%, #102784 45%, #174ed5 100%);
+  }
+
+  .auth-dot-grid {
+    position: absolute;
+    width: 190px;
+    height: 190px;
+    opacity: 0.3;
+    background-image: radial-gradient(
+      circle,
+      rgb(86 145 255 / 0.9) 1px,
+      transparent 1.2px
+    );
+    background-size: 13px 13px;
+    mask-image: radial-gradient(circle, black 0%, transparent 72%);
+  }
+
+  .auth-dot-grid-top {
+    top: -58px;
+    right: -16px;
+  }
+
+  .auth-dot-grid-bottom {
+    bottom: -28px;
+    left: -44px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .auth-flow-lines {
+      animation: auth-flow-drift 16s ease-in-out infinite alternate;
+      will-change: transform, opacity;
+    }
+
+    .auth-dot-pulse {
+      animation: auth-dot-pulse 14s ease-in-out infinite alternate;
+    }
+  }
+}
+
+@keyframes auth-flow-drift {
+  from {
+    opacity: 0.2;
+    transform: translateX(-3px);
+  }
+  to {
+    opacity: 0.29;
+    transform: translateX(4px);
+  }
+}
+
+@keyframes auth-dot-pulse {
+  from {
+    opacity: 0.22;
+  }
+  to {
+    opacity: 0.34;
+  }
+}
