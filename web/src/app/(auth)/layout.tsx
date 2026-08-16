@@ -1,6 +1,4 @@
-import Link from "next/link";
-
-import { routes } from "@/config/routes";
+import { AuthBrandPanel } from "@/features/authentication";
 
 /**
  * Le gabarit d'authentification — panneau de marque à gauche, formulaire à
@@ -19,40 +17,13 @@ export default function AuthLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <div className="grid min-h-dvh lg:grid-cols-2">
-      <aside
-        className="hidden flex-col justify-between p-10 text-primary-foreground lg:flex"
-        style={{ background: "var(--gradient-brand)" }}
-      >
-        <Link
-          href={routes.publicHome}
-          className="text-sm font-semibold tracking-tight rounded-sm outline-offset-4"
-        >
-          Eventini
-        </Link>
+    <div className="grid min-h-dvh bg-[#fafbfd] lg:grid-cols-2">
+      <AuthBrandPanel />
 
-        <div>
-          <p className="text-3xl font-semibold leading-snug tracking-tight">
-            Gérez vos événements
-            <br />
-            de bout en bout.
-          </p>
-          <p className="mt-4 max-w-sm text-sm opacity-80">
-            Inscriptions, sessions, contrôle d&apos;accès et rapports, dans un
-            seul produit.
-          </p>
+      <main className="flex min-h-dvh items-center justify-center bg-[#fafbfd] px-0 py-8 text-[#0f172a] sm:px-10 sm:py-10">
+        <div className="w-full max-w-sm has-[.eventini-auth-card]:max-w-[614px]">
+          {children}
         </div>
-
-        {/* Décoratif : n'annonce rien à un lecteur d'écran. */}
-        <div className="flex gap-1.5" aria-hidden="true">
-          <span className="h-1.5 w-8 rounded-full bg-white/80" />
-          <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
-          <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
-        </div>
-      </aside>
-
-      <main className="flex items-center justify-center bg-card px-6 py-12">
-        <div className="w-full max-w-sm">{children}</div>
       </main>
     </div>
   );

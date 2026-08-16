@@ -26,13 +26,14 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="fr"
+      suppressHydrationWarning
       className={cn(
         "h-full",
         "antialiased",
         "font-sans",
         geistSans.variable,
-        geistMono.variable
+        geistMono.variable,
       )}
     >
       <body className="min-h-full flex flex-col">

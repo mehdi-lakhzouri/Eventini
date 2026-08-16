@@ -57,10 +57,45 @@ export const spring = {
   snappy: { type: "spring", duration: 0.3, bounce: 0 },
   /** Réservé aux moments expressifs listés au §6.3 du design system. */
   expressive: { type: "spring", duration: 0.6, bounce: 0.28 },
+  /** Zoom d'entrée de la carte d'authentification, ample mais sans rebond. */
+  authCard: { type: "spring", duration: 0.72, bounce: 0.08 },
 } as const satisfies Record<string, Transition>;
 
 /** Transition par défaut de l'application. */
 export const defaultTransition: Transition = {
   duration: duration.base,
   ease: easing.emphasized,
+};
+
+/**
+ * Chorégraphie du CTA de connexion.
+ *
+ * Les quatre pistes restent sous 520 ms et ne touchent qu'aux transforms et à
+ * l'opacité. Elles peuvent ainsi se jouer en parallèle de la requête réseau,
+ * sans bloquer la soumission ni provoquer de recalcul de mise en page.
+ */
+export const authSubmitMotion = {
+  button: {
+    duration: 0.52,
+    times: [0, 0.22, 0.62, 1],
+    ease: easing.emphasized,
+  },
+  icon: {
+    at: 0.05,
+    duration: 0.38,
+    times: [0, 0.46, 1],
+    ease: easing.emphasized,
+  },
+  shine: {
+    at: 0.02,
+    duration: 0.5,
+    times: [0, 0.16, 0.72, 1],
+    ease: easing.emphasized,
+  },
+  halo: {
+    at: 0.04,
+    duration: 0.44,
+    times: [0, 1],
+    ease: easing.emphasized,
+  },
 };

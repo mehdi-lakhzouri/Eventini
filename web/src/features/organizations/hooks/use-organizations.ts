@@ -9,10 +9,7 @@ import {
   activateOrganization,
   listOrganizations,
 } from "../api/organizations.api";
-
-export const organizationQueryKeys = {
-  list: ["organizations", "list"] as const,
-};
+import { organizationQueryKeys } from "./query-keys";
 
 export function useOrganizations() {
   return useQuery({
