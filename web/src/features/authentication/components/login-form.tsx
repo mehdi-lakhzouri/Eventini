@@ -11,8 +11,9 @@ import {
   UsersRound,
 } from "lucide-react";
 import { motion, useAnimate } from "motion/react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+
+import { Link, useRouter } from "@/i18n/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -135,18 +136,18 @@ export function LoginForm() {
       initial={reduceMotion ? false : "hidden"}
       animate="visible"
       variants={authCardIn}
-      className="eventini-auth-card eventini-login-card min-h-[738px] w-full rounded-[22px] border border-[#e5e7eb] bg-white px-8 py-10 shadow-[0_12px_35px_rgba(15,23,42,0.09)] sm:px-12"
+      className="eventini-auth-card eventini-login-card min-h-[640px] w-full rounded-[22px] border border-[#e5e7eb] bg-white px-7 py-8 shadow-[0_12px_35px_rgba(15,23,42,0.09)] sm:px-10"
     >
       <header className="text-center">
         <EventiniLogo
           className="text-[#142aaf]"
-          markClassName="size-10"
-          wordmarkClassName="text-[1.85rem]"
+          markClassName="size-9"
+          wordmarkClassName="text-[1.65rem]"
         />
 
-        <div className="mx-auto mt-6 flex size-[72px] items-center justify-center rounded-full bg-[#eef0ff] text-[#2035b8]">
+        <div className="mx-auto mt-5 flex size-16 items-center justify-center rounded-full bg-[#eef0ff] text-[#2035b8]">
           <UsersRound
-            className="size-9"
+            className="size-8"
             strokeWidth={1.65}
             aria-hidden="true"
           />
@@ -154,11 +155,11 @@ export function LoginForm() {
 
         <h1
           id="login-title"
-          className="mt-4 text-[2.5rem] font-bold leading-tight tracking-[-0.035em] text-[#0f172a]"
+          className="mt-3 text-[2.125rem] font-bold leading-tight tracking-[-0.035em] text-[#0f172a]"
         >
           Bon retour
         </h1>
-        <p className="mt-2 min-h-6 text-[1.05rem] leading-6 text-[#475569]">
+        <p className="mt-1.5 min-h-6 text-[1rem] leading-6 text-[#475569]">
           <TypewriterText
             delay={0.62}
             lines={["Connectez-vous pour gérer vos événements."]}
@@ -169,10 +170,10 @@ export function LoginForm() {
       {/* `noValidate` : la validation Zod affiche des messages en français et
           cohérents, là où les bulles natives du navigateur varient d'un moteur
           à l'autre et ne sont pas stylables. */}
-      <form onSubmit={onSubmit} noValidate className="mt-9 space-y-7">
+      <form onSubmit={onSubmit} noValidate className="mt-7 space-y-5">
         <FormMessage message={form.formState.errors.root?.message} />
 
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           <Label
             htmlFor="email"
             className="text-[0.94rem] font-semibold text-[#0f172a]"
@@ -181,7 +182,7 @@ export function LoginForm() {
           </Label>
           <div className="relative">
             <Mail
-              className="pointer-events-none absolute left-5 top-1/2 z-10 size-6 -translate-y-1/2 text-[#56627a]"
+              className="pointer-events-none absolute left-4 top-1/2 z-10 size-[1.35rem] -translate-y-1/2 text-[#56627a]"
               strokeWidth={1.7}
               aria-hidden="true"
             />
@@ -190,7 +191,7 @@ export function LoginForm() {
               type="email"
               autoComplete="username"
               placeholder="nom@entreprise.com"
-              className="h-[60px] rounded-[10px] border-[#d8dee9] bg-white pl-[58px] pr-5 text-[1rem] text-[#0f172a] shadow-none placeholder:text-[#64748b] focus-visible:border-[#3148c7] focus-visible:ring-[#3148c7]/15"
+              className="h-14 rounded-[10px] border-[#d8dee9] bg-white pl-[52px] pr-5 text-[1rem] text-[#0f172a] shadow-none placeholder:text-[#64748b] focus-visible:border-[#3148c7] focus-visible:ring-[#3148c7]/15"
               aria-invalid={form.formState.errors.email !== undefined}
               aria-describedby={
                 form.formState.errors.email ? "email-error" : undefined
@@ -205,7 +206,7 @@ export function LoginForm() {
           ) : null}
         </div>
 
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           <div className="flex items-baseline justify-between">
             <Label
               htmlFor="password"
@@ -222,7 +223,7 @@ export function LoginForm() {
           </div>
           <div className="relative">
             <LockKeyhole
-              className="pointer-events-none absolute left-5 top-1/2 z-10 size-6 -translate-y-1/2 text-[#56627a]"
+              className="pointer-events-none absolute left-4 top-1/2 z-10 size-[1.35rem] -translate-y-1/2 text-[#56627a]"
               strokeWidth={1.7}
               aria-hidden="true"
             />
@@ -231,7 +232,7 @@ export function LoginForm() {
               type={passwordVisible ? "text" : "password"}
               autoComplete="current-password"
               placeholder="••••••••••••"
-              className="h-[60px] rounded-[10px] border-[#d8dee9] bg-white pl-[58px] pr-[58px] text-[1rem] tracking-[0.12em] text-[#0f172a] shadow-none placeholder:text-[#64748b] focus-visible:border-[#3148c7] focus-visible:ring-[#3148c7]/15"
+              className="h-14 rounded-[10px] border-[#d8dee9] bg-white pl-[52px] pr-[54px] text-[1rem] tracking-[0.12em] text-[#0f172a] shadow-none placeholder:text-[#64748b] focus-visible:border-[#3148c7] focus-visible:ring-[#3148c7]/15"
               aria-invalid={form.formState.errors.password !== undefined}
               aria-describedby={
                 form.formState.errors.password ? "password-error" : undefined
@@ -269,7 +270,7 @@ export function LoginForm() {
             type="submit"
             size="lg"
             onClick={playSubmitFeedback}
-            className="relative isolate h-[62px] w-full overflow-hidden rounded-[10px] bg-[linear-gradient(135deg,#1735c4_0%,#1828a8_100%)] text-[1.12rem] font-semibold text-white shadow-[0_8px_18px_rgba(34,47,144,0.16)] hover:bg-[linear-gradient(135deg,#142fae_0%,#121f8d_100%)] disabled:cursor-wait disabled:opacity-100"
+            className="relative isolate h-14 w-full overflow-hidden rounded-[10px] bg-[linear-gradient(135deg,#1735c4_0%,#1828a8_100%)] text-[1.08rem] font-semibold text-white shadow-[0_8px_18px_rgba(34,47,144,0.16)] hover:bg-[linear-gradient(135deg,#142fae_0%,#121f8d_100%)] disabled:cursor-wait disabled:opacity-100"
             disabled={form.formState.isSubmitting}
           >
             <motion.span
@@ -303,7 +304,7 @@ export function LoginForm() {
         </motion.div>
       </form>
 
-      <p className="mt-7 flex items-center justify-center gap-2.5 text-[0.95rem] text-[#64748b]">
+      <p className="mt-5 flex items-center justify-center gap-2.5 text-[0.95rem] text-[#64748b]">
         <LockKeyhole className="size-5" strokeWidth={1.7} aria-hidden="true" />
         Votre connexion est sécurisée.
       </p>

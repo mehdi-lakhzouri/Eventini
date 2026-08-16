@@ -34,7 +34,10 @@ export function ComponentGallery() {
   return (
     <div className="space-y-10">
       <section aria-labelledby="gallery-buttons">
-        <h3 id="gallery-buttons" className="mb-3 text-sm font-semibold text-muted-foreground">
+        <h3
+          id="gallery-buttons"
+          className="mb-3 text-sm font-semibold text-muted-foreground"
+        >
           Boutons
         </h3>
         <div className="flex flex-wrap items-center gap-3">
@@ -55,7 +58,10 @@ export function ComponentGallery() {
       </section>
 
       <section aria-labelledby="gallery-fields">
-        <h3 id="gallery-fields" className="mb-3 text-sm font-semibold text-muted-foreground">
+        <h3
+          id="gallery-fields"
+          className="mb-3 text-sm font-semibold text-muted-foreground"
+        >
           Champs et sélection
         </h3>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -93,7 +99,10 @@ export function ComponentGallery() {
       </section>
 
       <section aria-labelledby="gallery-states">
-        <h3 id="gallery-states" className="mb-3 text-sm font-semibold text-muted-foreground">
+        <h3
+          id="gallery-states"
+          className="mb-3 text-sm font-semibold text-muted-foreground"
+        >
           États et pastilles
         </h3>
         <div className="flex flex-wrap items-center gap-2">
@@ -118,7 +127,8 @@ export function ComponentGallery() {
             <Info aria-hidden="true" />
             <AlertTitle>Rotation de session</AlertTitle>
             <AlertDescription>
-              Changer d&apos;organisation régénère la session et purge le cache client.
+              Changer d&apos;organisation régénère la session et purge le cache
+              client.
             </AlertDescription>
           </Alert>
           <Alert variant="destructive">
@@ -132,7 +142,10 @@ export function ComponentGallery() {
       </section>
 
       <section aria-labelledby="gallery-surfaces">
-        <h3 id="gallery-surfaces" className="mb-3 text-sm font-semibold text-muted-foreground">
+        <h3
+          id="gallery-surfaces"
+          className="mb-3 text-sm font-semibold text-muted-foreground"
+        >
           Surfaces et élévation
         </h3>
         <div className="grid gap-4 md:grid-cols-2">
@@ -161,25 +174,28 @@ export function ComponentGallery() {
           </Card>
 
           <div className="grid gap-3">
-            {(["shadow-sm", "shadow-md", "shadow-lg", "shadow-xl"] as const).map(
-              (level, index) => (
-                <div
-                  key={level}
-                  className={`rounded-lg border border-border bg-card p-3 text-sm ${level}`}
-                >
-                  <span className="font-mono text-xs">{level}</span>
-                  <span className="ml-2 text-muted-foreground">
-                    élévation {index + 1}
-                  </span>
-                </div>
-              ),
-            )}
+            {(
+              ["shadow-sm", "shadow-md", "shadow-lg", "shadow-xl"] as const
+            ).map((level, index) => (
+              <div
+                key={level}
+                className={`rounded-lg border border-border bg-card p-3 text-sm ${level}`}
+              >
+                <span className="font-mono text-xs">{level}</span>
+                <span className="ml-2 text-muted-foreground">
+                  élévation {index + 1}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       <section aria-labelledby="gallery-navigation">
-        <h3 id="gallery-navigation" className="mb-3 text-sm font-semibold text-muted-foreground">
+        <h3
+          id="gallery-navigation"
+          className="mb-3 text-sm font-semibold text-muted-foreground"
+        >
           Navigation et chargement
         </h3>
         <Tabs defaultValue="membres">
@@ -191,7 +207,10 @@ export function ComponentGallery() {
           <TabsContent value="membres" className="pt-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
+                <CheckCircle2
+                  className="size-4 text-success"
+                  aria-hidden="true"
+                />
                 Quatre membres actifs
               </div>
               <div className="space-y-2 pt-2">
@@ -201,11 +220,18 @@ export function ComponentGallery() {
               </div>
             </div>
           </TabsContent>
-          <TabsContent value="roles" className="pt-4 text-sm text-muted-foreground">
+          <TabsContent
+            value="roles"
+            className="pt-4 text-sm text-muted-foreground"
+          >
             Les rôles sont résolus côté serveur, jamais portés par le jeton.
           </TabsContent>
-          <TabsContent value="sessions" className="pt-4 text-sm text-muted-foreground">
-            Une session par organisation active. La bascule en crée une nouvelle.
+          <TabsContent
+            value="sessions"
+            className="pt-4 text-sm text-muted-foreground"
+          >
+            Une session par organisation active. La bascule en crée une
+            nouvelle.
           </TabsContent>
         </Tabs>
       </section>

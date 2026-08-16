@@ -56,7 +56,9 @@ let onSessionLost: SessionLostHandler | null = null;
  * de dépendre d'une feature, et une dépendance vers React rendrait ce module
  * intestable hors composant.
  */
-export function setSessionLostHandler(handler: SessionLostHandler | null): void {
+export function setSessionLostHandler(
+  handler: SessionLostHandler | null,
+): void {
   onSessionLost = handler;
 }
 

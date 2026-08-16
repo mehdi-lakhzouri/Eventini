@@ -28,30 +28,157 @@ type Pair = {
  * signaler un échec sur une règle qui ne s'applique pas.
  */
 const PAIRS: readonly Pair[] = [
-  { label: "foreground / background", foreground: "--foreground", background: "--background", requirement: "text" },
-  { label: "foreground / card", foreground: "--card-foreground", background: "--card", requirement: "text" },
-  { label: "foreground / popover", foreground: "--popover-foreground", background: "--popover", requirement: "text" },
-  { label: "muted-foreground / card", foreground: "--muted-foreground", background: "--card", requirement: "text" },
-  { label: "muted-foreground / muted", foreground: "--muted-foreground", background: "--muted", requirement: "text" },
-  { label: "primary-foreground / primary", foreground: "--primary-foreground", background: "--primary", requirement: "text" },
-  { label: "primary-foreground / primary-hover", foreground: "--primary-foreground", background: "--primary-hover", requirement: "text", note: "état survol du bouton principal" },
-  { label: "secondary-foreground / secondary", foreground: "--secondary-foreground", background: "--secondary", requirement: "text" },
-  { label: "accent-foreground / accent", foreground: "--accent-foreground", background: "--accent", requirement: "text" },
-  { label: "brand-foreground / brand", foreground: "--brand-foreground", background: "--brand", requirement: "text", note: "bouton de marque" },
-  { label: "brand / card", foreground: "--brand", background: "--card", requirement: "text", note: "marque utilisée en texte" },
-  { label: "success-foreground / success", foreground: "--success-foreground", background: "--success", requirement: "text" },
-  { label: "warning-foreground / warning", foreground: "--warning-foreground", background: "--warning", requirement: "text", note: "texte foncé imposé sur l'ambre" },
-  { label: "destructive-foreground / destructive", foreground: "--destructive-foreground", background: "--destructive", requirement: "text" },
-  { label: "ring / background", foreground: "--ring", background: "--background", requirement: "non-text", note: "indicateur de focus" },
-  { label: "ring / card", foreground: "--ring", background: "--card", requirement: "non-text" },
-  { label: "input / card", foreground: "--input", background: "--card", requirement: "non-text", note: "frontière de champ" },
-  { label: "input / background", foreground: "--input", background: "--background", requirement: "non-text" },
-  { label: "input / muted", foreground: "--input", background: "--muted", requirement: "non-text", note: "pire cas — champ sur surface atténuée" },
-  { label: "chart-1 / background", foreground: "--chart-1", background: "--background", requirement: "non-text" },
-  { label: "chart-2 / background", foreground: "--chart-2", background: "--background", requirement: "non-text" },
-  { label: "chart-3 / background", foreground: "--chart-3", background: "--background", requirement: "non-text" },
-  { label: "chart-4 / background", foreground: "--chart-4", background: "--background", requirement: "non-text" },
-  { label: "chart-5 / background", foreground: "--chart-5", background: "--background", requirement: "non-text" },
+  {
+    label: "foreground / background",
+    foreground: "--foreground",
+    background: "--background",
+    requirement: "text",
+  },
+  {
+    label: "foreground / card",
+    foreground: "--card-foreground",
+    background: "--card",
+    requirement: "text",
+  },
+  {
+    label: "foreground / popover",
+    foreground: "--popover-foreground",
+    background: "--popover",
+    requirement: "text",
+  },
+  {
+    label: "muted-foreground / card",
+    foreground: "--muted-foreground",
+    background: "--card",
+    requirement: "text",
+  },
+  {
+    label: "muted-foreground / muted",
+    foreground: "--muted-foreground",
+    background: "--muted",
+    requirement: "text",
+  },
+  {
+    label: "primary-foreground / primary",
+    foreground: "--primary-foreground",
+    background: "--primary",
+    requirement: "text",
+  },
+  {
+    label: "primary-foreground / primary-hover",
+    foreground: "--primary-foreground",
+    background: "--primary-hover",
+    requirement: "text",
+    note: "état survol du bouton principal",
+  },
+  {
+    label: "secondary-foreground / secondary",
+    foreground: "--secondary-foreground",
+    background: "--secondary",
+    requirement: "text",
+  },
+  {
+    label: "accent-foreground / accent",
+    foreground: "--accent-foreground",
+    background: "--accent",
+    requirement: "text",
+  },
+  {
+    label: "brand-foreground / brand",
+    foreground: "--brand-foreground",
+    background: "--brand",
+    requirement: "text",
+    note: "bouton de marque",
+  },
+  {
+    label: "brand / card",
+    foreground: "--brand",
+    background: "--card",
+    requirement: "text",
+    note: "marque utilisée en texte",
+  },
+  {
+    label: "success-foreground / success",
+    foreground: "--success-foreground",
+    background: "--success",
+    requirement: "text",
+  },
+  {
+    label: "warning-foreground / warning",
+    foreground: "--warning-foreground",
+    background: "--warning",
+    requirement: "text",
+    note: "texte foncé imposé sur l'ambre",
+  },
+  {
+    label: "destructive-foreground / destructive",
+    foreground: "--destructive-foreground",
+    background: "--destructive",
+    requirement: "text",
+  },
+  {
+    label: "ring / background",
+    foreground: "--ring",
+    background: "--background",
+    requirement: "non-text",
+    note: "indicateur de focus",
+  },
+  {
+    label: "ring / card",
+    foreground: "--ring",
+    background: "--card",
+    requirement: "non-text",
+  },
+  {
+    label: "input / card",
+    foreground: "--input",
+    background: "--card",
+    requirement: "non-text",
+    note: "frontière de champ",
+  },
+  {
+    label: "input / background",
+    foreground: "--input",
+    background: "--background",
+    requirement: "non-text",
+  },
+  {
+    label: "input / muted",
+    foreground: "--input",
+    background: "--muted",
+    requirement: "non-text",
+    note: "pire cas — champ sur surface atténuée",
+  },
+  {
+    label: "chart-1 / background",
+    foreground: "--chart-1",
+    background: "--background",
+    requirement: "non-text",
+  },
+  {
+    label: "chart-2 / background",
+    foreground: "--chart-2",
+    background: "--background",
+    requirement: "non-text",
+  },
+  {
+    label: "chart-3 / background",
+    foreground: "--chart-3",
+    background: "--background",
+    requirement: "non-text",
+  },
+  {
+    label: "chart-4 / background",
+    foreground: "--chart-4",
+    background: "--background",
+    requirement: "non-text",
+  },
+  {
+    label: "chart-5 / background",
+    foreground: "--chart-5",
+    background: "--background",
+    requirement: "non-text",
+  },
 ];
 
 type Measured = Pair & { readonly ratio: number | null };
@@ -136,15 +263,24 @@ export function ContrastAudit() {
           </caption>
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
-              <th scope="col" className="py-2 pr-4 font-medium">Paire</th>
-              <th scope="col" className="py-2 pr-4 font-medium">Exigence</th>
-              <th scope="col" className="py-2 pr-4 text-right font-medium">Mesuré</th>
-              <th scope="col" className="py-2 font-medium">Verdict</th>
+              <th scope="col" className="py-2 pr-4 font-medium">
+                Paire
+              </th>
+              <th scope="col" className="py-2 pr-4 font-medium">
+                Exigence
+              </th>
+              <th scope="col" className="py-2 pr-4 text-right font-medium">
+                Mesuré
+              </th>
+              <th scope="col" className="py-2 font-medium">
+                Verdict
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const passes = row.ratio !== null && meetsAA(row.ratio, row.requirement);
+              const passes =
+                row.ratio !== null && meetsAA(row.ratio, row.requirement);
 
               return (
                 <tr key={row.label} className="border-b border-border/60">

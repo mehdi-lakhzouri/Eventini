@@ -1,0 +1,42 @@
+{
+  "application": {
+    "name": "Eventini",
+    "description": "Gestion d'événements — inscriptions, sessions, contrôle d'accès."
+  },
+  "locale": {
+    "label": "Langue",
+    "fr": "Français",
+    "en": "English",
+    "switchTo": "Afficher le site en {language}"
+  },
+  "navigation": {
+    "workspace": "Espace de travail",
+    "dashboard": "Tableau de bord",
+    "events": "Événements",
+    "participants": "Participants",
+    "reports": "Rapports",
+    "organization": "Organisation",
+    "organizationSettings": "Paramètres",
+    "members": "Membres",
+    "account": "Compte",
+    "profile": "Profil",
+    "security": "Sécurité",
+    "sessions": "Sessions",
+    "signOut": "Se déconnecter"
+  },
+  "organization": {
+    "settings": {
+      "title": "Organisation",
+      "subtitle": "Le nom et l'identifiant de votre organisation, et les limites de votre formule."
+    },
+    "members": {
+      "title": "Membres",
+      "subtitle": "Invitez, suspendez ou retirez les personnes qui travaillent dans votre organisation.",
+      "inviteHeading": "Inviter quelqu'un",
+      "listHeading": "Membres de l'organisation",
+      "invitationsHeading": "Invitations en cours",
+      "forbidden": "Vous n'avez pas les droits nécessaires pour administrer les membres de cette organisation."
+    },
+    "noActiveOrganization": "Aucune organisation active. Sélectionnez-en une dans le sélecteur de contexte pour administrer ses membres."
+  }
+}

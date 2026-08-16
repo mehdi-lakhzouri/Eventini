@@ -75,11 +75,7 @@ const KAPPA = 24389 / 27;
  * comme pour sRGB. Confondre les deux décale visiblement les bleus, ce qui
  * fausserait précisément les couleurs de cette palette.
  */
-const D50: Rgb = [
-  0.3457 / 0.3585,
-  1,
-  (1 - 0.3457 - 0.3585) / 0.3585,
-] as const;
+const D50: Rgb = [0.3457 / 0.3585, 1, (1 - 0.3457 - 0.3585) / 0.3585] as const;
 
 /**
  * `lab(L a b)` → sRGB.
@@ -138,7 +134,9 @@ export function parseColor(input: string): Rgb | null {
   const oklch = OKLCH_PATTERN.exec(value);
   if (oklch) {
     const rawL = oklch[1];
-    const l = rawL.endsWith("%") ? Number(rawL.slice(0, -1)) / 100 : Number(rawL);
+    const l = rawL.endsWith("%")
+      ? Number(rawL.slice(0, -1)) / 100
+      : Number(rawL);
     return oklchToRgb(l, Number(oklch[2]), Number(oklch[3]));
   }
 
@@ -175,9 +173,7 @@ export function parseColor(input: string): Rgb | null {
 
 /** Luminance relative, WCAG 2.1 définition 1.4.3. */
 export function relativeLuminance([r, g, b]: Rgb): number {
-  return (
-    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
-  );
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
 }
 
 /** Ratio de contraste entre deux couleurs, de 1 à 21. */

@@ -2,7 +2,7 @@
 
 import { Laptop, ScanLine, Server } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -150,7 +150,10 @@ function SessionRow({
 
   return (
     <li className="flex items-center gap-4 rounded-lg border border-border bg-card p-4 shadow-sm">
-      <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <Icon
+        className="size-5 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
 
       <div className="min-w-0 flex-1 text-sm">
         <p className="flex items-center gap-2 font-medium">

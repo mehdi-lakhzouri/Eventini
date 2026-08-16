@@ -32,7 +32,11 @@ const problem: ProblemDetails = {
 
 describe("ApiError", () => {
   it("reste une vraie Error, donc instanceof et try/catch se comportent normalement", () => {
-    const error = new ApiError({ status: 404, code: "NOT_FOUND", title: "Introuvable" });
+    const error = new ApiError({
+      status: 404,
+      code: "NOT_FOUND",
+      title: "Introuvable",
+    });
 
     expect(error).toBeInstanceOf(Error);
     expect(error).toBeInstanceOf(ApiError);
@@ -138,7 +142,11 @@ describe("ApiError", () => {
     });
 
     it("retombe sur le statut de la réponse quand le corps n'en porte pas", () => {
-      const error = ApiError.fromProblem({ ...problem, status: 0 }, undefined, 409);
+      const error = ApiError.fromProblem(
+        { ...problem, status: 0 },
+        undefined,
+        409,
+      );
 
       expect(error.status).toBe(409);
     });
@@ -165,9 +173,9 @@ describe("ApiError", () => {
      * idempotente.
      */
     it("ne se déclare jamais réessayable de sa propre initiative", () => {
-      expect(ApiError.fromResponse(502, "Bad Gateway", undefined).retryable).toBe(
-        false,
-      );
+      expect(
+        ApiError.fromResponse(502, "Bad Gateway", undefined).retryable,
+      ).toBe(false);
     });
   });
 });

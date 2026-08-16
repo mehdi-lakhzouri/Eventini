@@ -1,0 +1,42 @@
+{
+  "application": {
+    "name": "Eventini",
+    "description": "Event management — registrations, sessions, access control."
+  },
+  "locale": {
+    "label": "Language",
+    "fr": "Français",
+    "en": "English",
+    "switchTo": "View this site in {language}"
+  },
+  "navigation": {
+    "workspace": "Workspace",
+    "dashboard": "Dashboard",
+    "events": "Events",
+    "participants": "Participants",
+    "reports": "Reports",
+    "organization": "Organization",
+    "organizationSettings": "Settings",
+    "members": "Members",
+    "account": "Account",
+    "profile": "Profile",
+    "security": "Security",
+    "sessions": "Sessions",
+    "signOut": "Sign out"
+  },
+  "organization": {
+    "settings": {
+      "title": "Organization",
+      "subtitle": "Your organization's name and identifier, and the limits of your plan."
+    },
+    "members": {
+      "title": "Members",
+      "subtitle": "Invite, suspend or remove the people who work in your organization.",
+      "inviteHeading": "Invite someone",
+      "listHeading": "Organization members",
+      "invitationsHeading": "Pending invitations",
+      "forbidden": "You do not have the permissions needed to administer this organization's members."
+    },
+    "noActiveOrganization": "No active organization. Pick one in the context switcher to administer its members."
+  }
+}

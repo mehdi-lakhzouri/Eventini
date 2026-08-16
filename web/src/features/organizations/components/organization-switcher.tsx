@@ -81,7 +81,10 @@ export function OrganizationSwitcher() {
   if (list.length <= 1) {
     return (
       <div className="flex items-center gap-2 px-2 text-sm font-medium">
-        <Building2 className="size-4 text-muted-foreground" aria-hidden="true" />
+        <Building2
+          className="size-4 text-muted-foreground"
+          aria-hidden="true"
+        />
         <span className="truncate">
           {current?.name ?? "Aucune organisation"}
         </span>

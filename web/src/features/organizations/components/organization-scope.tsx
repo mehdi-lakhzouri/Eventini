@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +25,7 @@ export function OrganizationScope({
 }: {
   children: (organizationId: string) => ReactNode;
 }) {
+  const t = useTranslations("organization");
   const { data, isPending, isError } = useCurrentUser();
 
   if (isPending) {
@@ -49,8 +51,7 @@ export function OrganizationScope({
   if (organizationId === null) {
     return (
       <p className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-        Aucune organisation active. Sélectionnez-en une dans le sélecteur de
-        contexte pour administrer ses membres.
+        {t("noActiveOrganization")}
       </p>
     );
   }

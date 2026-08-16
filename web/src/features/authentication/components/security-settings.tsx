@@ -101,7 +101,9 @@ export function SecuritySettings() {
         />
 
         <Button type="submit" disabled={form.formState.isSubmitting}>
-          {form.formState.isSubmitting ? "Enregistrement…" : "Changer le mot de passe"}
+          {form.formState.isSubmitting
+            ? "Enregistrement…"
+            : "Changer le mot de passe"}
         </Button>
       </form>
     </section>

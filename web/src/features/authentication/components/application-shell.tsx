@@ -17,6 +17,9 @@ import {
   AppSidebarLayout,
   type AppSidebarNavSection,
 } from "@/components/shared/app-sidebar";
+import { LocaleSwitcher } from "@/components/shared/locale-switcher";
+import { useTranslations } from "next-intl";
+
 import { Button } from "@/components/ui/button";
 import { permissions } from "@/config/permissions";
 import { routes } from "@/config/routes";
@@ -40,15 +43,16 @@ import { usePermissions } from "../hooks/use-permissions";
  * alors qu'elles ne suffiraient nulle part ailleurs.
  */
 export function ApplicationShell({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("navigation");
   const { can, data: user } = usePermissions();
   const logout = useLogout();
 
   const sections: AppSidebarNavSection[] = [
     {
-      title: "Espace de travail",
+      title: t("workspace"),
       items: [
         {
-          label: "Tableau de bord",
+          label: t("dashboard"),
           href: "/dashboard",
           icon: LayoutDashboardIcon,
           exact: true,
@@ -56,7 +60,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
         ...(can(permissions.readEvents)
           ? [
               {
-                label: "Événements",
+                label: t("events"),
                 href: "/events",
                 icon: CalendarDaysIcon,
               },
@@ -65,7 +69,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
         ...(can(permissions.readParticipants)
           ? [
               {
-                label: "Participants",
+                label: t("participants"),
                 href: "/participants",
                 icon: UsersIcon,
               },
@@ -74,7 +78,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
         ...(can(permissions.readReports)
           ? [
               {
-                label: "Rapports",
+                label: t("reports"),
                 href: "/reports",
                 icon: BarChart3Icon,
               },
@@ -91,12 +95,12 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
     ...(can(permissions.readOrganization) || can(permissions.readMembers)
       ? [
           {
-            title: "Organisation",
+            title: t("organization"),
             items: [
               ...(can(permissions.readOrganization)
                 ? [
                     {
-                      label: "Paramètres",
+                      label: t("organizationSettings"),
                       href: routes.organization,
                       icon: Building2Icon,
                       exact: true,
@@ -106,7 +110,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
               ...(can(permissions.readMembers)
                 ? [
                     {
-                      label: "Membres",
+                      label: t("members"),
                       href: routes.organizationMembers,
                       icon: UsersRoundIcon,
                     },
@@ -117,11 +121,11 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
         ]
       : []),
     {
-      title: "Compte",
+      title: t("account"),
       items: [
-        { label: "Profil", href: "/account/profile", icon: UserCircleIcon },
+        { label: t("profile"), href: "/account/profile", icon: UserCircleIcon },
         {
-          label: "Sécurité",
+          label: t("security"),
           href: "/account/security",
           icon: ShieldCheckIcon,
         },
@@ -132,7 +136,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
           notamment pour couper une session qu'il ne reconnaît pas.
         */
         {
-          label: "Sessions",
+          label: t("sessions"),
           href: "/account/sessions",
           icon: MonitorSmartphoneIcon,
         },
@@ -156,15 +160,19 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
             <OrganizationSwitcher />
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => logout.mutate()}
-            disabled={logout.isPending}
-          >
-            <LogOutIcon aria-hidden="true" />
-            {logout.isPending ? "Déconnexion…" : "Se déconnecter"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <LocaleSwitcher />
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => logout.mutate()}
+              disabled={logout.isPending}
+            >
+              <LogOutIcon aria-hidden="true" />
+              {t("signOut")}
+            </Button>
+          </div>
         </header>
 
         {children}

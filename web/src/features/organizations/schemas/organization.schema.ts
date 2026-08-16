@@ -55,7 +55,9 @@ export const organizationProfileSchema = z.object({
     ),
 });
 
-export type OrganizationProfileInput = z.infer<typeof organizationProfileSchema>;
+export type OrganizationProfileInput = z.infer<
+  typeof organizationProfileSchema
+>;
 
 /**
  * L'invitation.
@@ -73,7 +75,8 @@ export const inviteMemberSchema = z.object({
     .min(3, "Renseignez une adresse.")
     .max(320, "L'adresse ne peut pas dépasser 320 caractères.")
     .refine(
-      (value) => value.includes("@") && !value.startsWith("@") && !value.endsWith("@"),
+      (value) =>
+        value.includes("@") && !value.startsWith("@") && !value.endsWith("@"),
       "Cette adresse ne ressemble pas à une adresse électronique.",
     ),
   roleCode: z.string().min(1, "Choisissez un rôle."),

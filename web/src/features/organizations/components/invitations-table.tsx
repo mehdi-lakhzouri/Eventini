@@ -111,7 +111,9 @@ export function InvitationsTable({
                 <TableCell className="font-medium">
                   {invitation.email}
                 </TableCell>
-                <TableCell>{assignableRoleLabel(invitation.roleCode)}</TableCell>
+                <TableCell>
+                  {assignableRoleLabel(invitation.roleCode)}
+                </TableCell>
                 <TableCell>
                   <Badge
                     variant={

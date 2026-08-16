@@ -2,8 +2,7 @@
 
 import { motion } from "motion/react";
 import { ShieldCheck, TrendingUp, UsersRound } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 
 import { routes } from "@/config/routes";
 import {

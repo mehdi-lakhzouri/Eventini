@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3Icon,
@@ -212,7 +211,7 @@ function usePersistentSidebarOpen(defaultOpen: boolean, storageKey: string) {
 function isHrefActive(
   pathname: string,
   href: string,
-  exact: boolean | undefined
+  exact: boolean | undefined,
 ) {
   if (href === "/") {
     return pathname === "/";
@@ -299,7 +298,7 @@ function AppSidebarCollapseButton({
       }
       className={cn(
         "size-8 rounded-lg text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring",
-        className
+        className,
       )}
       onClick={(event) => {
         onClick?.(event);
@@ -410,7 +409,7 @@ function AppSidebarNavItem({
         className={cn(
           "relative h-9 rounded-lg text-sidebar-foreground/75 transition-colors hover:text-sidebar-foreground",
           isActive &&
-            "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary hover:text-sidebar-primary-foreground focus-visible:ring-sidebar-primary/40 before:absolute before:left-1 before:h-5 before:w-1 before:rounded-full before:bg-sidebar-primary-foreground/70 group-data-[collapsible=icon]:before:hidden"
+            "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary hover:text-sidebar-primary-foreground focus-visible:ring-sidebar-primary/40 before:absolute before:left-1 before:h-5 before:w-1 before:rounded-full before:bg-sidebar-primary-foreground/70 group-data-[collapsible=icon]:before:hidden",
         )}
       >
         <Icon className="size-4" aria-hidden="true" />
@@ -420,7 +419,7 @@ function AppSidebarNavItem({
         <SidebarMenuBadge
           className={cn(
             "right-2 text-sidebar-foreground/50",
-            isActive && "text-sidebar-primary-foreground/80"
+            isActive && "text-sidebar-primary-foreground/80",
           )}
         >
           {item.badge}

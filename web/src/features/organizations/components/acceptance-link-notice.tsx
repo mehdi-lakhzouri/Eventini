@@ -54,9 +54,7 @@ export function AcceptanceLinkNotice({
       className="space-y-3 rounded-lg border border-warning/40 bg-warning/10 p-4"
     >
       <div className="space-y-1">
-        <p className="text-sm font-medium">
-          Invitation créée pour {email}
-        </p>
+        <p className="text-sm font-medium">Invitation créée pour {email}</p>
         <p className="text-sm text-muted-foreground">
           Transmettez ce lien vous-même : l&apos;envoi automatique de courriels
           n&apos;existe pas encore. <strong>Il ne sera plus affiché</strong> —
@@ -68,7 +66,12 @@ export function AcceptanceLinkNotice({
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-64 flex-1 space-y-1.5">
           <Label htmlFor="acceptance-link">Lien d&apos;acceptation</Label>
-          <Input id="acceptance-link" readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
+          <Input
+            id="acceptance-link"
+            readOnly
+            value={link}
+            onFocus={(e) => e.currentTarget.select()}
+          />
         </div>
         <Button type="button" variant="outline" onClick={copy}>
           {copied ? "Copié" : "Copier"}

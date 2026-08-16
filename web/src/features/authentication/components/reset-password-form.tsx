@@ -1,7 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+
+import { useRouter } from "@/i18n/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 

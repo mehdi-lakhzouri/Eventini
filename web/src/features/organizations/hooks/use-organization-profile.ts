@@ -2,10 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  getOrganization,
-  updateOrganization,
-} from "../api/organizations.api";
+import { getOrganization, updateOrganization } from "../api/organizations.api";
 import type { VersionedOrganization } from "../types";
 import { organizationQueryKeys } from "./query-keys";
 

@@ -124,7 +124,10 @@ export function OrganizationProfileForm({
           aria-invalid={form.formState.errors.slug !== undefined}
           {...form.register("slug")}
         />
-        <p id="organization-slug-help" className="text-sm text-muted-foreground">
+        <p
+          id="organization-slug-help"
+          className="text-sm text-muted-foreground"
+        >
           Minuscules, chiffres et tirets. Il apparaît dans les adresses.
         </p>
         {form.formState.errors.slug ? (
@@ -145,11 +148,15 @@ export function OrganizationProfileForm({
         </div>
         <div>
           <dt className="text-muted-foreground">Membres autorisés</dt>
-          <dd className="font-medium">{organization.userLimit ?? "Illimité"}</dd>
+          <dd className="font-medium">
+            {organization.userLimit ?? "Illimité"}
+          </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Événements autorisés</dt>
-          <dd className="font-medium">{organization.eventLimit ?? "Illimité"}</dd>
+          <dd className="font-medium">
+            {organization.eventLimit ?? "Illimité"}
+          </dd>
         </div>
       </dl>
 

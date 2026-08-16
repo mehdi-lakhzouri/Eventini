@@ -11,8 +11,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+
+import { Link, useRouter } from "@/i18n/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, type UseFormReturn } from "react-hook-form";
 

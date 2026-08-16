@@ -3,7 +3,9 @@ import { Suspense } from "react";
 
 import { MfaVerificationForm } from "@/features/authentication";
 
-export const metadata: Metadata = { title: "Vérification en deux étapes — Eventini" };
+export const metadata: Metadata = {
+  title: "Vérification en deux étapes — Eventini",
+};
 
 /**
  * `Suspense` est obligatoire, pas décoratif : le formulaire lit
