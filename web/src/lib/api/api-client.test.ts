@@ -98,7 +98,9 @@ describe("apiClient", () => {
     it("rend null sur 204 sans tenter de lire un corps absent", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
 
-      await expect(apiClient.delete("/auth/sessions/current")).resolves.toBeNull();
+      await expect(
+        apiClient.delete("/auth/sessions/current"),
+      ).resolves.toBeNull();
     });
   });
 
@@ -274,9 +276,13 @@ describe("apiClient", () => {
         jsonResponse(201, { data: null, meta: meta(), error: null }),
       );
 
-      await apiClient.post("/events", { name: "x" }, {
-        idempotencyKey: "idem_01JABC",
-      });
+      await apiClient.post(
+        "/events",
+        { name: "x" },
+        {
+          idempotencyKey: "idem_01JABC",
+        },
+      );
 
       const headers = new Headers(lastRequest().init.headers);
       expect(headers.get("Idempotency-Key")).toBe("idem_01JABC");
@@ -287,9 +293,13 @@ describe("apiClient", () => {
         jsonResponse(200, { data: null, meta: meta(), error: null }),
       );
 
-      await apiClient.patch("/events/evt_1", { name: "y" }, {
-        ifMatch: '"v3"',
-      });
+      await apiClient.patch(
+        "/events/evt_1",
+        { name: "y" },
+        {
+          ifMatch: '"v3"',
+        },
+      );
 
       const headers = new Headers(lastRequest().init.headers);
       expect(headers.get("If-Match")).toBe('"v3"');

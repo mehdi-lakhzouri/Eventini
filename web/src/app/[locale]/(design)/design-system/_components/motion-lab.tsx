@@ -32,10 +32,7 @@ export function MotionLab() {
         <Button onClick={() => setRun((value) => value + 1)}>
           Rejouer les animations
         </Button>
-        <p
-          aria-live="polite"
-          className="text-sm text-muted-foreground"
-        >
+        <p aria-live="polite" className="text-sm text-muted-foreground">
           {reduced
             ? "prefers-reduced-motion actif — les déplacements sont neutralisés."
             : "Mouvement complet."}
@@ -109,7 +106,9 @@ export function MotionLab() {
         {Object.entries(duration).map(([name, value]) => (
           <div key={name} className="flex justify-between gap-4">
             <dt className="font-mono text-xs">duration.{name}</dt>
-            <dd className="font-mono text-xs text-muted-foreground">{value}s</dd>
+            <dd className="font-mono text-xs text-muted-foreground">
+              {value}s
+            </dd>
           </div>
         ))}
         {Object.entries(easing).map(([name, value]) => (

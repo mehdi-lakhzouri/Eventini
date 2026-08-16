@@ -16,7 +16,20 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  /**
+   * 🔴 Plafonné en local, et pas par prudence : `undefined` laisse Playwright
+   * ouvrir un worker par cœur, tous pointés sur **un seul** serveur `next dev`.
+   *
+   * Mesuré sur cette suite, à code identique : 37 échecs sur 53 en workers
+   * libres, 2 sur 53 à deux workers. Les échecs n'avaient rien à voir avec le
+   * produit — le serveur de développement compile les routes à la demande et
+   * s'écroule sous la concurrence, ce qui ressort en pages blanches et en
+   * sélecteurs introuvables.
+   *
+   * Une suite dont le résultat dépend de la charge de la machine ne prouve
+   * rien, et pire : elle apprend à ignorer ses propres échecs.
+   */
+  workers: process.env.CI ? 1 : 2,
   reporter: process.env.CI ? "github" : "list",
 
   use: {

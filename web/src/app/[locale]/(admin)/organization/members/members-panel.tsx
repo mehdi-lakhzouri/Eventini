@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { permissions } from "@/config/permissions";
 import { usePermissions } from "@/features/authentication";
 import {
@@ -23,6 +25,7 @@ import {
  * formulaire dont chaque envoi répondrait `403`.
  */
 export function MembersPanel() {
+  const t = useTranslations("organization.members");
   const { can, isPending } = usePermissions();
 
   if (isPending) {
@@ -35,8 +38,7 @@ export function MembersPanel() {
   if (!canRead && !canInvite) {
     return (
       <p className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-        Vous n&apos;avez pas les droits nécessaires pour administrer les membres
-        de cette organisation.
+        {t("forbidden")}
       </p>
     );
   }
@@ -48,7 +50,7 @@ export function MembersPanel() {
           {canInvite ? (
             <section className="space-y-4">
               <h2 className="text-lg font-semibold tracking-tight">
-                Inviter quelqu&apos;un
+                {t("inviteHeading")}
               </h2>
               <InviteMemberForm organizationId={organizationId} />
             </section>
@@ -57,7 +59,7 @@ export function MembersPanel() {
           {canRead ? (
             <section className="space-y-4">
               <h2 className="text-lg font-semibold tracking-tight">
-                Membres de l&apos;organisation
+                {t("listHeading")}
               </h2>
               <MembersTable organizationId={organizationId} />
             </section>
@@ -66,7 +68,7 @@ export function MembersPanel() {
           {canInvite ? (
             <section className="space-y-4">
               <h2 className="text-lg font-semibold tracking-tight">
-                Invitations en cours
+                {t("invitationsHeading")}
               </h2>
               <InvitationsTable organizationId={organizationId} />
             </section>

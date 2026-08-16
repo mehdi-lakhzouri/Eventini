@@ -32,7 +32,7 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 | [EVT-044](#evt-044) | Membres et assignation de rôles ✅ | `users.read` / `users.manage_roles` |
 | [EVT-045](#evt-045) | Suspension et révocation de membership ✅ | `users.manage_roles` |
 | [EVT-046](#evt-046) | UI d'administration d'organisation ✅ | `users.read` / `users.invite` / `users.manage_roles` |
-| [EVT-047](#evt-047) | i18n complet | — |
+| [EVT-047](#evt-047) | i18n — socle complet, copie en cours 🔶 | — |
 | [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` ✅ | — |
 | [EVT-076](#evt-076) | Journal d'audit métier ✅ | — |
 | [EVT-077](#evt-077) | Journal des événements de sécurité ✅ | — |
@@ -288,6 +288,38 @@ web/messages/fr.json · en.json
 **Stratégie** — préfixe de locale sur les routes non par défaut (`/en/dashboard`, `/dashboard` pour le français). `users.locale` porte la préférence de l'utilisateur connecté.
 
 **Ce qui n'est jamais traduit** — les codes d'erreur (`AUTH_TENANT_DENIED`), les event codes, les noms de permissions. Ce sont des identifiants, pas du texte. Seuls les **messages** le sont.
+
+> ✅ **Socle fait le 16 août 2026.** 162 tests unitaires web, 15 routes prérendues **dans les deux langues**, 40/41 Playwright.
+>
+> ### 🔴 `localeDetection` est désactivé, et ce n'est pas un détail
+>
+> Activée — le défaut — la détection ne se contente **pas** de négocier à la racine : elle redirige **tout** chemin non préfixé vers la locale déduite d'`Accept-Language`. Constaté en e2e, un navigateur configuré en anglais ouvrant `/account/sessions` se retrouvait sur `/en/account/sessions`.
+>
+> Deux raisons de la couper. Un lien doit être **stable** : `/organization/members` envoyé à un collègue doit ouvrir la même page dans la même langue, quel que soit son navigateur — sinon la seule façon d'imposer le français devient de préfixer `/fr`, ce que le mode `as-needed` existe précisément pour éviter. Et la préférence de langue vit sur `users.locale`, c'est-à-dire sur le **compte** ; un en-tête HTTP ne peut pas la contredire.
+>
+> Conséquence assumée : un anglophone arrivant sur `/` voit le français jusqu'à ce qu'il change de langue.
+>
+> ### `setRequestLocale` ou tout devient dynamique
+>
+> Sans lui, `getMessages` et `getTranslations` lisent la locale dans les en-têtes de requête, et toucher aux en-têtes suffit à désactiver le rendu statique. Constaté au build : les 15 routes passaient de `○ Static` à `ƒ Dynamic` — **sans erreur, sans avertissement**, juste une lettre différente dans le tableau de sortie. Il est appelé dans le layout de locale et dans chaque page qui traduit côté serveur.
+>
+> ### Deux pièges de navigation
+>
+> `next/link` et `useRouter` de `next/navigation` **ignorent la locale** : sous `as-needed`, un `<Link href="/dashboard">` depuis `/en/organization` envoie littéralement vers la version française, et la page s'affiche — aucune erreur ne signale la bascule. Les treize sites concernés passent par `@/i18n/navigation`.
+>
+> `AppProviders` montait un `NextIntlClientProvider` avec `messages={{}}`, bon intérim tant qu'aucun catalogue n'existait. Le garder aurait **écrasé** celui du layout : le fournisseur le plus interne gagne, et l'interface aurait rendu ses clés brutes sans une erreur pour l'expliquer.
+>
+> ### Le typage rattrape la faute de frappe, le test rattrape la parité
+>
+> `messages.d.ts` type les clés d'après le catalogue **français** — la langue par défaut, donc celle qui est toujours complète. `t("navigaton.dashboard")` échoue désormais au `typecheck` au lieu de rendre la clé à l'écran. L'écart inverse — une clé absente en anglais — n'est pas visible au typage : un test de parité des catalogues le couvre, avec un test qui refuse tout identifiant machine (`SCREAMING_SNAKE_CASE`) comme valeur traduite.
+>
+> ### 🔴 Ce qui reste : la copie des écrans
+>
+> Le socle est complet et les surfaces suivantes sont traduites — navigation de la coque, sélecteur de langue, écrans d'organisation, métadonnées de page. **Les formulaires d'authentification, les messages de validation Zod et la page `/design-system` ne le sont pas.**
+>
+> Ce n'est pas un oubli mais un découpage : 50 fichiers portent des chaînes en dur, dont le formulaire MFA de 627 lignes livré le même jour, et les migrer en même temps que le socle aurait produit une PR irrelisible où une erreur de câblage se serait noyée dans la copie. Les messages Zod demandent en plus de convertir les schémas en fabriques prenant un traducteur — un changement de signature qui mérite sa propre revue.
+>
+> `/design-system` restera en français : c'est un outil de recette, pas un écran produit.
 
 ---
 

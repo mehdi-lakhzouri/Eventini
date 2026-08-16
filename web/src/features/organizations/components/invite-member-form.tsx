@@ -7,7 +7,10 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { applyApiErrorToForm } from "@/features/authentication";
 import {
   ASSIGNABLE_ROLES,
@@ -35,7 +38,11 @@ import { AcceptanceLinkNotice } from "./acceptance-link-notice";
  * l'invité. La possession du jeton cesse de prouver le contrôle de la boîte.
  * L'écran le dit plutôt que de le taire.
  */
-export function InviteMemberForm({ organizationId }: { organizationId: string }) {
+export function InviteMemberForm({
+  organizationId,
+}: {
+  organizationId: string;
+}) {
   const { create } = useInvitationMutations(organizationId);
   const [issued, setIssued] = useState<{ email: string; token: string } | null>(
     null,

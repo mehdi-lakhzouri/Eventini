@@ -14,7 +14,10 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -84,7 +87,12 @@ function formatDate(iso: string | null): string {
  * route paginera, c'est ce composant qui change, pas l'écran.
  */
 export function MembersTable({ organizationId }: { organizationId: string }) {
-  const { data: members, isPending, isError, error } = useMembers(organizationId);
+  const {
+    data: members,
+    isPending,
+    isError,
+    error,
+  } = useMembers(organizationId);
   const { can } = usePermissions();
   const mutations = useMemberMutations(organizationId);
   const [feedback, setFeedback] = useState<string | null>(null);

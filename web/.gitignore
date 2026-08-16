@@ -13,6 +13,14 @@
 # testing
 /coverage
 
+# Artefacts Playwright — traces, captures et contextes d'échec. Ils sont
+# régénérés à chaque exécution et pèsent lourd ; `test-results/` n'était couvert
+# par aucune règle et serait parti dans le premier commit suivant un échec.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # next.js
 /.next/
 /out/

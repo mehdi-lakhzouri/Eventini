@@ -4,11 +4,12 @@ import {
   BarChart3Icon,
   Building2Icon,
   CalendarDaysIcon,
+  ClipboardListIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MonitorSmartphoneIcon,
+  ReceiptTextIcon,
   ShieldCheckIcon,
-  UserCircleIcon,
   UsersIcon,
   UsersRoundIcon,
 } from "lucide-react";
@@ -17,12 +18,22 @@ import {
   AppSidebarLayout,
   type AppSidebarNavSection,
 } from "@/components/shared/app-sidebar";
-import { Button } from "@/components/ui/button";
+import { LocaleSwitcher } from "@/components/shared/locale-switcher";
+import { ThemeModeToggle } from "@/components/shared/theme-mode-toggle";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
+import { Link } from "@/i18n/navigation";
+import { useTranslations } from "next-intl";
+
 import { permissions } from "@/config/permissions";
 import { routes } from "@/config/routes";
 import { OrganizationSwitcher } from "@/features/organizations";
 import { useLogout } from "../hooks/use-logout";
 import { usePermissions } from "../hooks/use-permissions";
+import { EventiniMark } from "./eventini-logo";
 
 /**
  * La coque applicative — barre latérale, sélecteur d'organisation, déconnexion.
@@ -40,43 +51,68 @@ import { usePermissions } from "../hooks/use-permissions";
  * alors qu'elles ne suffiraient nulle part ailleurs.
  */
 export function ApplicationShell({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("navigation");
   const { can, data: user } = usePermissions();
   const logout = useLogout();
 
   const sections: AppSidebarNavSection[] = [
     {
-      title: "Espace de travail",
+      title: t("workspace"),
       items: [
         {
-          label: "Tableau de bord",
-          href: "/dashboard",
+          label: t("dashboard"),
+          href: routes.adminDashboard,
           icon: LayoutDashboardIcon,
           exact: true,
         },
         ...(can(permissions.readEvents)
           ? [
               {
-                label: "Événements",
-                href: "/events",
+                label: t("events"),
+                href: routes.events,
                 icon: CalendarDaysIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "09" }),
+              },
+              {
+                label: t("eventSessions"),
+                href: routes.eventSessions,
+                icon: ClipboardListIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "09" }),
               },
             ]
           : []),
         ...(can(permissions.readParticipants)
           ? [
               {
-                label: "Participants",
-                href: "/participants",
+                label: t("participants"),
+                href: routes.participants,
                 icon: UsersIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "10" }),
+              },
+            ]
+          : []),
+        ...(can(permissions.readRegistrations)
+          ? [
+              {
+                label: t("registrations"),
+                href: routes.registrations,
+                icon: ReceiptTextIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "10" }),
               },
             ]
           : []),
         ...(can(permissions.readReports)
           ? [
               {
-                label: "Rapports",
-                href: "/reports",
+                label: t("reports"),
+                href: routes.reports,
                 icon: BarChart3Icon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "12" }),
               },
             ]
           : []),
@@ -91,12 +127,12 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
     ...(can(permissions.readOrganization) || can(permissions.readMembers)
       ? [
           {
-            title: "Organisation",
+            title: t("organization"),
             items: [
               ...(can(permissions.readOrganization)
                 ? [
                     {
-                      label: "Paramètres",
+                      label: t("organizationSettings"),
                       href: routes.organization,
                       icon: Building2Icon,
                       exact: true,
@@ -106,7 +142,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
               ...(can(permissions.readMembers)
                 ? [
                     {
-                      label: "Membres",
+                      label: t("members"),
                       href: routes.organizationMembers,
                       icon: UsersRoundIcon,
                     },
@@ -117,12 +153,11 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
         ]
       : []),
     {
-      title: "Compte",
+      title: t("account"),
       items: [
-        { label: "Profil", href: "/account/profile", icon: UserCircleIcon },
         {
-          label: "Sécurité",
-          href: "/account/security",
+          label: t("security"),
+          href: routes.accountSecurity,
           icon: ShieldCheckIcon,
         },
         /*
@@ -132,8 +167,8 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
           notamment pour couper une session qu'il ne reconnaît pas.
         */
         {
-          label: "Sessions",
-          href: "/account/sessions",
+          label: t("sessions"),
+          href: routes.accountSessions,
           icon: MonitorSmartphoneIcon,
         },
       ],
@@ -144,31 +179,109 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
     <AppSidebarLayout
       brand={{
         name: "Eventini",
-        description: user?.displayName ?? undefined,
-        href: "/dashboard",
-        icon: LayoutDashboardIcon,
+        description: t("eventManagement"),
+        href: routes.adminDashboard,
+        icon: EventiniMark,
       }}
       sections={sections}
+      footer={
+        <ApplicationSidebarFooter
+          displayName={user?.displayName ?? user?.email ?? "Eventini"}
+          email={user?.email}
+          role={
+            user?.role === "SUPER_ADMIN"
+              ? t("superAdministrator")
+              : t("administrator")
+          }
+          signOutLabel={t("signOut")}
+          isSigningOut={logout.isPending}
+          onSignOut={() => logout.mutate()}
+        />
+      }
     >
-      <div className="flex flex-col gap-4 p-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="w-full max-w-xs">
+      <div className="flex min-h-svh flex-col bg-background">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-background/88 px-4 py-3 backdrop-blur-xl supports-backdrop-filter:bg-background/75 sm:px-6">
+          <div className="w-full max-w-[19rem] sm:w-auto sm:flex-1">
             <OrganizationSwitcher />
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => logout.mutate()}
-            disabled={logout.isPending}
-          >
-            <LogOutIcon aria-hidden="true" />
-            {logout.isPending ? "Déconnexion…" : "Se déconnecter"}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <ThemeModeToggle />
+            <LocaleSwitcher />
+          </div>
         </header>
 
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+          {children}
+        </div>
       </div>
     </AppSidebarLayout>
   );
+}
+
+type ApplicationSidebarFooterProps = {
+  displayName: string;
+  email?: string;
+  role: string;
+  signOutLabel: string;
+  isSigningOut: boolean;
+  onSignOut: () => void;
+};
+
+function ApplicationSidebarFooter({
+  displayName,
+  email,
+  role,
+  signOutLabel,
+  isSigningOut,
+  onSignOut,
+}: ApplicationSidebarFooterProps) {
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          size="lg"
+          tooltip={displayName}
+          render={
+            <Link href={routes.accountProfile} aria-label={displayName} />
+          }
+          className="h-14 rounded-xl border border-sidebar-border/70 bg-sidebar-accent/55 p-2 shadow-xs hover:bg-sidebar-accent"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground shadow-sm">
+            {initials(displayName)}
+          </span>
+          <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <span className="block truncate text-sm font-semibold">
+              {displayName}
+            </span>
+            <span className="block truncate text-[0.7rem] text-sidebar-foreground/55">
+              {email ?? role}
+            </span>
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          tooltip={signOutLabel}
+          aria-label={signOutLabel}
+          disabled={isSigningOut}
+          onClick={onSignOut}
+          className="h-9 rounded-xl text-sidebar-foreground/65 hover:text-sidebar-foreground"
+        >
+          <LogOutIcon aria-hidden="true" />
+          <span>{signOutLabel}</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
+function initials(displayName: string) {
+  return displayName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase() ?? "")
+    .join("")
+    .slice(0, 2);
 }

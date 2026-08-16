@@ -1,3 +1,4 @@
+import { LocaleSwitcher } from "@/components/shared/locale-switcher";
 import { AuthBrandPanel } from "@/features/authentication";
 
 /**
@@ -20,8 +21,18 @@ export default function AuthLayout({
     <div className="grid min-h-dvh bg-[#fafbfd] lg:grid-cols-2">
       <AuthBrandPanel />
 
-      <main className="flex min-h-dvh items-center justify-center bg-[#fafbfd] px-0 py-8 text-[#0f172a] sm:px-10 sm:py-10">
-        <div className="w-full max-w-sm has-[.eventini-auth-card]:max-w-[614px]">
+      <main className="relative flex min-h-dvh items-center justify-center bg-[#fafbfd] px-0 py-6 text-[#0f172a] sm:px-8 sm:py-6 xl:py-8">
+        {/*
+          Le sélecteur est ici et pas seulement dans la coque authentifiée :
+          quelqu'un qui ne lit pas le français doit pouvoir changer de langue
+          **avant** de se connecter, sinon la seule page qu'il doit comprendre
+          est la seule qu'il ne peut pas traduire.
+        */}
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
+          <LocaleSwitcher />
+        </div>
+
+        <div className="w-full max-w-sm has-[.eventini-auth-card]:max-w-[560px]">
           {children}
         </div>
       </main>

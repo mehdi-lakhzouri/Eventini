@@ -1,7 +1,12 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { useMemo } from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+
+import { useRouter } from "@/i18n/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 
@@ -9,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { routes } from "@/config/routes";
 import { resetPassword } from "../api/password.api";
 import {
-  resetPasswordSchema,
+  buildResetPasswordSchema,
   type ResetPasswordFormValues,
 } from "../schemas/password.schema";
 import { applyApiErrorToForm } from "../utils/form-errors";
@@ -26,12 +31,15 @@ import { FormMessage } from "./form-message";
  * renvoie vers une nouvelle demande plutôt que d'inviter à réessayer.
  */
 export function ResetPasswordForm() {
+  const t = useTranslations("authentication");
+  const tv = useTranslations("validation");
+  const schema = useMemo(() => buildResetPasswordSchema(tv), [tv]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
 
   const form = useForm<ResetPasswordFormValues>({
-    resolver: zodResolver(resetPasswordSchema),
+    resolver: zodResolver(schema),
     defaultValues: { token, newPassword: "", confirmation: "" },
     mode: "onSubmit",
   });
@@ -59,17 +67,17 @@ export function ResetPasswordForm() {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Lien incomplet
+          {t("resetPassword.incompleteLink")}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Ce lien de réinitialisation est incomplet. Demandez-en un nouveau.
+          {t("resetPassword.incompleteLinkDetail")}
         </p>
         <Button
           size="lg"
           className="w-full"
           onClick={() => router.replace(routes.forgotPassword)}
         >
-          Demander un nouveau lien
+          {t("resetPassword.requestNewLink")}
         </Button>
       </div>
     );
@@ -79,11 +87,10 @@ export function ResetPasswordForm() {
     <div className="space-y-6">
       <header className="space-y-1.5">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Nouveau mot de passe
+          {t("resetPassword.title")}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Choisissez un mot de passe que vous n&apos;utilisez nulle part
-          ailleurs.
+          {t("resetPassword.subtitle")}
         </p>
       </header>
 
@@ -92,18 +99,18 @@ export function ResetPasswordForm() {
 
         <FormField
           id="newPassword"
-          label="Nouveau mot de passe"
+          label={t("fields.newPassword")}
           type="password"
           autoComplete="new-password"
           autoFocus
-          hint="Au moins 12 caractères."
+          hint={t("fields.passwordHint")}
           error={form.formState.errors.newPassword}
           {...form.register("newPassword")}
         />
 
         <FormField
           id="confirmation"
-          label="Confirmation"
+          label={t("fields.confirmation")}
           type="password"
           autoComplete="new-password"
           error={form.formState.errors.confirmation}
@@ -116,7 +123,9 @@ export function ResetPasswordForm() {
           className="w-full"
           disabled={form.formState.isSubmitting}
         >
-          {form.formState.isSubmitting ? "Enregistrement…" : "Enregistrer"}
+          {form.formState.isSubmitting
+            ? t("resetPassword.submitting")
+            : t("resetPassword.submit")}
         </Button>
       </form>
     </div>

@@ -97,7 +97,9 @@ export function ConfirmActionDialog({
           <AlertDialogAction
             variant={destructive ? "destructive" : "default"}
             disabled={isPending}
-            onClick={() => onConfirm(reason.trim() === "" ? null : reason.trim())}
+            onClick={() =>
+              onConfirm(reason.trim() === "" ? null : reason.trim())
+            }
           >
             {isPending ? "En cours…" : confirmLabel}
           </AlertDialogAction>

@@ -120,10 +120,7 @@ function Section({
 }) {
   return (
     <section aria-labelledby={`${id}-title`}>
-      <h2
-        id={`${id}-title`}
-        className="text-xl font-semibold tracking-tight"
-      >
+      <h2 id={`${id}-title`} className="text-xl font-semibold tracking-tight">
         {title}
       </h2>
       <p className="mt-1 mb-6 text-sm text-muted-foreground">{lead}</p>
@@ -133,12 +130,36 @@ function Section({
 }
 
 const TYPE_SCALE = [
-  { name: "Display", className: "text-4xl font-semibold tracking-tight", sample: "Tableau de bord" },
-  { name: "H1", className: "text-3xl font-semibold tracking-tight", sample: "Organisations" },
-  { name: "H2", className: "text-2xl font-semibold tracking-tight", sample: "Membres actifs" },
-  { name: "H3", className: "text-lg font-semibold", sample: "Sessions ouvertes" },
-  { name: "Body", className: "text-sm", sample: "Un membre peut appartenir à plusieurs organisations." },
-  { name: "Small", className: "text-xs text-muted-foreground", sample: "Dernière activité il y a 3 minutes" },
+  {
+    name: "Display",
+    className: "text-4xl font-semibold tracking-tight",
+    sample: "Tableau de bord",
+  },
+  {
+    name: "H1",
+    className: "text-3xl font-semibold tracking-tight",
+    sample: "Organisations",
+  },
+  {
+    name: "H2",
+    className: "text-2xl font-semibold tracking-tight",
+    sample: "Membres actifs",
+  },
+  {
+    name: "H3",
+    className: "text-lg font-semibold",
+    sample: "Sessions ouvertes",
+  },
+  {
+    name: "Body",
+    className: "text-sm",
+    sample: "Un membre peut appartenir à plusieurs organisations.",
+  },
+  {
+    name: "Small",
+    className: "text-xs text-muted-foreground",
+    sample: "Dernière activité il y a 3 minutes",
+  },
 ] as const;
 
 function TypographyScale() {
@@ -205,15 +226,18 @@ function AuthTemplatePreview() {
 
         <div className="flex flex-col justify-center gap-4 bg-card p-8">
           <div>
-            <h3 className="text-2xl font-semibold tracking-tight">Bon retour</h3>
+            <h3 className="text-2xl font-semibold tracking-tight">
+              Bon retour
+            </h3>
             <p className="mt-1 text-sm text-muted-foreground">
               Connectez-vous pour accéder à votre organisation.
             </p>
           </div>
           <p className="rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
             Aperçu de mise en page uniquement. Le formulaire réel, sa validation
-            Zod et le traitement de <span className="font-mono">AUTH_MFA_REQUIRED</span>{" "}
-            arrivent avec EVT-040.
+            Zod et le traitement de{" "}
+            <span className="font-mono">AUTH_MFA_REQUIRED</span> arrivent avec
+            EVT-040.
           </p>
         </div>
       </div>

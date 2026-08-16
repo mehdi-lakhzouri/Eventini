@@ -1,9 +1,10 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { motion } from "motion/react";
 import { ShieldCheck, TrendingUp, UsersRound } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 
 import { routes } from "@/config/routes";
 import {
@@ -16,25 +17,19 @@ import { cn } from "@/lib/utils";
 import { EventiniLogo } from "./eventini-logo";
 import { TypewriterText } from "./typewriter-text";
 
+/*
+  Les icônes restent ici, les textes viennent du catalogue : une icône n'a pas
+  de langue, un libellé si. Les garder ensemble aurait obligé à recopier la
+  liste dans chaque traduction.
+*/
 const features = [
-  {
-    icon: UsersRound,
-    title: "Gestion centralisée",
-    description: "Toutes vos données au même endroit.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Check-in sécurisé",
-    description: "Contrôle d’accès fiable et rapide.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Suivi en temps réel",
-    description: "Des insights à jour pour de meilleures décisions.",
-  },
+  { icon: UsersRound, key: "centralised" },
+  { icon: ShieldCheck, key: "checkIn" },
+  { icon: TrendingUp, key: "realTime" },
 ] as const;
 
 export function AuthBrandPanel() {
+  const t = useTranslations("authentication.brand");
   const pathname = usePathname();
   const reduceMotion = useReducedMotion();
   const initial = reduceMotion ? false : "hidden";
@@ -68,7 +63,7 @@ export function AuthBrandPanel() {
       <motion.div initial={initial} animate="visible" variants={fadeUp}>
         <Link
           href={routes.publicHome}
-          aria-label="Accueil Eventini"
+          aria-label={t("home")}
           className="relative z-10 inline-flex rounded-sm outline-offset-4"
         >
           <EventiniLogo />
@@ -89,19 +84,16 @@ export function AuthBrandPanel() {
           variants={fadeUp}
           className="text-[clamp(3rem,3.45vw,3.625rem)] font-bold leading-[1.28] tracking-[-0.035em]"
         >
-          Gérez vos
+          {t("headlineLine1")}
           <br />
-          événements
+          {t("headlineLine2")}
           <br />
-          de bout en bout.
+          {t("headlineLine3")}
         </motion.h1>
 
         <TypewriterText
           delay={0.52}
-          lines={[
-            "Inscriptions, sessions, contrôle d'accès et",
-            "rapports réunis dans une seule plateforme.",
-          ]}
+          lines={[t("tagline")]}
           className="mt-4.5 text-[clamp(1.05rem,1.24vw,1.25rem)] leading-[1.55] text-white/85"
         />
 
@@ -111,9 +103,9 @@ export function AuthBrandPanel() {
           variants={authFeatureList}
           className="mt-7.5 space-y-5"
         >
-          {features.map(({ icon: Icon, title, description }) => (
+          {features.map(({ icon: Icon, key }) => (
             <motion.li
-              key={title}
+              key={key}
               variants={authFeatureItem}
               className="group flex items-center gap-5"
             >
@@ -122,10 +114,10 @@ export function AuthBrandPanel() {
               </span>
               <span className="min-w-0">
                 <strong className="block text-[1.17rem] font-semibold leading-tight">
-                  {title}
+                  {t(key)}
                 </strong>
                 <span className="mt-1 block text-[0.96rem] leading-snug text-white/80">
-                  {description}
+                  {t(`${key}Detail`)}
                 </span>
               </span>
             </motion.li>

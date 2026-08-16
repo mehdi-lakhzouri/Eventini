@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ValidationTranslator } from "./validation-translator";
+
 /**
  * Validation côté client — **jamais** un remplacement de la validation backend.
  *
@@ -13,12 +15,11 @@ import { z } from "zod";
  * information que le backend refuse justement de donner, en traitant une
  * adresse malformée exactement comme un mot de passe faux.
  */
-export const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, "L'adresse électronique est requise.")
-    .email("Cette adresse électronique est invalide."),
-  password: z.string().min(1, "Le mot de passe est requis."),
-});
+export function buildLoginSchema(t: ValidationTranslator) {
+  return z.object({
+    email: z.string().min(1, t("emailRequired")).email(t("emailInvalid")),
+    password: z.string().min(1, t("passwordRequired")),
+  });
+}
 
-export type LoginFormValues = z.infer<typeof loginSchema>;
+export type LoginFormValues = z.infer<ReturnType<typeof buildLoginSchema>>;

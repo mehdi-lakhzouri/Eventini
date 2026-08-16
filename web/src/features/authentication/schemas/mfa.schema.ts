@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ValidationTranslator } from "./validation-translator";
+
 /**
  * Un code TOTP : exactement six chiffres.
  *
@@ -8,30 +10,38 @@ import { z } from "zod";
  * tentatives du défi (ADR-0009). Une faute de frappe ne doit pas coûter un
  * essai.
  */
-export const mfaVerificationSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .regex(/^\d{6}$/, "Le code doit contenir exactement six chiffres."),
-});
+export function buildMfaVerificationSchema(t: ValidationTranslator) {
+  return z.object({
+    code: z
+      .string()
+      .trim()
+      .regex(/^\d{6}$/, t("codeSixDigits")),
+  });
+}
 
 /**
  * Les codes imprimés contiennent dix caractères Crockford base32. Le backend
  * ignore casse, espaces et tirets ; le client accepte donc les mêmes variantes
  * de saisie sans modifier la valeur secrète conservée uniquement en mémoire.
  */
-export const mfaRecoveryCodeSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .refine(
-      (value) => {
-        const normalized = value.toUpperCase().replaceAll(/[\s-]/g, "");
-        return /^[0-9A-HJKMNP-TV-Z]{10}$/.test(normalized);
-      },
-      { message: "Saisissez un code de secours valide." },
-    ),
-});
+export function buildMfaRecoveryCodeSchema(t: ValidationTranslator) {
+  return z.object({
+    code: z
+      .string()
+      .trim()
+      .refine(
+        (value) => {
+          const normalized = value.toUpperCase().replaceAll(/[\s-]/g, "");
+          return /^[0-9A-HJKMNP-TV-Z]{10}$/.test(normalized);
+        },
+        { message: t("recoveryInvalid") },
+      ),
+  });
+}
 
-export type MfaVerificationFormValues = z.infer<typeof mfaVerificationSchema>;
-export type MfaRecoveryCodeFormValues = z.infer<typeof mfaRecoveryCodeSchema>;
+export type MfaVerificationFormValues = z.infer<
+  ReturnType<typeof buildMfaVerificationSchema>
+>;
+export type MfaRecoveryCodeFormValues = z.infer<
+  ReturnType<typeof buildMfaRecoveryCodeSchema>
+>;

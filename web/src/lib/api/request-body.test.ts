@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  serializeRequestBody,
-  shouldSetJsonContentType,
-} from "./request-body";
+import { serializeRequestBody, shouldSetJsonContentType } from "./request-body";
 
 describe("serializeRequestBody", () => {
   it("returns undefined for a bodiless request", () => {

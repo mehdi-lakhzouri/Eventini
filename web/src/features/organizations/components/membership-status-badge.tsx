@@ -11,7 +11,10 @@ import type { MembershipStatus } from "../types";
  */
 const PRESENTATION: Record<
   MembershipStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  {
+    label: string;
+    variant: "default" | "secondary" | "destructive" | "outline";
+  }
 > = {
   ACTIVE: { label: "Actif", variant: "default" },
   INVITED: { label: "Invité", variant: "outline" },
@@ -20,7 +23,11 @@ const PRESENTATION: Record<
   EXPIRED: { label: "Expiré", variant: "secondary" },
 };
 
-export function MembershipStatusBadge({ status }: { status: MembershipStatus }) {
+export function MembershipStatusBadge({
+  status,
+}: {
+  status: MembershipStatus;
+}) {
   const presentation = PRESENTATION[status] ?? {
     label: status,
     variant: "secondary" as const,

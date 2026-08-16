@@ -1,7 +1,4 @@
-export {
-  INVITATION_STATUSES,
-  MEMBERSHIP_STATUSES,
-} from "./organization.types";
+export { INVITATION_STATUSES, MEMBERSHIP_STATUSES } from "./organization.types";
 export type {
   ActivatedSession,
   Invitation,

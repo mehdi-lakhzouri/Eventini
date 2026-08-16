@@ -3,7 +3,10 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { useCurrentUser } from "@/features/authentication";
 import { ApiError } from "@/lib/api/api-error";
 import { ASSIGNABLE_ROLES } from "../constants/assignable-roles";
@@ -65,9 +68,7 @@ export function MemberRowActions({
   const isSelf = currentUser.data?.membershipId === member.membershipId;
 
   if (isSelf) {
-    return (
-      <span className="text-xs text-muted-foreground">Vous-même</span>
-    );
+    return <span className="text-xs text-muted-foreground">Vous-même</span>;
   }
 
   const canSuspend = member.status === "ACTIVE";

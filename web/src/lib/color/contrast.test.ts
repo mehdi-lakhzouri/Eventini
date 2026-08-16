@@ -137,12 +137,14 @@ describe("parseColor", () => {
   });
 
   // Retourner null plutôt que du noir : un ratio faux est pire qu'un ratio absent.
-  it.each(["", "transparent", "var(--primary)", "color-mix(in oklch, red, blue)"])(
-    "retourne null sur %s au lieu de deviner",
-    (input) => {
-      expect(parseColor(input)).toBeNull();
-    },
-  );
+  it.each([
+    "",
+    "transparent",
+    "var(--primary)",
+    "color-mix(in oklch, red, blue)",
+  ])("retourne null sur %s au lieu de deviner", (input) => {
+    expect(parseColor(input)).toBeNull();
+  });
 });
 
 describe("meetsAA", () => {

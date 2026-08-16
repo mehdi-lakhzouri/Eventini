@@ -68,9 +68,7 @@ export function TokenSwatches() {
 
         for (const group of GROUPS) {
           for (const swatch of group.swatches) {
-            next[swatch.token] = styles
-              .getPropertyValue(swatch.token)
-              .trim();
+            next[swatch.token] = styles.getPropertyValue(swatch.token).trim();
           }
         }
 
@@ -102,7 +100,9 @@ export function TokenSwatches() {
                   aria-hidden="true"
                 />
                 <div className="space-y-0.5 p-3">
-                  <p className="font-mono text-xs font-medium">{swatch.token}</p>
+                  <p className="font-mono text-xs font-medium">
+                    {swatch.token}
+                  </p>
                   <p className="text-xs text-muted-foreground">{swatch.role}</p>
                   <p className="font-mono text-[11px] text-muted-foreground">
                     {values[swatch.token] || "…"}

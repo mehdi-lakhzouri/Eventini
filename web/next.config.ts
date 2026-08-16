@@ -1,4 +1,16 @@
+import createNextIntlPlugin from "next-intl/plugin";
 import type { NextConfig } from "next";
+
+/**
+ * Le plugin `next-intl` — EVT-047.
+ *
+ * Il fait deux choses qu'aucune configuration manuelle ne remplace : il câble
+ * `src/i18n/request.ts` comme source de la configuration par requête, et il
+ * rend `getTranslations` utilisable dans un Server Component. Sans lui,
+ * `next-intl` ne trouve aucun catalogue et rend les clés brutes — un écran
+ * couvert de `dashboard.title`, sans erreur pour l'expliquer.
+ */
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const nextConfig: NextConfig = {
   /**
@@ -25,4 +37,4 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);
