@@ -95,7 +95,7 @@ export async function ensureCsrfToken(): Promise<void> {
     method: "GET",
     credentials: "include",
   })
-    .then(() => undefined)
+    .then(warnIfCookieWasDiscarded)
     // Un échec n'est pas relayé : la requête suivante partira sans en-tête et
     // le backend refusera avec son propre code d'erreur, ce qui est un
     // diagnostic plus utile qu'une panne au moment de l'amorçage.
@@ -105,6 +105,42 @@ export async function ensureCsrfToken(): Promise<void> {
     });
 
   return inFlight;
+}
+
+/**
+ * Dit tout haut que le navigateur a jeté le cookie — EVT-078.
+ *
+ * ## 🔴 Le silence était le vrai problème
+ *
+ * Un cookie nommé `__Host-…` ou `__Secure-…` est **rejeté** par le navigateur
+ * s'il arrive sans l'attribut `Secure`. Le rejet est total et muet : la réponse
+ * reste un `200` d'apparence normale, rien n'apparaît dans la console, rien
+ * dans l'onglet réseau, et le seul symptôme survient une requête plus tard —
+ * un `403 AUTH_CSRF_INVALID` sur une connexion aux identifiants pourtant
+ * valides.
+ *
+ * Aucun des deux côtés n'a tort dans ce scénario, ce qui est précisément ce
+ * qui le rend coûteux à diagnostiquer : le serveur refuse à juste titre, le
+ * client n'a rien à envoyer. La seule chose qui manquait était que quelqu'un
+ * le dise.
+ *
+ * `cookie-prefix.rule.ts` empêche désormais le backend de démarrer dans cette
+ * configuration. Ce garde-ci couvre ce que la règle ne voit pas : un backend
+ * distant mal configuré, ou un navigateur qui refuse le cookie pour une autre
+ * raison — un blocage des cookies tiers, par exemple.
+ */
+function warnIfCookieWasDiscarded(response: Response): void {
+  if (!response.ok || readCsrfToken() !== null) {
+    return;
+  }
+
+  console.error(
+    `[csrf] ${response.status} sur /auth/csrf-token, mais le cookie ${CSRF_COOKIE_NAME} ` +
+      "est absent : le navigateur l'a rejeté. Toute mutation partira sans en-tête " +
+      "et sera refusée en 403 AUTH_CSRF_INVALID.\n" +
+      "Cause la plus fréquente : un nom préfixé __Host-/__Secure- servi sans " +
+      "l'attribut Secure (COOKIE_SECURE=false côté API).",
+  );
 }
 
 /** Pour les tests : remet l'amorçage à zéro entre deux cas. */

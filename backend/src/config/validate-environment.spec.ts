@@ -103,10 +103,100 @@ describe('rules 2-5 — production hardening', () => {
     ).toContain('exact origins');
   });
 
+  /**
+   * `COOKIE_SECURE=false` reste permis hors production — mais **seulement**
+   * avec des noms de cookies non préfixés, sans quoi le navigateur jette tout
+   * (voir la règle 15). Le couplage est réel : les deux vont ensemble ou ne
+   * vont pas, et le test le dit désormais au lieu de tester la moitié.
+   */
   it('allows the same development settings outside production', () => {
     expect(() =>
       validateEnvironment(
-        buildValidEnv({ NODE_ENV: 'development', COOKIE_SECURE: 'false' }),
+        buildValidEnv({
+          NODE_ENV: 'development',
+          COOKIE_SECURE: 'false',
+          COOKIE_ACCESS_NAME: 'eventini_access',
+          COOKIE_REFRESH_NAME: 'eventini_refresh',
+          COOKIE_CSRF_NAME: 'eventini_csrf',
+          COOKIE_CSRF_CONTEXT_NAME: 'eventini_csrf_ctx',
+        }),
+      ),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * Règle 15 — un cookie préfixé exige `Secure`.
+ *
+ * 🔴 Le défaut qu'elle ferme est celui qu'a livré `.env.example` : quatre noms
+ * `__Host-` / `__Secure-` avec `COOKIE_SECURE=false`. Le navigateur **jette**
+ * un tel cookie, donc `/auth/csrf-token` répondait `200` sans qu'aucun cookie
+ * ne soit stocké, et toute connexion locale échouait en `AUTH_CSRF_INVALID`
+ * avec des identifiants valides.
+ */
+describe('rule 15 — prefixed cookies require Secure', () => {
+  it('refuses __Host- names when COOKIE_SECURE is false', () => {
+    const problems = problemsFor(
+      buildValidEnv({ NODE_ENV: 'development', COOKIE_SECURE: 'false' }),
+    ).join('\n');
+
+    expect(problems).toContain('COOKIE_SECURE=false is incompatible');
+    expect(problems).toContain('AUTH_CSRF_INVALID');
+  });
+
+  it('names every offending variable, not just the first', () => {
+    const problems = problemsFor(
+      buildValidEnv({ NODE_ENV: 'development', COOKIE_SECURE: 'false' }),
+    ).join('\n');
+
+    for (const key of [
+      'COOKIE_ACCESS_NAME',
+      'COOKIE_REFRESH_NAME',
+      'COOKIE_CSRF_NAME',
+      'COOKIE_CSRF_CONTEXT_NAME',
+    ]) {
+      expect(problems).toContain(key);
+    }
+  });
+
+  it('catches __Secure- as well as __Host-', () => {
+    const problems = problemsFor(
+      buildValidEnv({
+        NODE_ENV: 'development',
+        COOKIE_SECURE: 'false',
+        COOKIE_ACCESS_NAME: 'eventini_access',
+        COOKIE_CSRF_NAME: 'eventini_csrf',
+        COOKIE_CSRF_CONTEXT_NAME: 'eventini_csrf_ctx',
+        // Seul le refresh garde son préfixe.
+        COOKIE_REFRESH_NAME: '__Secure-eventini_refresh',
+      }),
+    ).join('\n');
+
+    expect(problems).toContain('COOKIE_REFRESH_NAME');
+    expect(problems).not.toContain('COOKIE_ACCESS_NAME');
+  });
+
+  /*
+    `problemsFor` exige que la validation échoue — c'est le mauvais outil pour
+    un cas qui doit passer. Ces deux-là valident tout court.
+  */
+  it('accepts prefixed names when COOKIE_SECURE is true', () => {
+    expect(() =>
+      validateEnvironment(buildValidEnv({ COOKIE_SECURE: 'true' })),
+    ).not.toThrow();
+  });
+
+  it('accepts COOKIE_SECURE=false when no name carries a prefix', () => {
+    expect(() =>
+      validateEnvironment(
+        buildValidEnv({
+          NODE_ENV: 'development',
+          COOKIE_SECURE: 'false',
+          COOKIE_ACCESS_NAME: 'eventini_access',
+          COOKIE_REFRESH_NAME: 'eventini_refresh',
+          COOKIE_CSRF_NAME: 'eventini_csrf',
+          COOKIE_CSRF_CONTEXT_NAME: 'eventini_csrf_ctx',
+        }),
       ),
     ).not.toThrow();
   });
