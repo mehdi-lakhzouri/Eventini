@@ -32,6 +32,19 @@ export type ApiRequestOptions = Omit<RequestInit, "body" | "method"> & {
   ifMatch?: string;
 };
 
+/**
+ * L'enveloppe du backend, plus l'`ETag` de la réponse.
+ *
+ * L'`ETag` est un en-tête, pas un champ du corps : il ne peut donc pas venir de
+ * l'enveloppe. Sans lui remonté ici, un client ne peut pas former le `If-Match`
+ * qu'EVT-032 rend **obligatoire** sur `PATCH /organizations/{id}` — la lecture
+ * n'aurait aucun moyen de transmettre la version à l'écriture, et l'écran de
+ * réglages répondrait invariablement `428`.
+ */
+export type ApiResponse<T> = ApiEnvelope<T> & {
+  readonly etag: string | null;
+};
+
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function buildHeaders(method: string, options: ApiRequestOptions): Headers {
@@ -124,7 +137,7 @@ async function requestEnvelope<T>(
    * backend traite le client comme un attaquant.
    */
   mayRetry = true,
-): Promise<ApiEnvelope<T>> {
+): Promise<ApiResponse<T>> {
   /*
     Le jeton CSRF est amorcé ici plutôt que dans chaque formulaire — EVT-040.
 
@@ -157,6 +170,7 @@ async function requestEnvelope<T>(
     return {
       data: null,
       error: null,
+      etag: response.headers.get("ETag"),
       meta: {
         requestId: response.headers.get("X-Request-Id") ?? "",
         timestamp: new Date().toISOString(),
@@ -231,7 +245,7 @@ async function requestEnvelope<T>(
       );
     }
 
-    return body as ApiEnvelope<T>;
+    return { ...body, etag: response.headers.get("ETag") } as ApiResponse<T>;
   }
 
   // Réponse hors enveloppe : conservée telle quelle plutôt que rejetée. Rien
@@ -240,6 +254,7 @@ async function requestEnvelope<T>(
   return {
     data: body as T,
     error: null,
+    etag: response.headers.get("ETag"),
     meta: {
       requestId: requestId ?? "",
       timestamp: new Date().toISOString(),
@@ -281,4 +296,14 @@ export const apiClient = {
   /** Pour les listes paginées et les rejeux d'idempotence, qui lisent `meta`. */
   getEnvelope: <T>(path: string, options?: ApiRequestOptions) =>
     requestEnvelope<T>(path, "GET", options),
+
+  /**
+   * Pour les ressources versionnées, qui ont besoin de l'`ETag` de la lecture
+   * afin de le rejouer en `If-Match` à l'écriture — EVT-032.
+   */
+  patchEnvelope: <T>(
+    path: string,
+    body?: RequestBody,
+    options?: ApiRequestOptions,
+  ) => requestEnvelope<T>(path, "PATCH", { ...options, body }),
 };

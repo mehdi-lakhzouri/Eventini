@@ -24,6 +24,23 @@ export const permissions = {
   readOrganization: "organizations.read",
   manageOrganization: "organizations.manage",
 
+  /*
+    Membres — l'écran /organization/members (EVT-046).
+
+    Les trois codes manquaient. Vérifié le 16 août 2026 contre la base : le rôle
+    `CLIENT_ADMIN` porte exactement `organizations.manage`, `organizations.read`,
+    `users.invite`, `users.manage_roles` et `users.read` — les deux premiers
+    étaient déclarés ici, les trois autres non, alors que ce sont précisément
+    ceux dont l'administration des membres a besoin.
+
+    L'absence ne se voyait pas : `hasPermission` répond `false` sur un code
+    inconnu, donc l'oubli aurait masqué toutes les actions pour tout le monde,
+    administrateur compris, sans lever la moindre erreur.
+  */
+  readMembers: "users.read",
+  inviteMembers: "users.invite",
+  manageMemberRoles: "users.manage_roles",
+
   // Événements
   readEvents: "events.read",
   createEvents: "events.create",

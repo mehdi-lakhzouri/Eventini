@@ -6,6 +6,8 @@ export const routes = {
   verifyMfa: "/verify-mfa",
   acceptInvitation: "/accept-invitation",
   adminDashboard: "/dashboard",
+  organization: "/organization",
+  organizationMembers: "/organization/members",
   superAdminDashboard: "/super-admin/dashboard",
   unauthorized: "/unauthorized",
   designSystem: "/design-system",

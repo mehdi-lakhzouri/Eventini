@@ -2,6 +2,7 @@
 
 import {
   BarChart3Icon,
+  Building2Icon,
   CalendarDaysIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -9,6 +10,7 @@ import {
   ShieldCheckIcon,
   UserCircleIcon,
   UsersIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 
 import {
@@ -17,6 +19,7 @@ import {
 } from "@/components/shared/app-sidebar";
 import { Button } from "@/components/ui/button";
 import { permissions } from "@/config/permissions";
+import { routes } from "@/config/routes";
 import { OrganizationSwitcher } from "@/features/organizations";
 import { useLogout } from "../hooks/use-logout";
 import { usePermissions } from "../hooks/use-permissions";
@@ -79,6 +82,40 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
           : []),
       ],
     },
+    /*
+      L'administration de l'organisation — EVT-046.
+
+      La section n'apparaît que si au moins une de ses entrées est visible :
+      un titre seul, sans rien dessous, ferait croire à un chargement inachevé.
+    */
+    ...(can(permissions.readOrganization) || can(permissions.readMembers)
+      ? [
+          {
+            title: "Organisation",
+            items: [
+              ...(can(permissions.readOrganization)
+                ? [
+                    {
+                      label: "Paramètres",
+                      href: routes.organization,
+                      icon: Building2Icon,
+                      exact: true,
+                    },
+                  ]
+                : []),
+              ...(can(permissions.readMembers)
+                ? [
+                    {
+                      label: "Membres",
+                      href: routes.organizationMembers,
+                      icon: UsersRoundIcon,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ]
+      : []),
     {
       title: "Compte",
       items: [

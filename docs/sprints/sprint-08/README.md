@@ -31,7 +31,7 @@ Un utilisateur membre de **deux organisations** bascule de contexte ; ses permis
 | [EVT-043](#evt-043) | Invitations ✅ | `users.invite` |
 | [EVT-044](#evt-044) | Membres et assignation de rôles ✅ | `users.read` / `users.manage_roles` |
 | [EVT-045](#evt-045) | Suspension et révocation de membership ✅ | `users.manage_roles` |
-| [EVT-046](#evt-046) | UI d'administration d'organisation | — |
+| [EVT-046](#evt-046) | UI d'administration d'organisation ✅ | `users.read` / `users.invite` / `users.manage_roles` |
 | [EVT-047](#evt-047) | i18n complet | — |
 | [EVT-032](#evt-032) | Concurrence optimiste — `ETag` / `If-Match` ✅ | — |
 | [EVT-076](#evt-076) | Journal d'audit métier ✅ | — |
@@ -231,6 +231,40 @@ Branche  feat/EVT-046-organization-ui
 **Rappel** — masquer un bouton n'est **pas** une autorisation. Le backend refuse de toute façon. `hasPermission` sert uniquement à ne pas afficher une action qui échouerait.
 
 **Filtres et pagination en URL** via `nuqs` (installé, inutilisé) : partageables et rechargeables.
+
+> ✅ **Fait le 16 août 2026.** Deux écrans — `/organization` et `/organization/members` — 143 tests unitaires web, build propre.
+>
+> ### 🔴 Aucune route n'expose le catalogue de rôles
+>
+> Le sélecteur de rôle ne peut pas se peupler : il n'existe ni `GET /roles`, ni `GET /organizations/{id}/roles`. Le backend résout les codes qu'on lui envoie et refuse les autres, mais il n'a aucun moyen de dire lesquels sont acceptables.
+>
+> La liste est donc **en dur** dans `features/organizations/constants/assignable-roles.ts`, avec un test qui la fige et la date de sa vérification en base. Interrogée le 16 août 2026, `CLIENT_ADMIN` est le seul rôle de portée `ORGANIZATION` — EVT-044 l'avait déjà relevé. Le mode de défaillance si la liste dérive est silencieux : un code inconnu reçoit le **même** `400` qu'un rôle plateforme, pour ne pas énumérer le catalogue, donc l'administrateur verrait un rôle proposé qu'il ne peut pas accorder sans savoir pourquoi. **La vraie correction est une route de catalogue, pas une liste plus longue.**
+>
+> ### Trois manques corrigés en passant
+>
+> **`config/permissions.ts` ignorait `users.read`, `users.invite` et `users.manage_roles`** — précisément les trois codes dont cet écran a besoin. L'oubli ne se voyait pas : `hasPermission` répond `false` sur un code inconnu, donc toutes les actions auraient été masquées pour tout le monde, administrateur compris, sans lever la moindre erreur.
+>
+> **`nuqs` n'avait pas d'adaptateur monté.** Sans lui, tout `useQueryState` lève **à l'exécution**, pas à la compilation — l'oubli ne se serait vu qu'à l'ouverture de l'écran. `NuqsAdapter` est désormais dans `AppProviders`.
+>
+> **Le client API n'exposait pas l'`ETag`.** C'est un en-tête, donc absent de l'enveloppe : sans lui remonté, former le `If-Match` qu'EVT-032 rend obligatoire sur `PATCH /organizations/{id}` était impossible, et l'écran de réglages aurait répondu `428` à chaque enregistrement. L'`ETag` est lu depuis le cache TanStack Query au moment de muter, et le nouveau y est réécrit au retour — le figer dans un `useState` du formulaire aurait fait échouer le **second** enregistrement consécutif en `409` sans que personne d'autre n'ait touché à la fiche.
+>
+> ### Le lien d'invitation s'affiche en clair, et l'écran le dit
+>
+> `POST .../invitations` rend `acceptanceToken` **une seule fois** ; la base n'en garde que l'empreinte HMAC. Tant qu'EVT-073 n'envoie pas les courriels, une invitation créée serait intransmissible sans cet affichage. La conséquence est écrite à l'écran plutôt que tue : **l'invitant voit le jeton**, donc il peut accepter à la place de l'invité, et la possession du jeton cesse de prouver le contrôle de la boîte mail.
+>
+> ### Deux pièges de Next 16 rencontrés
+>
+> **Une fonction ne traverse pas la frontière RSC.** `OrganizationScope` passe l'`organizationId` par un enfant-fonction ; appelé depuis un Server Component, le build échoue au prérendu — *« Functions cannot be passed directly to Client Components »*. Le correctif n'est pas de basculer la page en `"use client"`, ce qui remonterait la frontière sur tout le sous-arbre, mais d'ouvrir la frontière **sous** la page dans un panneau dédié.
+>
+> **`useSearchParams` exige un `Suspense` au-dessus.** `nuqs` s'appuie dessus, donc la table des membres est montée sous une frontière de suspense — sans quoi `next build` bascule la page en dynamique et échoue.
+>
+> ### Limitations
+>
+> **Tri et pagination côté client.** `GET /organizations/{id}/members` renvoie la liste entière : la route n'expose ni curseur ni tri. Paginer côté client est la seule option honnête aujourd'hui, et elle tient tant que `userLimit` borne les effectifs.
+>
+> **Pas de test Playwright.** La suite e2e web est délibérément sans backend (EVT-040) et ces écrans exigent une session ; la CI web ne lance d'ailleurs pas Playwright. Le comportement serveur est couvert par les 259 e2e backend.
+>
+> **Un avertissement de lint assumé** : le React Compiler refuse de mémoïser `MembersTable` parce que `useReactTable` rend des fonctions. C'est le comportement documenté de TanStack Table, et il coûte une mémoïsation, pas une correction.
 
 ---
 
