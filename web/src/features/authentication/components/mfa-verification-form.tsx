@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -14,7 +16,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useSearchParams } from "next/navigation";
 
 import { Link, useRouter } from "@/i18n/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { Controller, useForm, type UseFormReturn } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
@@ -35,8 +37,8 @@ import {
 } from "@/lib/motion";
 import { verifyMfaChallenge } from "../api/mfa.api";
 import {
-  mfaRecoveryCodeSchema,
-  mfaVerificationSchema,
+  buildMfaRecoveryCodeSchema,
+  buildMfaVerificationSchema,
   type MfaRecoveryCodeFormValues,
   type MfaVerificationFormValues,
 } from "../schemas/mfa.schema";
@@ -62,6 +64,10 @@ const INVALID_CODE_CLEAR_DELAY_MS = 420;
  * validation d'un TOTP ou d'un code de secours.
  */
 export function MfaVerificationForm() {
+  const t = useTranslations("authentication.mfa");
+  const tv = useTranslations("validation");
+  const totpSchema = useMemo(() => buildMfaVerificationSchema(tv), [tv]);
+  const recoverySchema = useMemo(() => buildMfaRecoveryCodeSchema(tv), [tv]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const challengeId = searchParams.get("challenge");
@@ -71,14 +77,14 @@ export function MfaVerificationForm() {
   const otpInputRef = useRef<HTMLInputElement>(null);
 
   const otpForm = useForm<MfaVerificationFormValues>({
-    resolver: zodResolver(mfaVerificationSchema),
+    resolver: zodResolver(totpSchema),
     defaultValues: { code: "" },
     mode: "onSubmit",
     reValidateMode: "onChange",
   });
 
   const recoveryForm = useForm<MfaRecoveryCodeFormValues>({
-    resolver: zodResolver(mfaRecoveryCodeSchema),
+    resolver: zodResolver(recoverySchema),
     defaultValues: { code: "" },
     mode: "onSubmit",
     reValidateMode: "onChange",
@@ -132,7 +138,7 @@ export function MfaVerificationForm() {
     } catch (error) {
       if (error instanceof ApiError && error.code === "AUTH_MFA_INVALID") {
         otpForm.setError("code", {
-          message: "Code invalide. Vérifiez le code et réessayez.",
+          message: t("invalidCode"),
         });
 
         setInvalidAttempt((attempt) => attempt + 1);
@@ -150,7 +156,7 @@ export function MfaVerificationForm() {
     } catch (error) {
       if (error instanceof ApiError && error.code === "AUTH_MFA_INVALID") {
         recoveryForm.setError("code", {
-          message: "Code de secours invalide ou déjà utilisé.",
+          message: t("invalidRecovery"),
         });
         return;
       }
@@ -227,6 +233,7 @@ function TotpPanel({
   onSubmit,
   onUseRecovery,
 }: TotpPanelProps) {
+  const t = useTranslations("authentication.mfa");
   const code = form.watch("code");
   const error = form.formState.errors.code;
   const initial = reduceMotion ? false : "hidden";
@@ -239,11 +246,7 @@ function TotpPanel({
       exit="exit"
       variants={mfaContentList}
     >
-      <MfaHeader
-        title="Vérifiez votre identité"
-        description="Saisissez le code à 6 chiffres généré par votre application d’authentification."
-        icon="shield"
-      />
+      <MfaHeader title={t("title")} description={t("totpHint")} icon="shield" />
 
       <form onSubmit={onSubmit} noValidate className="mt-8">
         <FormMessage message={form.formState.errors.root?.message} />
@@ -305,10 +308,10 @@ function TotpPanel({
                     className="size-5 animate-spin"
                     aria-hidden="true"
                   />
-                  Vérification...
+                  {t("verifying")}
                 </>
               ) : (
-                "Vérifier le code"
+                t("verify")
               )}
             </Button>
           </motion.div>
@@ -346,6 +349,7 @@ function RecoveryPanel({
   onSubmit,
   onUseTotp,
 }: RecoveryPanelProps) {
+  const t = useTranslations("authentication.mfa");
   const code = form.watch("code");
   const error = form.formState.errors.code;
 
@@ -357,8 +361,8 @@ function RecoveryPanel({
       exit={{ opacity: 0, x: -8 }}
     >
       <MfaHeader
-        title="Code de secours"
-        description="Saisissez l’un de vos codes de récupération."
+        title={t("recoveryLabel")}
+        description={t("recoveryHint")}
         icon="key"
       />
 
@@ -366,7 +370,7 @@ function RecoveryPanel({
         <FormMessage message={form.formState.errors.root?.message} />
         <div className="space-y-2.5">
           <Label htmlFor="recovery-code" className="sr-only">
-            Code de secours
+            {t("recoveryLabel")}
           </Label>
           <div className="group relative">
             <KeyRound
@@ -382,7 +386,7 @@ function RecoveryPanel({
               id="recovery-code"
               autoFocus
               autoComplete="one-time-code"
-              placeholder="XXXXX-XXXXX"
+              placeholder={t("recoveryPlaceholder")}
               maxLength={16}
               disabled={isPending}
               className="h-14 rounded-[10px] border-[#d8dee9] bg-white pl-14 pr-4 font-mono text-[1rem] uppercase tracking-[0.12em] shadow-none placeholder:font-sans placeholder:tracking-normal focus-visible:border-[#222f90] focus-visible:ring-[#222f90]/10"
@@ -420,10 +424,10 @@ function RecoveryPanel({
                   className="size-5 animate-spin"
                   aria-hidden="true"
                 />
-                Vérification...
+                {t("verifying")}
               </>
             ) : (
-              "Vérifier le code de secours"
+              t("verifyRecovery")
             )}
           </Button>
         </motion.div>

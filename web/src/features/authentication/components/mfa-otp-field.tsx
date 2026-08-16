@@ -2,6 +2,7 @@
 
 import { OTPInputContext, REGEXP_ONLY_DIGITS } from "input-otp";
 import { AnimatePresence, motion } from "motion/react";
+import { useTranslations } from "next-intl";
 import { useContext, type RefObject } from "react";
 
 import { InputOTP } from "@/components/ui/input-otp";
@@ -26,6 +27,8 @@ export function MfaOtpField({
   describedBy,
   inputRef,
 }: MfaOtpFieldProps) {
+  const t = useTranslations("authentication.mfa");
+
   return (
     <InputOTP
       ref={inputRef}
@@ -37,7 +40,7 @@ export function MfaOtpField({
       autoComplete="one-time-code"
       autoFocus
       disabled={disabled}
-      aria-label="Code de vérification"
+      aria-label={t("codeLabel")}
       aria-invalid={invalid}
       aria-describedby={describedBy}
       containerClassName="justify-center gap-1.5 sm:gap-2.5"

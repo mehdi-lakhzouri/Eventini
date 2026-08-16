@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { Laptop, ScanLine, Server } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@/i18n/navigation";
@@ -44,6 +46,7 @@ function formatMoment(iso: string): string {
  * en base pour l'audit, pas pour cet écran.
  */
 export function SessionList() {
+  const t = useTranslations("authentication.sessions");
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: sessions, isPending, isError, error } = useSessions();
@@ -74,7 +77,7 @@ export function SessionList() {
   if (isPending) {
     return (
       <div className="space-y-3" aria-busy="true">
-        <span className="sr-only">Chargement de vos sessions…</span>
+        <span className="sr-only">{t("loading")}</span>
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-16 w-full" />
       </div>
@@ -85,9 +88,7 @@ export function SessionList() {
     return (
       <FormMessage
         message={
-          error instanceof ApiError
-            ? userMessageFor(error)
-            : "Vos sessions n'ont pas pu être chargées."
+          error instanceof ApiError ? userMessageFor(error) : t("loadFailed")
         }
       />
     );
@@ -120,17 +121,15 @@ export function SessionList() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4">
         <div className="text-sm">
-          <p className="font-medium">Tout déconnecter</p>
-          <p className="text-muted-foreground">
-            Ferme toutes les sessions, y compris celle-ci.
-          </p>
+          <p className="font-medium">{t("revokeAll")}</p>
+          <p className="text-muted-foreground">{t("revokeAllDetail")}</p>
         </div>
         <Button
           variant="destructive"
           onClick={() => revokeAll.mutate()}
           disabled={revokeAll.isPending}
         >
-          {revokeAll.isPending ? "Déconnexion…" : "Tout déconnecter"}
+          {revokeAll.isPending ? t("revokingAll") : t("revokeAll")}
         </Button>
       </div>
     </div>
@@ -146,7 +145,9 @@ function SessionRow({
   onRevoke: () => void;
   isRevoking: boolean;
 }) {
+  const t = useTranslations("authentication.sessions");
   const Icon = DEVICE_ICON[session.clientType] ?? Laptop;
+  const device = session.deviceName ?? t("unknownDevice");
 
   return (
     <li className="flex items-center gap-4 rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -157,16 +158,16 @@ function SessionRow({
 
       <div className="min-w-0 flex-1 text-sm">
         <p className="flex items-center gap-2 font-medium">
-          <span className="truncate">
-            {session.deviceName ?? "Appareil inconnu"}
-          </span>
+          <span className="truncate">{device}</span>
           {session.current ? (
-            <Badge variant="secondary">Cette session</Badge>
+            <Badge variant="secondary">{t("currentSession")}</Badge>
           ) : null}
         </p>
         <p className="text-muted-foreground">
-          Vue le {formatMoment(session.lastSeenAt)} · ouverte le{" "}
-          {formatMoment(session.createdAt)}
+          {t("seenOn", {
+            lastSeen: formatMoment(session.lastSeenAt),
+            createdAt: formatMoment(session.createdAt),
+          })}
         </p>
       </div>
 
@@ -182,9 +183,9 @@ function SessionRow({
           size="sm"
           onClick={onRevoke}
           disabled={isRevoking}
-          aria-label={`Révoquer la session ${session.deviceName ?? "inconnue"}`}
+          aria-label={t("revokeAria", { device })}
         >
-          {isRevoking ? "Révocation…" : "Révoquer"}
+          {isRevoking ? t("revoking") : t("revoke")}
         </Button>
       )}
     </li>

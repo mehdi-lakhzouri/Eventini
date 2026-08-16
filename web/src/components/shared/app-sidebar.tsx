@@ -47,7 +47,10 @@ export type AppSidebarBrand = {
   name: string;
   href?: string;
   description?: string;
-  icon?: LucideIcon;
+  icon?: React.ComponentType<{
+    className?: string;
+    "aria-hidden"?: boolean | "true" | "false";
+  }>;
 };
 
 export type AppSidebarNavItem = {
@@ -57,6 +60,7 @@ export type AppSidebarNavItem = {
   badge?: string | number;
   exact?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   external?: boolean;
   prefetch?: boolean;
   activeMatch?: string | string[] | ((pathname: string) => boolean);
@@ -132,6 +136,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   brand?: AppSidebarBrand;
   sections?: AppSidebarNavSection[];
   footerItems?: AppSidebarNavItem[];
+  footer?: React.ReactNode;
   onNavigate?: (item: AppSidebarNavItem) => void;
 };
 
@@ -140,6 +145,7 @@ type AppSidebarLayoutProps = {
   brand?: AppSidebarBrand;
   sections?: AppSidebarNavSection[];
   footerItems?: AppSidebarNavItem[];
+  footer?: React.ReactNode;
   defaultOpen?: boolean;
   storageKey?: string;
   className?: string;
@@ -259,7 +265,7 @@ function AppSidebarBrandLink({ brand }: { brand: AppSidebarBrand }) {
   );
 
   const className =
-    "flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none group-data-[collapsible=icon]:hidden";
+    "flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 py-1 text-sidebar-foreground transition-[background-color,color,transform] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0";
 
   if (!brand.href) {
     return <div className={className}>{content}</div>;
@@ -368,10 +374,12 @@ function AppSidebarNavItem({
     return (
       <SidebarMenuItem>
         <SidebarMenuButton
-          disabled
           aria-disabled="true"
-          tooltip={item.label}
-          className="h-9 rounded-lg text-sidebar-foreground/40"
+          tooltip={{
+            children: item.disabledReason ?? item.label,
+          }}
+          className="h-10 cursor-not-allowed rounded-xl text-sidebar-foreground/40 hover:bg-transparent hover:text-sidebar-foreground/40"
+          onClick={(event) => event.preventDefault()}
         >
           <Icon className="size-4" aria-hidden="true" />
           <span>{item.label}</span>
@@ -407,9 +415,9 @@ function AppSidebarNavItem({
           )
         }
         className={cn(
-          "relative h-9 rounded-lg text-sidebar-foreground/75 transition-colors hover:text-sidebar-foreground",
+          "relative h-10 rounded-xl px-3 text-sidebar-foreground/70 transition-[background-color,color,transform,box-shadow] hover:translate-x-0.5 hover:text-sidebar-foreground group-data-[collapsible=icon]:hover:translate-x-0",
           isActive &&
-            "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary hover:text-sidebar-primary-foreground focus-visible:ring-sidebar-primary/40 before:absolute before:left-1 before:h-5 before:w-1 before:rounded-full before:bg-sidebar-primary-foreground/70 group-data-[collapsible=icon]:before:hidden",
+            "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_8px_24px_-12px_color-mix(in_oklab,var(--sidebar-primary)_65%,transparent)] hover:translate-x-0 hover:bg-sidebar-primary hover:text-sidebar-primary-foreground focus-visible:ring-sidebar-primary/40 before:absolute before:left-1 before:h-5 before:w-1 before:rounded-full before:bg-sidebar-primary-foreground/75 group-data-[collapsible=icon]:before:hidden",
         )}
       >
         <Icon className="size-4" aria-hidden="true" />
@@ -488,6 +496,7 @@ export function AppSidebar({
   brand = defaultAppSidebarBrand,
   sections = defaultAppSidebarSections,
   footerItems,
+  footer,
   onNavigate,
   className,
   ...props
@@ -497,33 +506,39 @@ export function AppSidebar({
   return (
     <Sidebar
       collapsible="icon"
-      className={cn("border-sidebar-border bg-sidebar", className)}
+      className={cn(
+        "border-sidebar-border/80 bg-sidebar shadow-[8px_0_32px_-28px_rgba(15,23,42,0.45)]",
+        className,
+      )}
       {...props}
     >
-      <SidebarHeader className="gap-3 p-2">
-        <div className="flex min-w-0 items-center gap-1">
+      <SidebarHeader className="gap-3 px-3 py-4">
+        <div className="group/sidebar-header relative flex min-w-0 items-center gap-1">
           <AppSidebarBrandLink brand={brand} />
-          <AppSidebarCollapseButton className="ml-auto shrink-0" />
+          <AppSidebarCollapseButton className="ml-auto shrink-0 group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:inset-0 group-data-[collapsible=icon]:m-auto group-data-[collapsible=icon]:bg-sidebar group-data-[collapsible=icon]:opacity-0 group-data-[collapsible=icon]:shadow-sm group-data-[collapsible=icon]:transition-opacity group-hover/sidebar-header:opacity-100 focus-visible:opacity-100" />
         </div>
       </SidebarHeader>
-      <SidebarSeparator />
-      <SidebarContent className="gap-1 py-2">
+      <SidebarSeparator className="opacity-70" />
+      <SidebarContent className="gap-1 px-1 py-2">
         <AppSidebarNav sections={sections} onNavigate={onNavigate} />
       </SidebarContent>
-      {footerItems?.length ? (
+      {footerItems?.length || footer ? (
         <>
-          <SidebarSeparator />
-          <SidebarFooter className="p-2">
-            <SidebarMenu>
-              {footerItems.map((item) => (
-                <AppSidebarNavItem
-                  key={`${item.href}-${item.label}`}
-                  item={item}
-                  isActive={isNavItemActive(item, pathname)}
-                  onNavigate={onNavigate}
-                />
-              ))}
-            </SidebarMenu>
+          <SidebarSeparator className="opacity-70" />
+          <SidebarFooter className="gap-2 p-3">
+            {footerItems?.length ? (
+              <SidebarMenu>
+                {footerItems.map((item) => (
+                  <AppSidebarNavItem
+                    key={`${item.href}-${item.label}`}
+                    item={item}
+                    isActive={isNavItemActive(item, pathname)}
+                    onNavigate={onNavigate}
+                  />
+                ))}
+              </SidebarMenu>
+            ) : null}
+            {footer}
           </SidebarFooter>
         </>
       ) : null}
@@ -537,6 +552,7 @@ export function AppSidebarLayout({
   brand = defaultAppSidebarBrand,
   sections = defaultAppSidebarSections,
   footerItems,
+  footer,
   defaultOpen = true,
   storageKey = SIDEBAR_STORAGE_KEY,
   className,
@@ -552,11 +568,18 @@ export function AppSidebarLayout({
         onOpenChange={setOpen}
         defaultOpen={defaultOpen}
         className={cn("min-h-svh bg-background", className)}
+        style={
+          {
+            "--sidebar-width": "17rem",
+            "--sidebar-width-icon": "4.25rem",
+          } as React.CSSProperties
+        }
       >
         <AppSidebar
           brand={brand}
           sections={sections}
           footerItems={footerItems}
+          footer={footer}
           onNavigate={onNavigate}
         />
         <SidebarInset className={cn("min-w-0", contentClassName)}>

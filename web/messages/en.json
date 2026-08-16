@@ -13,7 +13,9 @@
     "workspace": "Workspace",
     "dashboard": "Dashboard",
     "events": "Events",
+    "eventSessions": "Event sessions",
     "participants": "Participants",
+    "registrations": "Registrations",
     "reports": "Reports",
     "organization": "Organization",
     "organizationSettings": "Settings",
@@ -22,7 +24,95 @@
     "profile": "Profile",
     "security": "Security",
     "sessions": "Sessions",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "eventManagement": "Event management",
+    "administrator": "Administrator",
+    "superAdministrator": "Super administrator",
+    "availableInSprint": "Available in sprint {sprint}"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light theme",
+    "dark": "Dark theme",
+    "system": "System theme"
+  },
+  "authentication": {
+    "brand": {
+      "home": "Eventini home",
+      "tagline": "Registrations, sessions, access control and real-time tracking.",
+      "centralised": "Everything in one place",
+      "centralisedDetail": "All your data in a single workspace.",
+      "checkIn": "Secure check-in",
+      "checkInDetail": "Fast, dependable access control.",
+      "realTime": "Real-time tracking",
+      "realTimeDetail": "Up-to-date insight for better decisions.",
+      "headlineLine1": "Run your",
+      "headlineLine2": "events",
+      "headlineLine3": "end to end."
+    },
+    "fields": {
+      "email": "Email address",
+      "emailPlaceholder": "name@company.com",
+      "password": "Password",
+      "passwordPlaceholder": "••••••••••••",
+      "newPassword": "New password",
+      "currentPassword": "Current password",
+      "confirmation": "Confirmation",
+      "passwordHint": "At least 12 characters.",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password"
+    },
+    "login": {
+      "title": "Welcome back",
+      "subtitle": "Sign in to manage your events.",
+      "forgotPassword": "Forgot your password?",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "secured": "Your connection is secure."
+    },
+    "forgotPassword": {
+      "submit": "Send the link",
+      "submitting": "Sending…"
+    },
+    "resetPassword": {
+      "submit": "Save",
+      "submitting": "Saving…",
+      "incompleteLink": "Incomplete link",
+      "incompleteLinkDetail": "This reset link is incomplete. Request a new one.",
+      "requestNewLink": "Request a new link",
+      "title": "New password",
+      "subtitle": "Choose a password you do not use anywhere else."
+    },
+    "mfa": {
+      "title": "Verify your identity",
+      "totpHint": "Enter the 6-digit code from your authenticator app.",
+      "recoveryHint": "Enter one of your recovery codes.",
+      "recoveryLabel": "Recovery code",
+      "recoveryPlaceholder": "XXXXX-XXXXX",
+      "verify": "Verify code",
+      "verifyRecovery": "Verify recovery code",
+      "invalidCode": "Invalid code. Check it and try again.",
+      "invalidRecovery": "Recovery code invalid or already used.",
+      "codeLabel": "Verification code",
+      "verifying": "Verifying…"
+    },
+    "sessions": {
+      "loading": "Loading your sessions…",
+      "loadFailed": "Your sessions could not be loaded.",
+      "unknownDevice": "Unknown device",
+      "currentSession": "This session",
+      "seenOn": "Seen {lastSeen} · opened {createdAt}",
+      "revoke": "Revoke",
+      "revoking": "Revoking…",
+      "revokeAria": "Revoke the session on {device}",
+      "revokeAll": "Sign out everywhere",
+      "revokeAllDetail": "Closes every session, including this one.",
+      "revokingAll": "Signing out…"
+    },
+    "security": {
+      "changePassword": "Change password"
+    },
+    "checkingSession": "Checking your session…"
   },
   "organization": {
     "settings": {
@@ -38,5 +128,18 @@
       "forbidden": "You do not have the permissions needed to administer this organization's members."
     },
     "noActiveOrganization": "No active organization. Pick one in the context switcher to administer its members."
+  },
+  "validation": {
+    "passwordTooShort": "The password must be at least {min} characters.",
+    "passwordTooLong": "The password cannot exceed {max} characters.",
+    "confirmationMismatch": "The two passwords do not match.",
+    "confirmRequired": "Confirm the password.",
+    "currentPasswordRequired": "Your current password is required.",
+    "newPasswordSameAsCurrent": "The new password must differ from the current one.",
+    "recoveryInvalid": "Enter a valid recovery code.",
+    "codeSixDigits": "The code must be exactly six digits.",
+    "emailRequired": "Your email address is required.",
+    "emailInvalid": "This email address is not valid.",
+    "passwordRequired": "Your password is required."
   }
 }

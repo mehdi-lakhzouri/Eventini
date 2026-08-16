@@ -4,11 +4,12 @@ import {
   BarChart3Icon,
   Building2Icon,
   CalendarDaysIcon,
+  ClipboardListIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MonitorSmartphoneIcon,
+  ReceiptTextIcon,
   ShieldCheckIcon,
-  UserCircleIcon,
   UsersIcon,
   UsersRoundIcon,
 } from "lucide-react";
@@ -18,14 +19,21 @@ import {
   type AppSidebarNavSection,
 } from "@/components/shared/app-sidebar";
 import { LocaleSwitcher } from "@/components/shared/locale-switcher";
+import { ThemeModeToggle } from "@/components/shared/theme-mode-toggle";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 
-import { Button } from "@/components/ui/button";
 import { permissions } from "@/config/permissions";
 import { routes } from "@/config/routes";
 import { OrganizationSwitcher } from "@/features/organizations";
 import { useLogout } from "../hooks/use-logout";
 import { usePermissions } from "../hooks/use-permissions";
+import { EventiniMark } from "./eventini-logo";
 
 /**
  * La coque applicative — barre latérale, sélecteur d'organisation, déconnexion.
@@ -53,7 +61,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
       items: [
         {
           label: t("dashboard"),
-          href: "/dashboard",
+          href: routes.adminDashboard,
           icon: LayoutDashboardIcon,
           exact: true,
         },
@@ -61,8 +69,17 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
           ? [
               {
                 label: t("events"),
-                href: "/events",
+                href: routes.events,
                 icon: CalendarDaysIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "09" }),
+              },
+              {
+                label: t("eventSessions"),
+                href: routes.eventSessions,
+                icon: ClipboardListIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "09" }),
               },
             ]
           : []),
@@ -70,8 +87,21 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
           ? [
               {
                 label: t("participants"),
-                href: "/participants",
+                href: routes.participants,
                 icon: UsersIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "10" }),
+              },
+            ]
+          : []),
+        ...(can(permissions.readRegistrations)
+          ? [
+              {
+                label: t("registrations"),
+                href: routes.registrations,
+                icon: ReceiptTextIcon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "10" }),
               },
             ]
           : []),
@@ -79,8 +109,10 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
           ? [
               {
                 label: t("reports"),
-                href: "/reports",
+                href: routes.reports,
                 icon: BarChart3Icon,
+                disabled: true,
+                disabledReason: t("availableInSprint", { sprint: "12" }),
               },
             ]
           : []),
@@ -123,10 +155,9 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
     {
       title: t("account"),
       items: [
-        { label: t("profile"), href: "/account/profile", icon: UserCircleIcon },
         {
           label: t("security"),
-          href: "/account/security",
+          href: routes.accountSecurity,
           icon: ShieldCheckIcon,
         },
         /*
@@ -137,7 +168,7 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
         */
         {
           label: t("sessions"),
-          href: "/account/sessions",
+          href: routes.accountSessions,
           icon: MonitorSmartphoneIcon,
         },
       ],
@@ -148,35 +179,109 @@ export function ApplicationShell({ children }: { children: React.ReactNode }) {
     <AppSidebarLayout
       brand={{
         name: "Eventini",
-        description: user?.displayName ?? undefined,
-        href: "/dashboard",
-        icon: LayoutDashboardIcon,
+        description: t("eventManagement"),
+        href: routes.adminDashboard,
+        icon: EventiniMark,
       }}
       sections={sections}
+      footer={
+        <ApplicationSidebarFooter
+          displayName={user?.displayName ?? user?.email ?? "Eventini"}
+          email={user?.email}
+          role={
+            user?.role === "SUPER_ADMIN"
+              ? t("superAdministrator")
+              : t("administrator")
+          }
+          signOutLabel={t("signOut")}
+          isSigningOut={logout.isPending}
+          onSignOut={() => logout.mutate()}
+        />
+      }
     >
-      <div className="flex flex-col gap-4 p-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="w-full max-w-xs">
+      <div className="flex min-h-svh flex-col bg-background">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border/70 bg-background/88 px-4 py-3 backdrop-blur-xl supports-backdrop-filter:bg-background/75 sm:px-6">
+          <div className="w-full max-w-[19rem] sm:w-auto sm:flex-1">
             <OrganizationSwitcher />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
+            <ThemeModeToggle />
             <LocaleSwitcher />
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => logout.mutate()}
-              disabled={logout.isPending}
-            >
-              <LogOutIcon aria-hidden="true" />
-              {t("signOut")}
-            </Button>
           </div>
         </header>
 
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+          {children}
+        </div>
       </div>
     </AppSidebarLayout>
   );
+}
+
+type ApplicationSidebarFooterProps = {
+  displayName: string;
+  email?: string;
+  role: string;
+  signOutLabel: string;
+  isSigningOut: boolean;
+  onSignOut: () => void;
+};
+
+function ApplicationSidebarFooter({
+  displayName,
+  email,
+  role,
+  signOutLabel,
+  isSigningOut,
+  onSignOut,
+}: ApplicationSidebarFooterProps) {
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          size="lg"
+          tooltip={displayName}
+          render={
+            <Link href={routes.accountProfile} aria-label={displayName} />
+          }
+          className="h-14 rounded-xl border border-sidebar-border/70 bg-sidebar-accent/55 p-2 shadow-xs hover:bg-sidebar-accent"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground shadow-sm">
+            {initials(displayName)}
+          </span>
+          <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <span className="block truncate text-sm font-semibold">
+              {displayName}
+            </span>
+            <span className="block truncate text-[0.7rem] text-sidebar-foreground/55">
+              {email ?? role}
+            </span>
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          tooltip={signOutLabel}
+          aria-label={signOutLabel}
+          disabled={isSigningOut}
+          onClick={onSignOut}
+          className="h-9 rounded-xl text-sidebar-foreground/65 hover:text-sidebar-foreground"
+        >
+          <LogOutIcon aria-hidden="true" />
+          <span>{signOutLabel}</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
+function initials(displayName: string) {
+  return displayName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase() ?? "")
+    .join("")
+    .slice(0, 2);
 }

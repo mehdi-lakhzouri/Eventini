@@ -13,7 +13,9 @@
     "workspace": "Espace de travail",
     "dashboard": "Tableau de bord",
     "events": "Événements",
+    "eventSessions": "Sessions événement",
     "participants": "Participants",
+    "registrations": "Inscriptions",
     "reports": "Rapports",
     "organization": "Organisation",
     "organizationSettings": "Paramètres",
@@ -22,7 +24,95 @@
     "profile": "Profil",
     "security": "Sécurité",
     "sessions": "Sessions",
-    "signOut": "Se déconnecter"
+    "signOut": "Se déconnecter",
+    "eventManagement": "Gestion événementielle",
+    "administrator": "Administrateur",
+    "superAdministrator": "Super administrateur",
+    "availableInSprint": "Disponible au sprint {sprint}"
+  },
+  "theme": {
+    "label": "Thème",
+    "light": "Thème clair",
+    "dark": "Thème sombre",
+    "system": "Thème système"
+  },
+  "authentication": {
+    "brand": {
+      "home": "Accueil Eventini",
+      "tagline": "Inscriptions, sessions, contrôle d'accès et suivi en temps réel.",
+      "centralised": "Gestion centralisée",
+      "centralisedDetail": "Toutes vos données au même endroit.",
+      "checkIn": "Check-in sécurisé",
+      "checkInDetail": "Contrôle d'accès fiable et rapide.",
+      "realTime": "Suivi en temps réel",
+      "realTimeDetail": "Des insights à jour pour de meilleures décisions.",
+      "headlineLine1": "Gérez vos",
+      "headlineLine2": "événements",
+      "headlineLine3": "de bout en bout."
+    },
+    "fields": {
+      "email": "Adresse électronique",
+      "emailPlaceholder": "nom@entreprise.com",
+      "password": "Mot de passe",
+      "passwordPlaceholder": "••••••••••••",
+      "newPassword": "Nouveau mot de passe",
+      "currentPassword": "Mot de passe actuel",
+      "confirmation": "Confirmation",
+      "passwordHint": "Au moins 12 caractères.",
+      "showPassword": "Afficher la saisie",
+      "hidePassword": "Masquer la saisie"
+    },
+    "login": {
+      "title": "Bon retour",
+      "subtitle": "Connectez-vous pour gérer vos événements.",
+      "forgotPassword": "Mot de passe oublié ?",
+      "submit": "Se connecter",
+      "submitting": "Connexion…",
+      "secured": "Votre connexion est sécurisée."
+    },
+    "forgotPassword": {
+      "submit": "Envoyer le lien",
+      "submitting": "Envoi en cours..."
+    },
+    "resetPassword": {
+      "submit": "Enregistrer",
+      "submitting": "Enregistrement…",
+      "incompleteLink": "Lien incomplet",
+      "incompleteLinkDetail": "Ce lien de réinitialisation est incomplet. Demandez-en un nouveau.",
+      "requestNewLink": "Demander un nouveau lien",
+      "title": "Nouveau mot de passe",
+      "subtitle": "Choisissez un mot de passe que vous n'utilisez nulle part ailleurs."
+    },
+    "mfa": {
+      "title": "Vérifiez votre identité",
+      "totpHint": "Saisissez le code à 6 chiffres généré par votre application d'authentification.",
+      "recoveryHint": "Saisissez l'un de vos codes de récupération.",
+      "recoveryLabel": "Code de secours",
+      "recoveryPlaceholder": "XXXXX-XXXXX",
+      "verify": "Vérifier le code",
+      "verifyRecovery": "Vérifier le code de secours",
+      "invalidCode": "Code invalide. Vérifiez le code et réessayez.",
+      "invalidRecovery": "Code de secours invalide ou déjà utilisé.",
+      "codeLabel": "Code de vérification",
+      "verifying": "Vérification..."
+    },
+    "sessions": {
+      "loading": "Chargement de vos sessions…",
+      "loadFailed": "Vos sessions n'ont pas pu être chargées.",
+      "unknownDevice": "Appareil inconnu",
+      "currentSession": "Cette session",
+      "seenOn": "Vue le {lastSeen} · ouverte le {createdAt}",
+      "revoke": "Révoquer",
+      "revoking": "Révocation…",
+      "revokeAria": "Révoquer la session {device}",
+      "revokeAll": "Tout déconnecter",
+      "revokeAllDetail": "Ferme toutes les sessions, y compris celle-ci.",
+      "revokingAll": "Déconnexion…"
+    },
+    "security": {
+      "changePassword": "Changer le mot de passe"
+    },
+    "checkingSession": "Vérification de votre session…"
   },
   "organization": {
     "settings": {
@@ -38,5 +128,18 @@
       "forbidden": "Vous n'avez pas les droits nécessaires pour administrer les membres de cette organisation."
     },
     "noActiveOrganization": "Aucune organisation active. Sélectionnez-en une dans le sélecteur de contexte pour administrer ses membres."
+  },
+  "validation": {
+    "passwordTooShort": "Le mot de passe doit contenir au moins {min} caractères.",
+    "passwordTooLong": "Le mot de passe ne peut pas dépasser {max} caractères.",
+    "confirmationMismatch": "Les deux mots de passe ne correspondent pas.",
+    "confirmRequired": "Confirmez le mot de passe.",
+    "currentPasswordRequired": "Le mot de passe actuel est requis.",
+    "newPasswordSameAsCurrent": "Le nouveau mot de passe doit être différent de l'actuel.",
+    "recoveryInvalid": "Saisissez un code de secours valide.",
+    "codeSixDigits": "Le code doit contenir exactement six chiffres.",
+    "emailRequired": "L'adresse électronique est requise.",
+    "emailInvalid": "Cette adresse électronique est invalide.",
+    "passwordRequired": "Le mot de passe est requis."
   }
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { useMemo } from "react";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -7,7 +10,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { changePassword } from "../api/password.api";
 import {
-  changePasswordSchema,
+  buildChangePasswordSchema,
   type ChangePasswordFormValues,
 } from "../schemas/password.schema";
 import { applyApiErrorToForm } from "../utils/form-errors";
@@ -23,8 +26,11 @@ import { FormMessage } from "./form-message";
  * et la session volée devient permanente.
  */
 export function SecuritySettings() {
+  const t = useTranslations("authentication");
+  const tv = useTranslations("validation");
+  const schema = useMemo(() => buildChangePasswordSchema(tv), [tv]);
   const form = useForm<ChangePasswordFormValues>({
-    resolver: zodResolver(changePasswordSchema),
+    resolver: zodResolver(schema),
     defaultValues: { currentPassword: "", newPassword: "", confirmation: "" },
     mode: "onSubmit",
   });
@@ -74,7 +80,7 @@ export function SecuritySettings() {
 
         <FormField
           id="currentPassword"
-          label="Mot de passe actuel"
+          label={t("fields.currentPassword")}
           type="password"
           autoComplete="current-password"
           error={form.formState.errors.currentPassword}
@@ -83,17 +89,17 @@ export function SecuritySettings() {
 
         <FormField
           id="newPassword"
-          label="Nouveau mot de passe"
+          label={t("fields.newPassword")}
           type="password"
           autoComplete="new-password"
-          hint="Au moins 12 caractères."
+          hint={t("fields.passwordHint")}
           error={form.formState.errors.newPassword}
           {...form.register("newPassword")}
         />
 
         <FormField
           id="confirmation"
-          label="Confirmation"
+          label={t("fields.confirmation")}
           type="password"
           autoComplete="new-password"
           error={form.formState.errors.confirmation}
@@ -103,7 +109,7 @@ export function SecuritySettings() {
         <Button type="submit" disabled={form.formState.isSubmitting}>
           {form.formState.isSubmitting
             ? "Enregistrement…"
-            : "Changer le mot de passe"}
+            : t("security.changePassword")}
         </Button>
       </form>
     </section>

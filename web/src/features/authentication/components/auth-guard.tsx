@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useRouter } from "@/i18n/navigation";
 import { useEffect, type ReactNode } from "react";
 
@@ -45,6 +47,7 @@ export function AuthGuard({
   requiredRole,
   requiredPermission,
 }: AuthGuardProps) {
+  const t = useTranslations("authentication");
   const router = useRouter();
   const { data: user, isPending, isError } = useCurrentUser();
 
@@ -84,7 +87,7 @@ export function AuthGuard({
         aria-live="polite"
         aria-busy="true"
       >
-        <span className="sr-only">Vérification de votre session…</span>
+        <span className="sr-only">{t("checkingSession")}</span>
         <Skeleton className="h-8 w-1/3" />
         <Skeleton className="h-4 w-2/3" />
         <Skeleton className="h-4 w-1/2" />

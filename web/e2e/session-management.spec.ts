@@ -15,8 +15,7 @@ import { expect, test } from "@playwright/test";
 
 const meta = { requestId: "req_1", timestamp: "", apiVersion: "v1" };
 
-const envelope = (data: unknown) =>
-  JSON.stringify({ data, meta, error: null });
+const envelope = (data: unknown) => JSON.stringify({ data, meta, error: null });
 
 const CURRENT_USER = {
   userId: "usr_1",
@@ -142,7 +141,9 @@ test.describe("liste des sessions", () => {
     await expect.poll(() => revoked).toEqual(["DELETE"]);
   });
 
-  test("déconnecte partout puis renvoie vers la connexion", async ({ page }) => {
+  test("déconnecte partout puis renvoie vers la connexion", async ({
+    page,
+  }) => {
     /*
       Le backend efface le cookie d'accès en révoquant. Le mock doit le faire
       aussi : sans cela le proxy voit encore une session sur `/login` et
@@ -205,7 +206,9 @@ test.describe("bascule d'organisation", () => {
     await page.goto("/account/sessions");
     await page.getByRole("button", { name: /Organisation active/ }).click();
 
-    await expect(page.getByRole("menuitem", { name: /Salon Beta/ })).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", { name: /Salon Beta/ }),
+    ).toBeVisible();
     await expect(
       page.getByRole("menuitem", { name: /Congrès Alpha/ }),
     ).toBeDisabled();
@@ -297,5 +300,99 @@ test.describe("navigation filtrée par les permissions", () => {
 
     // Gérer ses propres sessions n'est pas un privilège accordé par un rôle.
     await expect(page.getByRole("link", { name: "Sessions" })).toBeVisible();
+  });
+
+  test("branche les routes livrées et neutralise les modules futurs", async ({
+    page,
+  }) => {
+    await page.route("**/auth/me", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: envelope({
+          ...CURRENT_USER,
+          permissions: [
+            "organizations.read",
+            "users.read",
+            "events.read",
+            "participants.read",
+            "registrations.read",
+            "reports.read",
+          ],
+        }),
+      }),
+    );
+    await page.route("**/organizations", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: envelope([]),
+      }),
+    );
+
+    await page.goto("/dashboard");
+
+    await expect(
+      page.getByRole("link", { name: "Tableau de bord" }),
+    ).toHaveAttribute("href", "/dashboard");
+    await expect(
+      page.getByRole("link", { name: "Paramètres" }),
+    ).toHaveAttribute("href", "/organization");
+    await expect(page.getByRole("link", { name: "Membres" })).toHaveAttribute(
+      "href",
+      "/organization/members",
+    );
+
+    // Les écrans des sprints suivants sont visibles dans la feuille de route,
+    // mais restent des boutons inertes tant que leurs pages n'existent pas.
+    await expect(
+      page.getByRole("button", { name: "Événements" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByRole("link", { name: "Événements" })).toHaveCount(0);
+  });
+
+  test("affiche les tooltips lorsque la sidebar est repliée", async ({
+    page,
+  }) => {
+    await page.route("**/organizations", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: envelope([]),
+      }),
+    );
+
+    await page.goto("/dashboard");
+    await page.getByRole("button", { name: "Reduire la sidebar" }).click();
+
+    await expect(page.locator('[data-slot="sidebar"]').first()).toHaveAttribute(
+      "data-state",
+      "collapsed",
+    );
+
+    await page.getByRole("link", { name: "Tableau de bord" }).hover();
+    await expect(page.locator('[data-slot="tooltip-content"]')).toContainText(
+      "Tableau de bord",
+    );
+  });
+
+  test("applique et mémorise le thème choisi", async ({ page }) => {
+    await page.route("**/organizations", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: envelope([]),
+      }),
+    );
+
+    await page.goto("/dashboard");
+    await page.getByRole("button", { name: "Thème sombre" }).click();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+
+    await page.reload();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    await expect(
+      page.getByRole("button", { name: "Thème sombre" }),
+    ).toHaveAttribute("data-pressed");
   });
 });

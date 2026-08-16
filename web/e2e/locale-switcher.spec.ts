@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Le sélecteur de langue — EVT-047.
@@ -18,14 +18,42 @@ import { expect, test } from "@playwright/test";
  * Aucun backend n'est requis : `/login` est public, et changer de langue est
  * une navigation, pas un appel d'API.
  */
+
+/**
+ * Ouvre le menu, en réessayant jusqu'à ce qu'il s'ouvre vraiment.
+ *
+ * ## 🔴 Pourquoi un simple `click()` ne suffit pas
+ *
+ * Le déclencheur est rendu **côté serveur** : il existe dans le DOM, il est
+ * visible et il est activable bien avant que React n'ait hydraté et attaché son
+ * gestionnaire. Un clic tombé dans cet intervalle ne fait rien, et le test
+ * échoue sur une absence de menu qui n'a rien à voir avec le composant.
+ *
+ * L'intervalle dépend de la charge de la machine, ce qui rend le défaut
+ * intermittent : ces parcours passaient isolément et échouaient dans la suite
+ * complète. Attendre `toBeEnabled()` ne le ferme pas — l'attribut ne dit rien
+ * de l'hydratation.
+ *
+ * `toPass()` réessaie le bloc jusqu'à ce qu'il tienne. C'est le motif que
+ * Playwright prescrit pour une interaction dont la disponibilité n'a pas de
+ * signal observable, et c'est très probablement l'origine de la note « le menu
+ * ne s'ouvre pas » qui traînait sur `DropdownMenu`.
+ */
+async function openLocaleMenu(page: Page): Promise<void> {
+  await expect(async () => {
+    await page.getByTestId("locale-switcher").click();
+    await expect(page.getByTestId("locale-option-en")).toBeVisible({
+      timeout: 1000,
+    });
+  }).toPass({ timeout: 15_000 });
+}
+
 test.describe("sélecteur de langue", () => {
   test("s'ouvre au clic et propose les deux langues", async ({ page }) => {
     await page.goto("/login");
 
-    const trigger = page.getByTestId("locale-switcher");
-    await expect(trigger).toBeVisible();
-
-    await trigger.click();
+    await expect(page.getByTestId("locale-switcher")).toBeVisible();
+    await openLocaleMenu(page);
 
     await expect(page.getByTestId("locale-option-fr")).toBeVisible();
     await expect(page.getByTestId("locale-option-en")).toBeVisible();
@@ -43,18 +71,58 @@ test.describe("sélecteur de langue", () => {
     // Sans préfixe, la page est en français : c'est la locale par défaut.
     await expect(page.locator("html")).toHaveAttribute("lang", "fr");
 
-    await page.getByTestId("locale-switcher").click();
+    await openLocaleMenu(page);
     await page.getByTestId("locale-option-en").click();
 
     await expect(page).toHaveURL(/\/en\/login/);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
   });
 
+  /**
+   * 🔴 Le test que ce ticket avait d'abord manqué.
+   *
+   * La première livraison montait le sélecteur sur des écrans dont la copie
+   * restait en dur en français : la langue « changeait » — attribut `lang`,
+   * URL, libellé du bouton — sans qu'un seul mot de la page ne bouge. Un
+   * sélecteur qui ne change rien est pire que pas de sélecteur.
+   *
+   * Vérifier `lang` et l'URL ne suffit donc pas : il faut lire le texte.
+   */
+  test("traduit réellement le contenu de la page", async ({ page }) => {
+    await page.goto("/login");
+
+    await expect(
+      page.getByRole("heading", { name: "Bon retour", level: 1 }),
+    ).toBeVisible();
+
+    await openLocaleMenu(page);
+    await page.getByTestId("locale-option-en").click();
+
+    await expect(
+      page.getByRole("heading", { name: "Welcome back", level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Email address")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByText("Bon retour")).toHaveCount(0);
+  });
+
+  /** Les messages de validation Zod suivent la locale, pas le processus. */
+  test("traduit aussi les messages de validation", async ({ page }) => {
+    await page.goto("/en/login");
+
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    await expect(
+      page.getByText("Your email address is required."),
+    ).toBeVisible();
+    await expect(page.getByText("Your password is required.")).toBeVisible();
+  });
+
   test("revient au français sans préfixe", async ({ page }) => {
     await page.goto("/en/login");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
 
-    await page.getByTestId("locale-switcher").click();
+    await openLocaleMenu(page);
     await page.getByTestId("locale-option-fr").click();
 
     // `as-needed` : le français n'est jamais préfixé.
@@ -87,20 +155,7 @@ test.describe("sélecteur de langue", () => {
   }) => {
     await page.goto("/login");
 
-    /*
-      Attendre le déclencheur avant de cliquer, et pas par superstition : le
-      bouton est rendu côté serveur, donc il existe dans le DOM **avant** que
-      React n'ait hydraté et attaché son gestionnaire. Un clic immédiat après
-      `goto` atterrit dans le vide et le menu ne s'ouvre jamais — ce test-ci
-      échouait exactement ainsi pendant que les autres passaient, parce qu'ils
-      commencent par une assertion qui laisse le temps à l'hydratation.
-
-      C'est très probablement l'origine de la note « le menu ne s'ouvre pas »
-      qui traînait sur ce composant.
-    */
-    const trigger = page.getByTestId("locale-switcher");
-    await expect(trigger).toBeEnabled();
-    await trigger.click();
+    await openLocaleMenu(page);
 
     const option = page.getByTestId("locale-option-en");
     await expect(option).toContainText("English");
