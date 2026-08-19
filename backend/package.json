@@ -129,6 +129,7 @@
   },
   "overrides": {
     "js-yaml": "5.2.2",
+    "deepmerge-ts": "^8.0.1",
     "exceljs": {
       "archiver": {
         "readdir-glob": {
