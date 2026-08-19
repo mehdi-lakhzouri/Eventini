@@ -174,8 +174,36 @@ export const forgotErrorShake: Variants = {
   },
 };
 
+/**
+ * 🔴 `rest` porte son propre `transition`, et ce n'est pas décoratif.
+ *
+ * Sans lui, le retour de `pressed` (scale 0.985) vers `rest` héritait du
+ * ressort implicite que Motion applique par défaut aux propriétés de
+ * transformation — `scale`, `x`, `y`, `rotate`. Un ressort dépasse sa cible
+ * avant de s'y stabiliser, donc le bouton passait brièvement au-dessus de
+ * `scale: 1` pendant la désescalade.
+ *
+ * Ça ne se voyait presque pas à l'œil, mais ça suffisait à faire échouer les
+ * deux tests qui mesurent la largeur du bouton pendant l'envoi : `click()`
+ * déclenche `pressed`, puis relâche immédiatement — et la mesure suivante,
+ * prise dès que `isSubmitting` passe à vrai, tombait au beau milieu du
+ * dépassement du ressort. La largeur mesurée était donc **plus grande**
+ * qu'au repos, jamais plus petite, ce qui pointait vers un dépassement plutôt
+ * que vers une transition simplement incomplète.
+ *
+ * Un `tween` avec la même cadence que `pressed` élimine le dépassement par
+ * construction — les easings `standard`/`emphasized` de ce module sont
+ * monotones, donc l'interpolation ne peut jamais dépasser sa cible. Le bouton
+ * ne bouge plus au moment précis où il se fige et bascule sur le témoin de
+ * chargement, ce qui est aussi le comportement voulu : rien ne doit sembler
+ * "rebondir" pendant qu'une action est en cours.
+ */
 export const subtleButtonInteraction: Variants = {
-  rest: { y: 0, scale: 1 },
+  rest: {
+    y: 0,
+    scale: 1,
+    transition: { duration: duration.instant, ease: easing.standard },
+  },
   hover: {
     y: -1,
     transition: { duration: duration.fast, ease: easing.emphasized },

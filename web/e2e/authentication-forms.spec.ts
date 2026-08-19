@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 /**
  * Les formulaires d'authentification — EVT-040.
@@ -12,6 +12,41 @@ import { expect, test } from "@playwright/test";
  * la suite e2e du backend — c'est là que vivent la base et Redis. Le doubler
  * ici n'ajouterait qu'un ordonnancement fragile.
  */
+
+/**
+ * Attend que la position et la taille d'un élément cessent de bouger — EVT-047.
+ *
+ * ## 🔴 Le bug que ça corrige n'était pas dans le bouton
+ *
+ * Les deux tests qui utilisent ce garde mesurent une largeur de bouton
+ * « avant » puis « pendant » l'envoi, et comparent les deux. Ils échouaient de
+ * façon systématique, et la cause n'avait rien à voir avec le bouton lui-même :
+ * la **carte entière** qui l'entoure (`forgotCardIn`, `mfaCardIn`) entre en
+ * scène sur 500 ms — `scale: 0.985 → 1`, `y: 16 → 0`. La mesure « avant » était
+ * prise immédiatement après `goto()`, en pleine animation d'entrée, donc plus
+ * petite que la taille finale. La mesure « pendant » arrivait, elle, après
+ * l'aller-retour réseau simulé — largement après que l'entrée soit terminée.
+ * Le test comparait donc une carte qui bougeait encore à une carte stabilisée,
+ * et prenait l'écart pour un défaut du bouton.
+ *
+ * ## Pourquoi une attente de stabilité plutôt qu'un délai fixe
+ *
+ * Un `waitForTimeout(600)` aurait marché, mais aurait couplé le test à une
+ * durée d'animation définie ailleurs (`src/lib/motion/variants.ts`) : la
+ * changer là-bas sans y penser ici aurait fait revivre exactement ce bug. Ici,
+ * on attend un **fait observable** — deux lectures de position à 50 ms
+ * d'écart qui coïncident — qui reste vrai quelle que soit la durée choisie
+ * pour l'animation.
+ */
+async function waitForStableLayout(locator: Locator): Promise<void> {
+  await expect(async () => {
+    const first = await locator.boundingBox();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const second = await locator.boundingBox();
+
+    expect(second).toEqual(first);
+  }).toPass({ timeout: 2000 });
+}
 
 test.describe("écran de connexion", () => {
   test("la carte compacte tient dans un écran portable", async ({ page }) => {
@@ -262,6 +297,10 @@ test.describe("écrans dérivés", () => {
     await page.goto("/forgot-password");
     await page.getByLabel("Adresse électronique").fill("ana@exemple.fr");
     const button = page.getByRole("button", { name: "Envoyer le lien" });
+    // La carte est encore en train d'entrer en scène juste après `goto()` —
+    // voir `waitForStableLayout`. Sans cette attente, la mesure « avant »
+    // est prise en pleine animation d'entrée.
+    await waitForStableLayout(button);
     const before = await button.boundingBox();
     await button.click();
 
@@ -347,6 +386,9 @@ test.describe("écrans dérivés", () => {
     await page.goto("/verify-mfa?challenge=chl_01JABC");
     await page.getByLabel("Code de vérification").fill("123456");
     const button = page.getByRole("button", { name: "Vérifier le code" });
+    // Même raison que sur le formulaire de mot de passe oublié : `mfaCardIn`
+    // anime aussi l'entrée de la carte sur 500 ms.
+    await waitForStableLayout(button);
     const before = await button.boundingBox();
 
     await button.click();
