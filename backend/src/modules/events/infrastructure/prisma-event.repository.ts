@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import type { TenantContext } from '../../../common/types/tenant-context';
+import type { EventStatus } from '../../../infrastructure/database/enums';
 import { Prisma } from '../../../infrastructure/database/prisma/generated/client';
 import { TENANT_SCOPED_PRISMA } from '../../../infrastructure/database/prisma.tokens';
 import type { TenantScopedPrismaClient } from '../../../infrastructure/database/tenant-scope.extension';
@@ -11,10 +12,12 @@ import {
   type EventChanges,
   type EventCreateFailure,
   type EventProfile,
+  type EventTransitionFailure,
   type EventUpdateFailure,
   type EventValues,
 } from '../domain/event.repository';
 import { isValidEventSchedule } from '../domain/event-schedule';
+import { checkEventTransition } from '../domain/event-transitions';
 
 const UNIQUE_VIOLATION = 'P2002';
 
@@ -295,6 +298,120 @@ export class PrismaEventRepository extends EventRepository {
         ? error
         : new Error('Event update failed.', { cause: error });
     }
+  }
+
+  async transition(
+    context: TenantContext,
+    eventId: string,
+    expectedVersion: number,
+    target: Extract<EventStatus, 'ACTIVE' | 'CANCELLED'>,
+    cancellationReason: string | null,
+    facts: EventAuditFacts,
+  ): Promise<EventProfile | EventTransitionFailure> {
+    return this.prisma.$transaction(async (tx) => {
+      const currentRow = await tx.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: context.organizationId,
+          deletedAt: null,
+        },
+        select: EVENT_SELECT,
+      });
+
+      if (currentRow === null) return 'NOT_FOUND';
+      if (currentRow.version !== expectedVersion) return 'CONFLICT';
+
+      const sessionCount =
+        target === 'ACTIVE'
+          ? await tx.eventSession.count({
+              where: {
+                organizationId: context.organizationId,
+                eventId,
+                deletedAt: null,
+              },
+            })
+          : 0;
+      const decision = checkEventTransition(
+        currentRow.status as EventStatus,
+        target,
+        { sessionCount },
+      );
+
+      if (!decision.allowed) {
+        return { kind: 'INVALID_TRANSITION', reason: decision.reason };
+      }
+
+      const occurredAt = new Date();
+      const affected = await tx.event.updateMany({
+        where: {
+          id: eventId,
+          organizationId: context.organizationId,
+          status: currentRow.status,
+          version: expectedVersion,
+          deletedAt: null,
+        },
+        data: {
+          status: target,
+          version: { increment: 1 },
+          updatedBy: context.userId,
+          ...(target === 'ACTIVE'
+            ? { activatedAt: occurredAt, activatedBy: context.userId }
+            : {
+                cancelledAt: occurredAt,
+                cancelledBy: context.userId,
+                cancellationReason,
+              }),
+        },
+      });
+
+      if (affected.count === 0) return 'CONFLICT';
+
+      if (target === 'CANCELLED') {
+        await tx.eventSession.updateMany({
+          where: {
+            organizationId: context.organizationId,
+            eventId,
+            status: { not: 'CLOSED' },
+            deletedAt: null,
+          },
+          data: {
+            status: 'CLOSED',
+            closedAt: occurredAt,
+            closedBy: context.userId,
+            updatedBy: context.userId,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      const updatedRow = await tx.event.findFirst({
+        where: {
+          id: eventId,
+          organizationId: context.organizationId,
+          deletedAt: null,
+        },
+        select: EVENT_SELECT,
+      });
+      if (updatedRow === null) return 'NOT_FOUND';
+
+      await this.audit.record(
+        tx,
+        context,
+        {
+          action: target === 'ACTIVE' ? 'event.activated' : 'event.cancelled',
+          targetType: 'event',
+          targetId: eventId,
+          previousValues: { status: currentRow.status },
+          newValues: {
+            status: target,
+            ...(cancellationReason === null ? {} : { cancellationReason }),
+          },
+        },
+        facts,
+      );
+
+      return toProfile(updatedRow);
+    });
   }
 }
 

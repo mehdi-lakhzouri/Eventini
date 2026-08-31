@@ -1,4 +1,5 @@
 import type { TenantContext } from '../../../common/types/tenant-context';
+import type { EventStatus } from '../../../infrastructure/database/enums';
 
 export interface EventProfile {
   readonly eventId: string;
@@ -60,6 +61,11 @@ export type EventCreateFailure = 'SLUG_TAKEN' | 'EVENT_CODE_COLLISION';
 export type EventUpdateFailure =
   'NOT_FOUND' | 'CONFLICT' | 'SLUG_TAKEN' | 'INVALID_SCHEDULE';
 
+export type EventTransitionFailure =
+  | 'NOT_FOUND'
+  | 'CONFLICT'
+  | { readonly kind: 'INVALID_TRANSITION'; readonly reason: string };
+
 export abstract class EventRepository {
   abstract list(context: TenantContext): Promise<EventProfile[]>;
 
@@ -84,4 +90,13 @@ export abstract class EventRepository {
     changes: EventChanges,
     facts: EventAuditFacts,
   ): Promise<EventProfile | EventUpdateFailure>;
+
+  abstract transition(
+    context: TenantContext,
+    eventId: string,
+    expectedVersion: number,
+    target: Extract<EventStatus, 'ACTIVE' | 'CANCELLED'>,
+    cancellationReason: string | null,
+    facts: EventAuditFacts,
+  ): Promise<EventProfile | EventTransitionFailure>;
 }

@@ -71,5 +71,6 @@ function repositoryWithUpdate(
     find: jest.fn(),
     create: jest.fn(),
     update,
+    transition: jest.fn(),
   };
 }

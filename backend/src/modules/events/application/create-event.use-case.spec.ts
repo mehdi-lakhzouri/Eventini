@@ -113,5 +113,6 @@ function repositoryWithCreate(
     find: jest.fn(),
     create,
     update: jest.fn(),
+    transition: jest.fn(),
   };
 }
