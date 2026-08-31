@@ -45,7 +45,7 @@ Routes   GET|POST /events · GET|PATCH /events/{eventId}
 Tables   events
 ```
 
-**`PATCH` exige `If-Match`** — un événement est édité concurremment par plusieurs administrateurs. Sans verrou optimiste, l'un écrase silencieusement le travail de l'autre. Absent ⇒ `428`, périmé ⇒ `412`.
+**`PATCH` exige `If-Match`** — un événement est édité concurremment par plusieurs administrateurs. Sans verrou optimiste, l'un écrase silencieusement le travail de l'autre. Absent ⇒ `428 PRECONDITION_REQUIRED`, malformé ⇒ `412 PRECONDITION_FAILED`, périmé ⇒ `409 VERSION_CONFLICT`, conformément au contrat de concurrence commun déjà appliqué aux organisations.
 
 ### Trois points de conception
 
@@ -192,7 +192,7 @@ Branche  feat/EVT-053-events-ui
 |---|---|
 | Fuseau horaire | toujours afficher le fuseau de l'événement à côté des heures, jamais le fuseau du navigateur silencieusement |
 | Transitions | actions grisées quand la transition est interdite — mais le backend refuse de toute façon |
-| `If-Match` | l'ETag reçu au chargement est renvoyé à l'enregistrement ; un `412` affiche « modifié entre-temps », pas une erreur technique |
+| `If-Match` | l'ETag reçu au chargement est renvoyé à l'enregistrement ; un `409 VERSION_CONFLICT` affiche « modifié entre-temps », pas une erreur technique |
 | `event_code` | affiché en grand, copiable — c'est ce que l'opérateur saisit sur son scanner |
 
 ---

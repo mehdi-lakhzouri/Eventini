@@ -21,6 +21,7 @@ import { MetricsModule } from './infrastructure/metrics';
 import { RedisModule } from './infrastructure/redis';
 import { GuardChainModule } from './modules/identity/authorization/guard-chain.module';
 import { OrganizationsModule } from './modules/organizations';
+import { EventsModule } from './modules/events';
 import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
 
@@ -87,6 +88,7 @@ if (!isProduction) {
     // chain behind rate limiting and CSRF (§7.5).
     GuardChainModule,
     OrganizationsModule,
+    EventsModule,
   ],
   providers: [
     // Registered here rather than in `main.ts` because all three need DI:
