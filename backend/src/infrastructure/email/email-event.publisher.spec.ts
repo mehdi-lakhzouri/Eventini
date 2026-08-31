@@ -1,6 +1,7 @@
 import {
   describeBrowser,
   describeDevice,
+  deriveEmailEventId,
   EmailEventPublisher,
   formatDuration,
   maskIpAddress,
@@ -25,6 +26,21 @@ describe('email security metadata', () => {
   it('formats expiry without leaking implementation timestamps', () => {
     expect(formatDuration(1_800)).toBe('30 minute(s)');
     expect(formatDuration(86_400)).toBe('1 jour(s)');
+  });
+
+  it('derives a stable event id without incorporating an action token', () => {
+    const occurrence = {
+      type: 'PASSWORD_RESET_REQUESTED' as const,
+      userId: 'usr_test',
+      expiresInSeconds: 1_800,
+      occurredAt: new Date('2026-08-16T12:00:00Z'),
+    };
+
+    expect(
+      deriveEmailEventId({ ...occurrence, resetToken: 'first-secret-token' }),
+    ).toBe(
+      deriveEmailEventId({ ...occurrence, resetToken: 'second-secret-token' }),
+    );
   });
 
   it('does not roll back a business event when queueing is unavailable', async () => {

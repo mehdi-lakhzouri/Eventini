@@ -302,7 +302,17 @@ const approximateLocation = (): string =>
   'Localisation approximative indisponible';
 
 export function deriveEmailEventId(event: TransactionalEmailEvent): string {
-  return `eme_${createHash('sha256')
-    .update(JSON.stringify(event))
-    .digest('hex')}`;
+  // Deliberately exclude reset/verification tokens. Even a one-way digest of
+  // a secret is unnecessary exposure in Redis metadata and is easy for a
+  // scanner to mistake for password storage. The business occurrence is
+  // already stable on type + user + timestamp; session revocation adds its
+  // resource identity because that event naturally has one.
+  const safeIdentity = [
+    event.type,
+    event.userId,
+    event.occurredAt.toISOString(),
+    event.type === 'SESSION_REVOKED' ? event.sessionId : '',
+  ].join(':');
+
+  return `eme_${createHash('sha256').update(safeIdentity).digest('hex')}`;
 }
