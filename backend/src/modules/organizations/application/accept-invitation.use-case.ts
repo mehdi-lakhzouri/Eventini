@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../config/authentication.config';
+import { EmailEventPublisher } from '../../../infrastructure/email';
 import { PasswordHasher } from '../../identity';
 import { hashInvitationToken } from '../domain/invitation-token';
 import {
@@ -17,6 +18,7 @@ export class AcceptInvitationUseCase {
     private readonly hasher: PasswordHasher,
     @Inject(authenticationConfig.KEY)
     private readonly authentication: ConfigType<typeof authenticationConfig>,
+    private readonly emailEvents: EmailEventPublisher,
   ) {}
 
   /**
@@ -77,6 +79,19 @@ export class AcceptInvitationUseCase {
         ? await this.hasher.hash(input.password)
         : null;
 
-    return this.invitations.accept({ invitation, passwordHash });
+    const accepted = await this.invitations.accept({
+      invitation,
+      passwordHash,
+    });
+
+    if (typeof accepted !== 'string' && invitation.existingUserId === null) {
+      await this.emailEvents.publish({
+        type: 'USER_CREATED',
+        userId: accepted.userId,
+        occurredAt: new Date(),
+      });
+    }
+
+    return accepted;
   }
 }

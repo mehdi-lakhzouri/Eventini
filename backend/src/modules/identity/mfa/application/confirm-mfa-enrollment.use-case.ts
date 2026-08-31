@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../../config/authentication.config';
+import { EmailEventPublisher } from '../../../../infrastructure/email';
 import { MfaError } from '../domain/mfa.errors';
 import { MfaRepository } from '../domain/mfa.repository';
 import {
@@ -18,6 +19,7 @@ export class ConfirmMfaEnrollmentUseCase {
     private readonly cipher: MfaSecretCipher,
     @Inject(authenticationConfig.KEY)
     private readonly auth: ConfigType<typeof authenticationConfig>,
+    private readonly emailEvents: EmailEventPublisher,
   ) {}
 
   /**
@@ -55,11 +57,18 @@ export class ConfirmMfaEnrollmentUseCase {
 
     const codes = generateRecoveryCodes(this.auth.mfa.recoveryCodeCount);
 
+    const now = new Date();
     await this.methods.activate({
       userId: input.userId,
       methodId: pending.methodId,
       codeHashes: codes.map(hashRecoveryCode),
-      now: new Date(),
+      now,
+    });
+
+    await this.emailEvents.publish({
+      type: 'MFA_ENABLED',
+      userId: input.userId,
+      occurredAt: now,
     });
 
     return codes;

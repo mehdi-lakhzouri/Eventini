@@ -3,6 +3,7 @@ import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../../config/authentication.config';
 import { normalizeEmail } from '../../../../infrastructure/database/normalize-email';
+import { EmailEventPublisher } from '../../../../infrastructure/email';
 import { PasswordResetTokenRepository } from '../domain/password-reset-token.repository';
 import { issueResetToken } from '../domain/reset-token';
 
@@ -17,6 +18,7 @@ export class RequestPasswordResetUseCase {
     private readonly tokens: PasswordResetTokenRepository,
     @Inject(authenticationConfig.KEY)
     private readonly config: ConfigType<typeof authenticationConfig>,
+    private readonly emailEvents: EmailEventPublisher,
   ) {}
 
   /**
@@ -38,14 +40,24 @@ export class RequestPasswordResetUseCase {
 
     const now = new Date();
 
+    const expiresAt = new Date(
+      now.getTime() + this.config.lifetimes.passwordReset * 1000,
+    );
+
     await this.tokens.replacePending({
       userId: user.userId,
       tokenHash: issued.tokenHash,
-      expiresAt: new Date(
-        now.getTime() + this.config.lifetimes.passwordReset * 1000,
-      ),
+      expiresAt,
       requestedIp: request.requestedIp,
       now,
+    });
+
+    await this.emailEvents.publish({
+      type: 'PASSWORD_RESET_REQUESTED',
+      userId: user.userId,
+      resetToken: issued.token,
+      expiresInSeconds: this.config.lifetimes.passwordReset,
+      occurredAt: now,
     });
 
     return { token: issued.token };

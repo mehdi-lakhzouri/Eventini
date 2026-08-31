@@ -81,6 +81,8 @@ export class PasswordsController {
         currentSessionId: caller.sessionId,
         currentPassword: body.currentPassword,
         newPassword: body.newPassword,
+        ipAddress: request.ip ?? null,
+        userAgent: request.get('user-agent') ?? null,
       })
       .catch((error: unknown) => {
         throw toPasswordException(error);
