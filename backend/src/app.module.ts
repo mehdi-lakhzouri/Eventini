@@ -22,6 +22,7 @@ import { RedisModule } from './infrastructure/redis';
 import { GuardChainModule } from './modules/identity/authorization/guard-chain.module';
 import { OrganizationsModule } from './modules/organizations';
 import { EventsModule } from './modules/events';
+import { EventSessionsModule } from './modules/event-sessions';
 import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
 
@@ -89,6 +90,7 @@ if (!isProduction) {
     GuardChainModule,
     OrganizationsModule,
     EventsModule,
+    EventSessionsModule,
   ],
   providers: [
     // Registered here rather than in `main.ts` because all three need DI:
