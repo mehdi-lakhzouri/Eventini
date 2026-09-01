@@ -73,6 +73,7 @@ describe('rules 2-5 — production hardening', () => {
         NODE_ENV: 'production',
         COOKIE_SECURE: 'true',
         CORS_ALLOWED_ORIGINS: 'https://app.eventini.com',
+        WEB_BASE_URL: 'https://app.eventini.com',
         ...overrides,
       }),
     ).join('\n');
@@ -95,6 +96,12 @@ describe('rules 2-5 — production hardening', () => {
     expect(
       production({ CORS_ALLOWED_ORIGINS: 'http://app.eventini.com' }),
     ).toContain('https://');
+  });
+
+  it('rejects plain HTTP links in production emails', () => {
+    expect(production({ WEB_BASE_URL: 'http://app.eventini.com' })).toContain(
+      'WEB_BASE_URL',
+    );
   });
 
   it('rejects a wildcard origin in any environment', () => {

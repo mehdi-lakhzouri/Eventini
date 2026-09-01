@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 
 import { authenticationConfig } from '../../../../config/authentication.config';
+import { EmailEventPublisher } from '../../../../infrastructure/email';
 import { RevocationRepository } from '../../sessions/domain/revocation.repository';
 import { PasswordHasher } from '../domain/password-hasher';
 import { PasswordFlowError } from '../domain/password.errors';
@@ -17,6 +18,7 @@ export class ResetPasswordUseCase {
     private readonly sessions: RevocationRepository,
     @Inject(authenticationConfig.KEY)
     private readonly config: ConfigType<typeof authenticationConfig>,
+    private readonly emailEvents: EmailEventPublisher,
   ) {}
 
   async execute(input: { token: string; newPassword: string }): Promise<void> {
@@ -64,6 +66,12 @@ export class ResetPasswordUseCase {
       revokedBy: pending.userId,
       reason: 'PASSWORD_RESET_COMPLETED',
       now,
+    });
+
+    await this.emailEvents.publish({
+      type: 'PASSWORD_CHANGED',
+      userId: pending.userId,
+      occurredAt: now,
     });
   }
 }

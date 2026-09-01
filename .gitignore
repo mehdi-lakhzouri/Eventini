@@ -4,6 +4,7 @@
 **/.pnp.*
 
 # Build outputs
+backend/email-previews/
 **/dist/
 **/build/
 **/.next/

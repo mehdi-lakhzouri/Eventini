@@ -61,6 +61,15 @@ export const productionHardeningRule: EnvironmentRule = {
           `CORS_ALLOWED_ORIGINS must use https:// only when NODE_ENV=production. Offending: ${insecure.join(', ')}.`,
         );
       }
+
+      // Transactional-email CTAs are derived from this origin. Allowing HTTP
+      // here would put single-use verification/reset tokens on a clear-text
+      // connection even while the API itself is correctly hardened.
+      if (!env.WEB_BASE_URL.startsWith('https://')) {
+        errors.push(
+          'WEB_BASE_URL must use https:// when NODE_ENV=production (transactional email action links carry sensitive tokens).',
+        );
+      }
     }
 
     // Not numbered in §17, but the same class of mistake: a wildcard origin

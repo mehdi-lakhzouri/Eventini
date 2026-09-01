@@ -4,6 +4,7 @@ export { cookiesConfig } from './cookies.config';
 export { csrfConfig } from './csrf.config';
 export { databaseConfig } from './database.config';
 export { loggingConfig } from './logging.config';
+export { mailConfig } from './mail.config';
 export { rateLimitConfig } from './rate-limit.config';
 export { redisConfig } from './redis.config';
 
@@ -22,6 +23,7 @@ import { cookiesConfig } from './cookies.config';
 import { csrfConfig } from './csrf.config';
 import { databaseConfig } from './database.config';
 import { loggingConfig } from './logging.config';
+import { mailConfig } from './mail.config';
 import { rateLimitConfig } from './rate-limit.config';
 import { redisConfig } from './redis.config';
 
@@ -33,6 +35,7 @@ export const configurationNamespaces = [
   csrfConfig,
   databaseConfig,
   loggingConfig,
+  mailConfig,
   rateLimitConfig,
   redisConfig,
 ];

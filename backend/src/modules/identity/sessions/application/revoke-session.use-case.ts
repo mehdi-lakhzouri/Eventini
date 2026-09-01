@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
+import { EmailEventPublisher } from '../../../../infrastructure/email';
 import { RevocationRepository } from '../domain/revocation.repository';
 
 @Injectable()
 export class RevokeSessionUseCase {
-  constructor(private readonly sessions: RevocationRepository) {}
+  constructor(
+    private readonly sessions: RevocationRepository,
+    private readonly emailEvents: EmailEventPublisher,
+  ) {}
 
   /**
    * Ownership is part of the WHERE clause, not a check before it: a caller
@@ -16,12 +20,24 @@ export class RevokeSessionUseCase {
     callerId: string;
     sessionId: string;
   }): Promise<boolean> {
-    return this.sessions.revokeSession({
+    const now = new Date();
+    const revoked = await this.sessions.revokeSession({
       sessionId: input.sessionId,
       userId: input.callerId,
       revokedBy: input.callerId,
       reason: 'USER_LOGOUT',
-      now: new Date(),
+      now,
     });
+
+    if (revoked) {
+      await this.emailEvents.publish({
+        type: 'SESSION_REVOKED',
+        userId: input.callerId,
+        sessionId: input.sessionId,
+        occurredAt: now,
+      });
+    }
+
+    return revoked;
   }
 }

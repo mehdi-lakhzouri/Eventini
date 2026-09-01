@@ -12,6 +12,7 @@ import { configurationNamespaces, validateEnvironment } from './config';
 import { HttpExceptionFilter, ResponseEnvelopeInterceptor } from './common/api';
 import { RequestIdMiddleware } from './common/middleware';
 import { PrismaModule } from './infrastructure/database';
+import { EmailModule } from './infrastructure/email';
 import { HealthModule } from './infrastructure/health';
 import {
   LoggingModule,
@@ -76,6 +77,7 @@ if (!isProduction) {
     // fatal by design (REDIS_KEYS_AND_LUA_SCRIPTS.md §6) — the application must
     // not start able to serve `/auth/sessions` with no limiter behind it.
     RedisModule,
+    EmailModule,
     HealthModule,
     // Ahead of IdentityModule, and the order is load-bearing: Nest runs
     // APP_GUARD providers in registration order, so this is what puts
