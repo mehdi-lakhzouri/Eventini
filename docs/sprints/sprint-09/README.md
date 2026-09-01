@@ -140,6 +140,10 @@ SCHEDULED → OPEN → CLOSED
 CLOSED : terminal pour le check-in — une réouverture est une NOUVELLE session
 ```
 
+Les deux actions exigent l'`ETag` courant dans `If-Match`. Une ouverture et
+une fermeture concurrentes ne peuvent ainsi pas écraser leur résultat : absent
+⇒ `428`, malformé ⇒ `412`, périmé ⇒ `409 VERSION_CONFLICT`.
+
 ### La règle de check-in
 
 Un check-in n'est accepté que si la session est **`OPEN`** *et* dans sa **fenêtre horaire**. Les deux, pas l'une ou l'autre.

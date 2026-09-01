@@ -3,14 +3,17 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { AuditRequestFacts } from '../../audit';
 import { AuditRecorder } from '../../audit';
 import type { TenantContext } from '../../../common/types/tenant-context';
+import type { EventSessionStatus } from '../../../infrastructure/database/enums';
 import { TENANT_SCOPED_PRISMA } from '../../../infrastructure/database/prisma.tokens';
 import type { TenantScopedPrismaClient } from '../../../infrastructure/database/tenant-scope.extension';
 import { isValidEventSessionSchedule } from '../domain/event-session-schedule';
+import { canTransitionEventSession } from '../domain/event-session-transitions';
 import {
   EventSessionRepository,
   type EventSessionChanges,
   type EventSessionCreateFailure,
   type EventSessionProfile,
+  type EventSessionTransitionFailure,
   type EventSessionUpdateFailure,
   type EventSessionValues,
 } from '../domain/event-session.repository';
@@ -29,6 +32,10 @@ const SESSION_SELECT = {
   capacity: true,
   locationName: true,
   requiresSeparateCheckIn: true,
+  openedAt: true,
+  openedBy: true,
+  closedAt: true,
+  closedBy: true,
   version: true,
   createdAt: true,
   updatedAt: true,
@@ -48,6 +55,10 @@ type SessionRow = {
   capacity: number | null;
   locationName: string | null;
   requiresSeparateCheckIn: boolean;
+  openedAt: Date | null;
+  openedBy: string | null;
+  closedAt: Date | null;
+  closedBy: string | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -67,6 +78,10 @@ const toProfile = (row: SessionRow): EventSessionProfile => ({
   capacity: row.capacity,
   locationName: row.locationName,
   requiresSeparateCheckIn: row.requiresSeparateCheckIn,
+  openedAt: row.openedAt,
+  openedBy: row.openedBy,
+  closedAt: row.closedAt,
+  closedBy: row.closedBy,
   version: row.version,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -246,6 +261,84 @@ export class PrismaEventSessionRepository extends EventSessionRepository {
           targetId: sessionId,
           previousValues: changedAuditValues(current, changes),
           newValues: changedAuditValues(updated, changes),
+        },
+        facts,
+      );
+      return updated;
+    });
+  }
+
+  async transition(
+    context: TenantContext,
+    eventId: string,
+    sessionId: string,
+    expectedVersion: number,
+    targetStatus: EventSessionStatus,
+    facts: AuditRequestFacts,
+  ): Promise<EventSessionProfile | EventSessionTransitionFailure> {
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.eventSession.findFirst({
+        where: {
+          id: sessionId,
+          organizationId: context.organizationId,
+          eventId,
+          deletedAt: null,
+        },
+        select: SESSION_SELECT,
+      });
+      if (row === null) return 'NOT_FOUND';
+      if (row.version !== expectedVersion) return 'CONFLICT';
+
+      const currentStatus = row.status as EventSessionStatus;
+      if (!canTransitionEventSession(currentStatus, targetStatus)) {
+        return 'INVALID_STATE_TRANSITION';
+      }
+
+      const changedAt = new Date();
+      const affected = await tx.eventSession.updateMany({
+        where: {
+          id: sessionId,
+          organizationId: context.organizationId,
+          eventId,
+          status: currentStatus,
+          version: expectedVersion,
+          deletedAt: null,
+        },
+        data: {
+          status: targetStatus,
+          ...(targetStatus === 'OPEN'
+            ? { openedAt: changedAt, openedBy: context.userId }
+            : { closedAt: changedAt, closedBy: context.userId }),
+          version: { increment: 1 },
+          updatedBy: context.userId,
+        },
+      });
+      if (affected.count === 0) return 'CONFLICT';
+
+      const updatedRow = await tx.eventSession.findFirst({
+        where: {
+          id: sessionId,
+          organizationId: context.organizationId,
+          eventId,
+          deletedAt: null,
+        },
+        select: SESSION_SELECT,
+      });
+      if (updatedRow === null) return 'NOT_FOUND';
+
+      const updated = toProfile(updatedRow);
+      await this.audit.record(
+        tx,
+        context,
+        {
+          action:
+            targetStatus === 'OPEN'
+              ? 'event_session.opened'
+              : 'event_session.closed',
+          targetType: 'event_session',
+          targetId: sessionId,
+          previousValues: { status: currentStatus },
+          newValues: { status: targetStatus },
         },
         facts,
       );
