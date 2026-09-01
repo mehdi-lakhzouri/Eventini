@@ -5,6 +5,7 @@ import { AuthorizationModule } from '../identity';
 import { CreateEventUseCase } from './application/create-event.use-case';
 import { GetEventUseCase } from './application/get-event.use-case';
 import { ListEventsUseCase } from './application/list-events.use-case';
+import { TransitionEventUseCase } from './application/transition-event.use-case';
 import { UpdateEventUseCase } from './application/update-event.use-case';
 import { EventsController } from './controllers/events.controller';
 import { EventRepository } from './domain/event.repository';
@@ -19,6 +20,7 @@ import { PrismaEventRepository } from './infrastructure/prisma-event.repository'
     GetEventUseCase,
     CreateEventUseCase,
     UpdateEventUseCase,
+    TransitionEventUseCase,
   ],
   exports: [EventRepository],
 })

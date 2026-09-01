@@ -169,6 +169,10 @@ describeWithDatabase('Event CRUD — EVT-048', () => {
     } finally {
       purge.release();
     }
+    await pool.query(
+      `DELETE FROM event_sessions WHERE organization_id = ANY($1)`,
+      [[ids.org, ids.otherOrg]],
+    );
     await pool.query(`DELETE FROM events WHERE organization_id = ANY($1)`, [
       [ids.org, ids.otherOrg],
     ]);
@@ -297,6 +301,93 @@ describeWithDatabase('Event CRUD — EVT-048', () => {
       .expect(409);
     expect((stale.body as ApiEnvelope<null>).error?.code).toBe(
       'VERSION_CONFLICT',
+    );
+  });
+
+  it('exige une session pour activer puis annule avec les effets atomiques disponibles', async () => {
+    const { jar, csrf } = await signIn();
+    const created = await createEvent(jar, csrf, `lifecycle-${suffix}`).expect(
+      201,
+    );
+    const event = (created.body as ApiEnvelope<EventResponse>).data!;
+    const activationUrl = `/api/v1/events/${event.eventId}/activation`;
+
+    const empty = await request(server())
+      .post(activationUrl)
+      .set(csrf.headers(jar))
+      .set('If-Match', created.headers.etag as string)
+      .expect(409);
+    expect((empty.body as ApiEnvelope<null>).error?.code).toBe(
+      'INVALID_STATE_TRANSITION',
+    );
+
+    const sessionId = `evs_${suffix}`;
+    await pool.query(
+      `INSERT INTO event_sessions
+        (id, organization_id, event_id, name, session_type, status,
+         starts_at, ends_at, updated_at)
+       VALUES ($1, $2, $3, 'Main day', 'DAY', 'SCHEDULED',
+               '2027-04-08T08:00:00Z', '2027-04-08T18:00:00Z', now())`,
+      [sessionId, ids.org, event.eventId],
+    );
+
+    const activated = await request(server())
+      .post(activationUrl)
+      .set(csrf.headers(jar))
+      .set('If-Match', created.headers.etag as string)
+      .expect(201);
+    expect((activated.body as ApiEnvelope<EventResponse>).data!.status).toBe(
+      'ACTIVE',
+    );
+
+    const cancelled = await request(server())
+      .post(`/api/v1/events/${event.eventId}/cancellation`)
+      .set(csrf.headers(jar))
+      .set('If-Match', activated.headers.etag as string)
+      .send({ reason: 'Venue became unavailable.' })
+      .expect(201);
+    expect((cancelled.body as ApiEnvelope<EventResponse>).data!.status).toBe(
+      'CANCELLED',
+    );
+
+    const session = await pool.query<{
+      status: string;
+      closed_by: string;
+    }>(`SELECT status, closed_by FROM event_sessions WHERE id = $1`, [
+      sessionId,
+    ]);
+    expect(session.rows).toEqual([{ status: 'CLOSED', closed_by: ids.user }]);
+
+    const audit = await pool.query<{ action: string }>(
+      `SELECT action FROM audit_logs
+        WHERE target_id = $1 AND action IN ('event.activated', 'event.cancelled')
+        ORDER BY occurred_at`,
+      [event.eventId],
+    );
+    expect(audit.rows).toEqual([
+      { action: 'event.activated' },
+      { action: 'event.cancelled' },
+    ]);
+  });
+
+  it('refuse de quitter un etat terminal', async () => {
+    const { jar, csrf } = await signIn();
+    const created = await createEvent(jar, csrf, `terminal-${suffix}`).expect(
+      201,
+    );
+    const event = (created.body as ApiEnvelope<EventResponse>).data!;
+    await pool.query(`UPDATE events SET status = 'EXPIRED' WHERE id = $1`, [
+      event.eventId,
+    ]);
+
+    const response = await request(server())
+      .post(`/api/v1/events/${event.eventId}/cancellation`)
+      .set(csrf.headers(jar))
+      .set('If-Match', created.headers.etag as string)
+      .send({ reason: 'Too late.' })
+      .expect(409);
+    expect((response.body as ApiEnvelope<null>).error?.code).toBe(
+      'INVALID_STATE_TRANSITION',
     );
   });
 });

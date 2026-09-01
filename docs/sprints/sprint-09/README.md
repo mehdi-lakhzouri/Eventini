@@ -76,6 +76,8 @@ Routes   POST /events/{eventId}/activation
          POST /events/{eventId}/cancellation
 ```
 
+Les deux actions exigent l'`ETag` courant dans `If-Match`, comme l'édition : absent ⇒ `428`, malformé ⇒ `412`, périmé ⇒ `409 VERSION_CONFLICT`. Une activation et une annulation concurrentes ne peuvent ainsi pas gagner toutes les deux.
+
 ```
 DRAFT → ACTIVE          exige ≥ 1 event_session
 ACTIVE → EXPIRED        automatique (job) ou manuel
@@ -97,6 +99,8 @@ events → CANCELLED
 ```
 
 Idem pour `EXPIRED` : fermeture des sessions, révocation des contextes scanner, `outbox_events: EVENT_EXPIRED`.
+
+> **Ordre de livraison.** Au sprint 09, seules `events`, `event_sessions` et `audit_logs` existent réellement dans le schéma : leur mutation est atomique dès EVT-049. `tickets`, `scanner_device_assignments` et `outbox_events` arrivent respectivement aux sprints 11 et 12 ; leurs effets doivent rejoindre la même transaction à la création de ces tables. Cette dépendance différée est explicite afin qu'un ticket vert ne prétende pas écrire dans des tables absentes.
 
 **Pourquoi `DRAFT → ACTIVE` exige une session** — sans session, aucun check-in n'est possible. Activer un événement vide crée un état où les opérateurs ont un `event_code` valide et rien à scanner.
 

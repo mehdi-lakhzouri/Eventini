@@ -29,11 +29,13 @@ import {
 } from '../application/create-event.use-case';
 import { GetEventUseCase } from '../application/get-event.use-case';
 import { ListEventsUseCase } from '../application/list-events.use-case';
+import { TransitionEventUseCase } from '../application/transition-event.use-case';
 import {
   UpdateEventUseCase,
   type UpdateEventRefusal,
 } from '../application/update-event.use-case';
 import { CreateEventDto, UpdateEventDto } from '../dto/event.dto';
+import { CancelEventDto } from '../dto/event-transition.dto';
 import type {
   EventAuditFacts,
   EventChanges,
@@ -48,6 +50,7 @@ export class EventsController {
     private readonly getEvent: GetEventUseCase,
     private readonly createEvent: CreateEventUseCase,
     private readonly updateEvent: UpdateEventUseCase,
+    private readonly transitionEvent: TransitionEventUseCase,
     private readonly authorization: AuthorizationContextReader,
   ) {}
 
@@ -124,6 +127,45 @@ export class EventsController {
     return presentEvent(result);
   }
 
+  @Post(':eventId/activation')
+  @RequirePermission('events.activate')
+  async activate(
+    @CurrentContext() context: TenantContext,
+    @Param('eventId') eventId: string,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.applyTransition(
+      context,
+      eventId,
+      requireIfMatch(request),
+      'ACTIVE',
+      null,
+      request,
+      response,
+    );
+  }
+
+  @Post(':eventId/cancellation')
+  @RequirePermission('events.cancel')
+  async cancel(
+    @CurrentContext() context: TenantContext,
+    @Param('eventId') eventId: string,
+    @Body() body: CancelEventDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.applyTransition(
+      context,
+      eventId,
+      requireIfMatch(request),
+      'CANCELLED',
+      body.reason,
+      request,
+      response,
+    );
+  }
+
   private async auditFacts(
     context: TenantContext,
     request: Request,
@@ -138,6 +180,38 @@ export class EventsController {
       requestId: (request as RequestWithId).id ?? null,
       ipAddress: request.ip ?? null,
     };
+  }
+
+  private async applyTransition(
+    context: TenantContext,
+    eventId: string,
+    expectedVersion: number,
+    target: 'ACTIVE' | 'CANCELLED',
+    cancellationReason: string | null,
+    request: Request,
+    response: Response,
+  ) {
+    const result = await this.transitionEvent.execute({
+      context,
+      eventId,
+      expectedVersion,
+      target,
+      cancellationReason,
+      facts: await this.auditFacts(context, request),
+    });
+
+    if (typeof result === 'string') {
+      throw versionedWriteException(result, 'Event');
+    }
+
+    if ('kind' in result) {
+      throw new AppException('INVALID_STATE_TRANSITION', {
+        detail: result.reason,
+      });
+    }
+
+    response.setHeader('ETag', toETag(result.version));
+    return presentEvent(result);
   }
 }
 
