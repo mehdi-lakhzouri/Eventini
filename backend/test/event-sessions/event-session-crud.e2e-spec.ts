@@ -41,6 +41,15 @@ interface SessionResponse {
   closedBy: string | null;
 }
 
+interface AssignmentResponse {
+  assignmentId: string;
+  membershipId: string;
+  eventId: string;
+  assignmentType: string;
+  status: string;
+  revokedAt: string | null;
+}
+
 describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
   let app: NestExpressApplication;
   let pool: Pool;
@@ -52,6 +61,8 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
     otherOrg: `org_t${suffix}`,
     user: `usr_s${suffix}`,
     membership: `mbr_s${suffix}`,
+    assignee: `usr_a${suffix}`,
+    assigneeMembership: `mbr_a${suffix}`,
     event: `evt_s${suffix}`,
     otherEvent: `evt_t${suffix}`,
     otherSession: `esn_t${suffix}`,
@@ -131,6 +142,16 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
        VALUES ($1, $2, $3, 'ACTIVE', now())`,
       [ids.membership, ids.user, ids.org],
     );
+    await pool.query(
+      `INSERT INTO users (id, primary_email, normalized_email, first_name, last_name, status, updated_at)
+       VALUES ($1, $2, $2, 'Assigned', 'User', 'ACTIVE', now())`,
+      [ids.assignee, `assigned.${suffix}@eventini.test`],
+    );
+    await pool.query(
+      `INSERT INTO organization_memberships (id, user_id, organization_id, status, updated_at)
+       VALUES ($1, $2, $3, 'ACTIVE', now())`,
+      [ids.assigneeMembership, ids.assignee, ids.org],
+    );
     const role = await pool.query<{ id: string }>(
       `SELECT id FROM roles WHERE code = 'CLIENT_ADMIN'`,
     );
@@ -190,6 +211,10 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
       `DELETE FROM event_sessions WHERE organization_id = ANY($1)`,
       [[ids.org, ids.otherOrg]],
     );
+    await pool.query(
+      `DELETE FROM event_user_assignments WHERE organization_id = ANY($1)`,
+      [[ids.org, ids.otherOrg]],
+    );
     await pool.query(`DELETE FROM events WHERE organization_id = ANY($1)`, [
       [ids.org, ids.otherOrg],
     ]);
@@ -201,13 +226,13 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
       ids.user,
     ]);
     await pool.query(
-      `DELETE FROM organization_memberships WHERE user_id = $1`,
-      [ids.user],
+      `DELETE FROM organization_memberships WHERE user_id = ANY($1)`,
+      [[ids.user, ids.assignee]],
     );
     await pool.query(`DELETE FROM user_credentials WHERE user_id = $1`, [
       ids.user,
     ]);
-    await pool.query(`DELETE FROM users WHERE id = $1`, [ids.user]);
+    await pool.query(`DELETE FROM users WHERE id = ANY($1)`, [[ids.user, ids.assignee]]);
     await pool.query(`DELETE FROM organizations WHERE id = ANY($1)`, [
       [ids.org, ids.otherOrg],
     ]);
@@ -365,5 +390,45 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
       { action: 'event_session.opened' },
       { action: 'event_session.closed' },
     ]);
+  });
+
+  it('assigns, lists, and revokes an event-scoped role without cross-tenant access', async () => {
+    const { jar, csrf } = await signIn();
+    const base = `/api/v1/events/${ids.event}/assignments`;
+    const created = await request(server())
+      .post(base)
+      .set(csrf.headers(jar))
+      .send({ membershipId: ids.assigneeMembership, assignmentType: 'SCANNER' })
+      .expect(201);
+    const assignment = (created.body as ApiEnvelope<AssignmentResponse>).data!;
+    expect(assignment.membershipId).toBe(ids.assigneeMembership);
+    expect(assignment.assignmentType).toBe('SCANNER');
+    expect(assignment.status).toBe('ACTIVE');
+
+    const listed = await request(server()).get(base).set('Cookie', jar).expect(200);
+    expect((listed.body as ApiEnvelope<AssignmentResponse[]>).data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ assignmentId: assignment.assignmentId })]),
+    );
+
+    await request(server()).post(base).set(csrf.headers(jar)).send({
+      membershipId: ids.assigneeMembership,
+      assignmentType: 'SCANNER',
+    }).expect(409);
+    await request(server()).post(base).set(csrf.headers(jar)).send({
+      membershipId: ids.assigneeMembership,
+      assignmentType: 'SCANNER',
+      validFrom: '2027-04-09T10:00:00.000Z',
+      validUntil: '2027-04-09T09:00:00.000Z',
+    }).expect(400);
+    await request(server()).get(`/api/v1/events/${ids.otherEvent}/assignments`).set('Cookie', jar).expect(404);
+
+    const revoked = await request(server()).delete(`${base}/${assignment.assignmentId}`).set(csrf.headers(jar)).expect(200);
+    expect((revoked.body as ApiEnvelope<AssignmentResponse>).data!.revokedAt).not.toBeNull();
+    await request(server()).delete(`${base}/${assignment.assignmentId}`).set(csrf.headers(jar)).expect(404);
+
+    const audit = await pool.query<{ action: string }>(
+      `SELECT action FROM audit_logs WHERE target_id = $1 ORDER BY occurred_at`, [assignment.assignmentId],
+    );
+    expect(audit.rows).toEqual([{ action: 'event_assignment.created' }, { action: 'event_assignment.revoked' }]);
   });
 });
