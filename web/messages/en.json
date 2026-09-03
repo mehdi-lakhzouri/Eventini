@@ -129,6 +129,17 @@
     },
     "noActiveOrganization": "No active organization. Pick one in the context switcher to administer its members."
   },
+  "events": {
+    "title": "Events",
+    "subtitle": "Create and operate your organization’s events, sessions and team assignments.",
+    "forbidden": "You do not have the permissions needed to manage events.",
+    "create": "Create event", "editEvent": "Event details", "save": "Save changes",
+    "name": "Name", "slug": "Slug", "timezone": "Timezone", "capacity": "Capacity", "startsAt": "Starts", "endsAt": "Ends", "location": "Location", "description": "Description",
+    "search": "Search events", "allStatuses": "All statuses", "eventCode": "Event code", "schedule": "Schedule", "status": "Status", "manage": "Manage", "copy": "Copy",
+    "previous": "Previous", "next": "Next", "empty": "No events match these filters.", "loadFailed": "Events could not be loaded.", "modifiedMeanwhile": "This event was modified meanwhile. Refresh it and try again.", "saved": "Changes saved.",
+    "activate": "Activate", "cancel": "Cancel event", "cancelReason": "Cancellation reason", "confirmActivate": "Activate this event?", "confirmCancel": "Cancel this event? This cannot be undone.",
+    "sessions": "Sessions", "sessionName": "Session name", "addSession": "Add session", "assignments": "Assignments", "membershipId": "Membership ID", "assign": "Assign", "revoke": "Revoke"
+  },
   "validation": {
     "passwordTooShort": "The password must be at least {min} characters.",
     "passwordTooLong": "The password cannot exceed {max} characters.",
