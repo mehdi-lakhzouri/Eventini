@@ -45,6 +45,9 @@ export const permissions = {
   readEvents: "events.read",
   createEvents: "events.create",
   updateEvents: "events.update",
+  activateEvents: "events.activate",
+  cancelEvents: "events.cancel",
+  manageEventSessions: "event_sessions.manage",
 
   // Participants et inscriptions
   readParticipants: "participants.read",

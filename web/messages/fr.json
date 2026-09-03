@@ -129,6 +129,17 @@
     },
     "noActiveOrganization": "Aucune organisation active. Sélectionnez-en une dans le sélecteur de contexte pour administrer ses membres."
   },
+  "events": {
+    "title": "Événements",
+    "subtitle": "Créez et pilotez les événements, sessions et affectations de votre organisation.",
+    "forbidden": "Vous n’avez pas les droits nécessaires pour gérer les événements.",
+    "create": "Créer un événement", "editEvent": "Détails de l’événement", "save": "Enregistrer les modifications",
+    "name": "Nom", "slug": "Slug", "timezone": "Fuseau horaire", "capacity": "Capacité", "startsAt": "Début", "endsAt": "Fin", "location": "Lieu", "description": "Description",
+    "search": "Rechercher des événements", "allStatuses": "Tous les statuts", "eventCode": "Code événement", "schedule": "Programme", "status": "Statut", "manage": "Gérer", "copy": "Copier",
+    "previous": "Précédent", "next": "Suivant", "empty": "Aucun événement ne correspond à ces filtres.", "loadFailed": "Les événements n’ont pas pu être chargés.", "modifiedMeanwhile": "Cet événement a été modifié entre-temps. Actualisez-le puis réessayez.", "saved": "Modifications enregistrées.",
+    "activate": "Activer", "cancel": "Annuler l’événement", "cancelReason": "Motif d’annulation", "confirmActivate": "Activer cet événement ?", "confirmCancel": "Annuler cet événement ? Cette action est irréversible.",
+    "sessions": "Sessions", "sessionName": "Nom de la session", "addSession": "Ajouter une session", "assignments": "Affectations", "membershipId": "Identifiant d’adhésion", "assign": "Affecter", "revoke": "Révoquer"
+  },
   "validation": {
     "passwordTooShort": "Le mot de passe doit contenir au moins {min} caractères.",
     "passwordTooLong": "Le mot de passe ne peut pas dépasser {max} caractères.",
