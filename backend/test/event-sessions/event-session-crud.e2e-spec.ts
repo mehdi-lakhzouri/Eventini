@@ -35,9 +35,13 @@ interface SessionResponse {
   startsAt: string;
   endsAt: string;
   requiresSeparateCheckIn: boolean;
+  openedAt: string | null;
+  openedBy: string | null;
+  closedAt: string | null;
+  closedBy: string | null;
 }
 
-describeWithDatabase('Event session CRUD — EVT-050', () => {
+describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
   let app: NestExpressApplication;
   let pool: Pool;
   let names: { access: string; refresh: string };
@@ -289,5 +293,77 @@ describeWithDatabase('Event session CRUD — EVT-050', () => {
         endsAt: '2027-04-08T09:00:00.000Z',
       })
       .expect(400);
+  });
+
+  it('opens then closes a session with versioned terminal transitions', async () => {
+    const { jar, csrf } = await signIn();
+    const created = await createSession(jar, csrf).expect(201);
+    const session = (created.body as ApiEnvelope<SessionResponse>).data!;
+    const url = `/api/v1/events/${ids.event}/sessions/${session.sessionId}`;
+
+    await request(server())
+      .post(`${url}/opening`)
+      .set(csrf.headers(jar))
+      .expect(428);
+
+    const prematureClosure = await request(server())
+      .post(`${url}/closure`)
+      .set(csrf.headers(jar))
+      .set('If-Match', '"1"')
+      .expect(409);
+    expect((prematureClosure.body as ApiEnvelope<null>).error?.code).toBe(
+      'INVALID_STATE_TRANSITION',
+    );
+
+    const openedResponse = await request(server())
+      .post(`${url}/opening`)
+      .set(csrf.headers(jar))
+      .set('If-Match', '"1"')
+      .expect(201);
+    const opened = (openedResponse.body as ApiEnvelope<SessionResponse>).data!;
+    expect(openedResponse.headers.etag).toBe('"2"');
+    expect(opened.status).toBe('OPEN');
+    expect(opened.openedAt).not.toBeNull();
+    expect(opened.openedBy).toBe(ids.user);
+
+    const staleClosure = await request(server())
+      .post(`${url}/closure`)
+      .set(csrf.headers(jar))
+      .set('If-Match', '"1"')
+      .expect(409);
+    expect((staleClosure.body as ApiEnvelope<null>).error?.code).toBe(
+      'VERSION_CONFLICT',
+    );
+
+    const closedResponse = await request(server())
+      .post(`${url}/closure`)
+      .set(csrf.headers(jar))
+      .set('If-Match', '"2"')
+      .expect(201);
+    const closed = (closedResponse.body as ApiEnvelope<SessionResponse>).data!;
+    expect(closedResponse.headers.etag).toBe('"3"');
+    expect(closed.status).toBe('CLOSED');
+    expect(closed.closedAt).not.toBeNull();
+    expect(closed.closedBy).toBe(ids.user);
+
+    const reopening = await request(server())
+      .post(`${url}/opening`)
+      .set(csrf.headers(jar))
+      .set('If-Match', '"3"')
+      .expect(409);
+    expect((reopening.body as ApiEnvelope<null>).error?.code).toBe(
+      'INVALID_STATE_TRANSITION',
+    );
+
+    const audit = await pool.query<{ action: string }>(
+      `SELECT action FROM audit_logs
+        WHERE target_id = $1 AND action IN ('event_session.opened', 'event_session.closed')
+        ORDER BY occurred_at`,
+      [session.sessionId],
+    );
+    expect(audit.rows).toEqual([
+      { action: 'event_session.opened' },
+      { action: 'event_session.closed' },
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import type { AuditRequestFacts } from '../../audit';
 import type { TenantContext } from '../../../common/types/tenant-context';
+import type { EventSessionStatus } from '../../../infrastructure/database/enums';
 
 export interface EventSessionProfile {
   readonly sessionId: string;
@@ -15,6 +16,10 @@ export interface EventSessionProfile {
   readonly capacity: number | null;
   readonly locationName: string | null;
   readonly requiresSeparateCheckIn: boolean;
+  readonly openedAt: Date | null;
+  readonly openedBy: string | null;
+  readonly closedAt: Date | null;
+  readonly closedBy: string | null;
   readonly version: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
@@ -47,6 +52,8 @@ export interface EventSessionChanges {
 export type EventSessionCreateFailure = 'EVENT_NOT_FOUND';
 export type EventSessionUpdateFailure =
   'NOT_FOUND' | 'CONFLICT' | 'INVALID_SCHEDULE';
+export type EventSessionTransitionFailure =
+  'NOT_FOUND' | 'CONFLICT' | 'INVALID_STATE_TRANSITION';
 
 export abstract class EventSessionRepository {
   abstract list(
@@ -77,4 +84,13 @@ export abstract class EventSessionRepository {
     changes: EventSessionChanges,
     facts: AuditRequestFacts,
   ): Promise<EventSessionProfile | EventSessionUpdateFailure>;
+
+  abstract transition(
+    context: TenantContext,
+    eventId: string,
+    sessionId: string,
+    expectedVersion: number,
+    targetStatus: EventSessionStatus,
+    facts: AuditRequestFacts,
+  ): Promise<EventSessionProfile | EventSessionTransitionFailure>;
 }

@@ -29,6 +29,7 @@ import {
 } from '../application/create-event-session.use-case';
 import { GetEventSessionUseCase } from '../application/get-event-session.use-case';
 import { ListEventSessionsUseCase } from '../application/list-event-sessions.use-case';
+import { TransitionEventSessionUseCase } from '../application/transition-event-session.use-case';
 import {
   UpdateEventSessionUseCase,
   type UpdateEventSessionRefusal,
@@ -50,6 +51,7 @@ export class EventSessionsController {
     private readonly getSession: GetEventSessionUseCase,
     private readonly createSession: CreateEventSessionUseCase,
     private readonly updateSession: UpdateEventSessionUseCase,
+    private readonly transitionSession: TransitionEventSessionUseCase,
     private readonly authorization: AuthorizationContextReader,
   ) {}
 
@@ -121,6 +123,65 @@ export class EventSessionsController {
     return presentSession(result);
   }
 
+  @Post(':sessionId/opening')
+  @RequirePermission('event_sessions.manage')
+  open(
+    @CurrentContext() context: TenantContext,
+    @Param('eventId') eventId: string,
+    @Param('sessionId') sessionId: string,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.transition(
+      context,
+      eventId,
+      sessionId,
+      'OPEN',
+      request,
+      response,
+    );
+  }
+
+  @Post(':sessionId/closure')
+  @RequirePermission('event_sessions.manage')
+  close(
+    @CurrentContext() context: TenantContext,
+    @Param('eventId') eventId: string,
+    @Param('sessionId') sessionId: string,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.transition(
+      context,
+      eventId,
+      sessionId,
+      'CLOSED',
+      request,
+      response,
+    );
+  }
+
+  private async transition(
+    context: TenantContext,
+    eventId: string,
+    sessionId: string,
+    targetStatus: 'OPEN' | 'CLOSED',
+    request: Request,
+    response: Response,
+  ) {
+    const result = await this.transitionSession.execute({
+      context,
+      eventId,
+      sessionId,
+      targetStatus,
+      expectedVersion: requireIfMatch(request),
+      facts: await this.auditFacts(context, request),
+    });
+    if (typeof result === 'string') throw transitionException(result);
+    response.setHeader('ETag', toETag(result.version));
+    return presentSession(result);
+  }
+
   private async auditFacts(context: TenantContext, request: Request) {
     const actor = await this.authorization.read({
       userId: context.userId,
@@ -184,6 +245,10 @@ function presentSession(session: EventSessionProfile) {
     capacity: session.capacity,
     locationName: session.locationName,
     requiresSeparateCheckIn: session.requiresSeparateCheckIn,
+    openedAt: session.openedAt?.toISOString() ?? null,
+    openedBy: session.openedBy,
+    closedAt: session.closedAt?.toISOString() ?? null,
+    closedBy: session.closedBy,
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
   };
@@ -201,6 +266,16 @@ function updateException(failure: UpdateEventSessionRefusal) {
       detail: 'Provide at least one field to change.',
     });
   return invalidSchedule();
+}
+
+function transitionException(
+  failure: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_STATE_TRANSITION',
+) {
+  if (failure === 'NOT_FOUND' || failure === 'CONFLICT')
+    return versionedWriteException(failure, 'Event session');
+  return new AppException('INVALID_STATE_TRANSITION', {
+    detail: 'The requested event-session lifecycle transition is not allowed.',
+  });
 }
 
 function notFound(resource: string) {
