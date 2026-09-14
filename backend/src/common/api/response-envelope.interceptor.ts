@@ -10,6 +10,7 @@ import { map, type Observable } from 'rxjs';
 
 import { buildResponseMeta } from './build-response-meta';
 import { idempotencyMetaOf } from './idempotency-meta';
+import { paginationMetaOf } from './pagination/pagination-meta';
 import type { ApiEnvelope } from './problem-details.types';
 import { RAW_RESPONSE_KEY } from './raw-response.decorator';
 import type { RequestWithId } from '../types/request-with-id';
@@ -61,7 +62,11 @@ export class ResponseEnvelopeInterceptor<T> implements NestInterceptor<
 
         return {
           data: data ?? null,
-          meta: buildResponseMeta(request.id, idempotencyMetaOf(request)),
+          meta: buildResponseMeta(
+            request.id,
+            idempotencyMetaOf(request),
+            paginationMetaOf(request),
+          ),
           error: null,
         };
       }),

@@ -75,6 +75,7 @@ export const TENANT_OWNERSHIP = {
   Event: 'ORGANIZATION_OWNED',
   EventSession: 'EVENT_OWNED',
   EventUserAssignment: 'EVENT_OWNED',
+  Participant: 'ORGANIZATION_OWNED',
 
   // --- Migrations 4-6, sessions, tokens and MFA ----------------------------
   UserInvitation: 'ORGANIZATION_OWNED',

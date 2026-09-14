@@ -14,7 +14,7 @@ import { outcome, type SeedOutcome } from './seed-outcome';
  *
  * `upsert` is the obvious idempotent primitive and it is the wrong one here.
  * `Permission.updatedAt` carries `@updatedAt`, so an unconditional upsert
- * rewrites the timestamp of all 30 rows on every run — every deploy, every
+ * rewrites the timestamp of every row on every run — every deploy, every
  * CI job. The rows would be identical in content and different on disk, which
  * costs two things worth keeping: "when did this permission last change"
  * stops being answerable, and the ticket's own test — two runs, identical

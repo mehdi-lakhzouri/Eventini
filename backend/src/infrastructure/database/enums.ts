@@ -291,6 +291,24 @@ export const IDEMPOTENCY_STATUSES = [
 ] as const;
 export type IdempotencyStatus = (typeof IDEMPOTENCY_STATUSES)[number];
 
+// --- Migration 9, participants (EVT-054) ------------------------------------
+
+/**
+ * DATABASE_SCHEMA.md §7.1. `STANDARD` is what a create-participant use case
+ * falls back to when the caller does not specify one — there is no database
+ * default, matching how `Event.status` has none either: the application
+ * always supplies the value explicitly.
+ */
+export const PARTICIPANT_TYPES = [
+  'STANDARD',
+  'TRAVEL_GRANT',
+  'AMBASSADOR',
+  'SPEAKER',
+  'STAFF',
+  'VIP',
+] as const;
+export type ParticipantType = (typeof PARTICIPANT_TYPES)[number];
+
 /**
  * Maps each CHECK constraint to the values it permits.
  *
@@ -323,4 +341,5 @@ export const CHECK_CONSTRAINT_VALUES: Readonly<
   ck_mfa_methods_type: MFA_METHOD_TYPES,
   ck_mfa_methods_status: MFA_METHOD_STATUSES,
   ck_idempotency_records_status: IDEMPOTENCY_STATUSES,
+  ck_participants_type: PARTICIPANT_TYPES,
 };

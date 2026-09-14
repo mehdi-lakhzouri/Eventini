@@ -435,6 +435,8 @@ Sept secrets **indépendants**, jamais dérivés les uns des autres (Document B 
 
 Toute rotation définit : identifiant de clé, période de coexistence, validation ancienne et nouvelle, révocation d'urgence, audit, runbook.
 
+**Clé dérivée — curseurs de pagination** ([EVT-054](../sprints/sprint-10/README.md#evt-054)). Les curseurs opaques ([`API_CONVENTIONS.md` §6](../api/API_CONVENTIONS.md), menace T-5) sont signés HMAC-SHA-256 avec une clé **dérivée** de `COOKIE_SECRET` par HKDF-SHA-256, label `eventini/pagination-cursor/v1`. Ce n'est pas un huitième secret et la règle d'indépendance ci-dessus reste intacte : la dérivation est à sens unique — détenir la clé de curseur ne révèle rien de `COOKIE_SECRET`. La dépendance inverse est acceptée parce que son impact est borné : un curseur forgé ne peut que repositionner une page **à l'intérieur** du résultat déjà filtré par le `TenantContext`, jamais atteindre un autre tenant. Rotation de `COOKIE_SECRET` ⇒ tous les curseurs en vol deviennent `400`, et le client repart de la première page.
+
 **Perdre le pepper rend tous les mots de passe invérifiables.** C'est une donnée de sauvegarde critique, au même titre que la base elle-même.
 
 ---

@@ -422,6 +422,26 @@ Statuts : `QUEUED` `PROCESSING` `SUCCEEDED` `FAILED` `CANCELLED` `EXPIRED`.
 | **Synchronisation offline** | `POST` | `/events/{eventId}/attendance-sync` | `attendance.check_in` + `Idempotency-Key` |
 | Flux temps réel | `GET` | `/events/{eventId}/live` (SSE) | `events.read` |
 
+### Participants
+
+Livré par [EVT-054](../sprints/sprint-10/README.md#evt-054).
+
+| Opération | Méthode | Route | Permission |
+|---|---|---|---|
+| Lister | `GET` | `/participants` | `participants.read` |
+| Créer | `POST` | `/participants` | `participants.create` |
+| Détail | `GET` | `/participants/{participantId}` | `participants.read` |
+| Mettre à jour | `PATCH` | `/participants/{participantId}` | `participants.update` + `If-Match` |
+| Supprimer (logique) | `DELETE` | `/participants/{participantId}` | `participants.delete` |
+
+**`GET /participants`** — premier endpoint paginé par curseur (§6). `limit` 1 à 100, défaut 20 · `after` \| `before` · `sortBy` `createdAt` \| `lastName` · `sortOrder` `asc` \| `desc` · `search` 2 à 100 caractères, sur `firstName`, `lastName`, email normalisé, `%` et `_` traités comme du texte · `participantType` répétable. Un curseur est refusé en `400` s'il est altéré, ou si le tri, les filtres, la recherche ou l'organisation ont changé.
+
+**Doublons** — chaque participant porte `possibleDuplicateCount` ; le détail, la création et la mise à jour ajoutent `possibleDuplicateIds` (20 au plus). Signalement uniquement : un doublon probable ne bloque pas la création et rien n'est fusionné.
+
+**`DELETE`** — suppression logique, `204` à chaque répétition, `404` pour un identifiant que l'organisation n'a jamais eu. Corps optionnel `{ "reason": "…" }`. Pas d'`If-Match` : une précondition transformerait en `409` le `DELETE` répété que le §5 promet en `204`.
+
+**Autre tenant** — `404`, comme toute ressource adressée par identifiant hors `/organizations/{organizationId}` : la lecture s'exécute sous le `TenantContext`, et la garde Prisma rend impossible une requête qui distinguerait « à un autre tenant » de « inexistant ». Un `organizationId` fourni par le client (corps ou requête) et divergent reste `403 AUTH_TENANT_DENIED`.
+
 ### Plateforme
 
 | Opération | Méthode | Route | Permission |

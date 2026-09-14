@@ -1,4 +1,8 @@
-import type { IdempotencyMeta, ResponseMeta } from './problem-details.types';
+import type {
+  IdempotencyMeta,
+  PaginationMeta,
+  ResponseMeta,
+} from './problem-details.types';
 
 /** The path prefix is the source of truth for the version — this just echoes it. */
 const API_VERSION = 'v1';
@@ -6,6 +10,7 @@ const API_VERSION = 'v1';
 export function buildResponseMeta(
   requestId: string,
   idempotency?: IdempotencyMeta,
+  pagination?: PaginationMeta,
 ): ResponseMeta {
   return {
     requestId,
@@ -15,5 +20,6 @@ export function buildResponseMeta(
     // an ordinary response instead of present and undefined — `JSON.stringify`
     // drops both, but only one of them survives a deep equality assertion.
     ...(idempotency === undefined ? {} : { idempotency }),
+    ...(pagination === undefined ? {} : { pagination }),
   };
 }

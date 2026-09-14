@@ -63,6 +63,36 @@ CREATE UNIQUE INDEX ux_participants_org_email_active
 
 **PII** — données minimisées. Les exports exigent `participants.export` et sont audités.
 
+### Contrat livré
+
+| Point | Décision |
+|---|---|
+| Permissions | `participants.create` / `.update` / `.delete` ajoutées au catalogue (33 codes), accordées à `CLIENT_ADMIN` |
+| Liste | pagination par curseur signé ([`API_CONVENTIONS.md` §6](../../api/API_CONVENTIONS.md)) — premier endpoint paginé ; socle partagé `common/api/pagination/` |
+| Recherche | 2 à 100 caractères après `trim`, sur prénom, nom et email normalisé ; `%` et `_` échappés — sans cela `?search=%%` listait toute l'organisation |
+| Normalisation | `normalized_email` = définition de `users.normalized_email` ; pays en majuscules ; texte optionnel vide ⇒ `null` |
+| Empreinte | SHA-256 de prénom et nom (normalisés, triés — une inversion prénom/nom est l'erreur d'import la plus courante), email normalisé, téléphone réduit à ses chiffres |
+| Doublon | `possibleDuplicateCount` sur la liste, `possibleDuplicateIds` sur le détail : **signal, jamais refus ni fusion** |
+| `PATCH` | `If-Match` obligatoire ; `normalized_email` et `dedup_fingerprint` recalculés dans la même transaction |
+| `DELETE` | suppression logique, `204` répété, email libéré pour une nouvelle création ; refus en présence d'inscriptions actives **dû par EVT-056** |
+| Audit | `participant.created` / `.updated` / `.deleted` — **noms de champs, jamais leurs valeurs** : `audit_logs` est append-only et survivrait à l'effacement du participant |
+| Autre tenant | `404` sur un identifiant ; `403 AUTH_TENANT_DENIED` sur un `organizationId` fourni par le client |
+
+### Tests négatifs
+
+| Cas | Attendu |
+|---|---|
+| Même email, casse différente, même organisation | `409 RESOURCE_ALREADY_EXISTS`, champ `email` |
+| Même email dans une autre organisation | accepté |
+| Identifiant d'un participant d'un autre tenant — `GET`, `PATCH`, `DELETE` | `404`, ligne intacte |
+| `PATCH` sans `If-Match` · périmé · email pris · `{}` · `firstName: null` | `428` · `409` · `409` · `400` · `400` |
+| Curseur altéré, illisible, ou réutilisé avec un autre tri, filtre ou recherche | `400` |
+| `limit=5000`, `limit=0`, `search` d'un caractère, `after` et `before` ensemble | `400` |
+| `?search=%%` | aucun résultat |
+| `organizationId` dans le corps ou la requête | `403 AUTH_TENANT_DENIED` |
+| Champ non déclaré (`dedupFingerprint`) · téléphone non E.164 · pays inconnu · `metadata` > 8 Ko | `400` |
+| Membre sans `participants.read` | `403 AUTH_PERMISSION_DENIED` |
+
 ---
 
 ## EVT-055 — Import CSV/Excel asynchrone
