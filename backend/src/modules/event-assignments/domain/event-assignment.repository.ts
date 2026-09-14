@@ -18,10 +18,7 @@ export interface EventAssignmentProfile {
 }
 
 export type EventAssignmentRefusal =
-  | 'EVENT_NOT_FOUND'
-  | 'MEMBERSHIP_NOT_FOUND'
-  | 'ALREADY_ASSIGNED'
-  | 'NOT_FOUND';
+  'EVENT_NOT_FOUND' | 'MEMBERSHIP_NOT_FOUND' | 'ALREADY_ASSIGNED' | 'NOT_FOUND';
 
 export abstract class EventAssignmentRepository {
   abstract list(
