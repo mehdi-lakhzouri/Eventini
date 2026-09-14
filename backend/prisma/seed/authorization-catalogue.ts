@@ -23,7 +23,7 @@ export interface PermissionDefinition {
 }
 
 /**
- * The 30 codes of DATABASE_SCHEMA.md §5.4, in `resource.action` form,
+ * The 33 codes of DATABASE_SCHEMA.md §5.4, in `resource.action` form,
  * lowercase, snake_case for compound actions.
  */
 export const PERMISSIONS: readonly PermissionDefinition[] = [
@@ -119,6 +119,31 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
     resource: 'participants',
     action: 'read',
     description: 'View participants of the organization.',
+  },
+  /**
+   * `create` / `update` / `delete` did not exist before EVT-054 — the source
+   * corpus only ever named `participants.read` and `.import`
+   * (DATABASE_SCHEMA.md §1, table of new tables). The `participants` table
+   * itself was invented by that document; its write permissions follow the
+   * same `resource.action` convention `events.create`/`.update` already use.
+   */
+  {
+    code: 'participants.create',
+    resource: 'participants',
+    action: 'create',
+    description: 'Register a new participant.',
+  },
+  {
+    code: 'participants.update',
+    resource: 'participants',
+    action: 'update',
+    description: 'Change an existing participant.',
+  },
+  {
+    code: 'participants.delete',
+    resource: 'participants',
+    action: 'delete',
+    description: 'Remove a participant.',
   },
   {
     code: 'participants.import',
@@ -310,6 +335,9 @@ export const ROLES: readonly RoleDefinition[] = [
       'events.cancel',
       'event_sessions.manage',
       'participants.read',
+      'participants.create',
+      'participants.update',
+      'participants.delete',
       'participants.import',
       'participants.export',
       'registrations.read',

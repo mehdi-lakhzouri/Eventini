@@ -41,11 +41,26 @@ export interface IdempotencyMeta {
   readonly originalRequestId: string;
 }
 
+/**
+ * API_CONVENTIONS.md §6. Present only on a cursor-paginated list.
+ *
+ * No `totalCount`, deliberately: a `COUNT(*)` over a large tenant table costs
+ * more than the page it would describe.
+ */
+export interface PaginationMeta {
+  readonly limit: number;
+  readonly hasNextPage: boolean;
+  readonly hasPreviousPage: boolean;
+  readonly nextCursor: string | null;
+  readonly previousCursor: string | null;
+}
+
 export interface ResponseMeta {
   readonly requestId: string;
   readonly timestamp: string;
   readonly apiVersion: 'v1';
   readonly idempotency?: IdempotencyMeta;
+  readonly pagination?: PaginationMeta;
 }
 
 /** The envelope every response carries — `data`/`meta`/`error` are always present. */

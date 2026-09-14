@@ -205,6 +205,7 @@ model Organization {
 
   memberships               OrganizationMembership[]
   events                    Event[]
+  participants              Participant[]
   sessions                  UserSession[]
   invitations               UserInvitation[]
   membershipRoleAssignments MembershipRoleAssignment[]
@@ -214,6 +215,64 @@ model Organization {
   @@index([status], map: "ix_organizations_status")
   @@index([isEnabled], map: "ix_organizations_is_enabled")
   @@map("organizations")
+}
+
+/// A contact managed by exactly one organization — DATABASE_SCHEMA.md §7.1.
+/// ORGANIZATION-owned, SOFT_DELETE.
+///
+/// Belongs to the organization, not to an event: the same person attends
+/// several events without duplication, which is also what makes
+/// deduplication possible at all. A matching `dedupFingerprint` is only a
+/// duplicate *signal* — it never authorizes an automatic merge, which would
+/// be irreversible if wrong.
+model Participant {
+  id             String @id
+  organizationId String @map("organization_id")
+
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+
+  /// Both nullable: a participant may have neither (walk-in registration, a
+  /// minor attendee). `normalizedEmail` is the deduplication key; `email`
+  /// keeps the form the participant actually typed.
+  email           String?
+  normalizedEmail String? @map("normalized_email")
+  phone           String?
+
+  participantType String  @map("participant_type")
+  organizationName String? @map("organization_name")
+  jobTitle         String? @map("job_title")
+  /// ISO 3166-1 alpha-2.
+  country          String?
+  /// Identifier from the source system at import time (EVT-055).
+  externalReference String? @map("external_reference")
+
+  /// Non-structural, caller-defined fields. No GIN index at MVP.
+  metadata Json @default("{}")
+
+  /// Normalized hash of name + email + phone. A duplicate signal, not a key:
+  /// nothing reads this column expecting uniqueness.
+  dedupFingerprint String @map("dedup_fingerprint")
+
+  /// Optimistic lock, exposed as an ETag — same contract as Event.version.
+  version Int @default(1)
+
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy      String?   @map("created_by")
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedBy      String?   @map("updated_by")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedBy      String?   @map("deleted_by")
+  deletionReason String?   @map("deletion_reason")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  // ux_participants_org_email_active is partial; see the migration SQL.
+  @@index([organizationId, dedupFingerprint], map: "ix_participants_org_dedup")
+  @@index([organizationId, participantType], map: "ix_participants_org_type")
+  @@index([organizationId, createdAt(sort: Desc)], map: "ix_participants_org_created")
+  @@index([organizationId, lastName], map: "ix_participants_org_lastname")
+  @@map("participants")
 }
 
 /// The user ↔ organization link, and the pivot of the whole multi-tenant

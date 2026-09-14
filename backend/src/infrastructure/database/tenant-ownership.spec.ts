@@ -91,7 +91,7 @@ describe('requiresOrganizationScope', () => {
    * query fails with the model named.
    */
   it('guards a model nobody has classified', () => {
-    expect(requiresOrganizationScope('Participant')).toBe(true);
+    expect(requiresOrganizationScope('Registration')).toBe(true);
     expect(requiresOrganizationScope('Ticket')).toBe(true);
     expect(requiresOrganizationScope('')).toBe(true);
   });
@@ -119,6 +119,7 @@ describe('TENANT_OWNED_MODELS', () => {
         'EventUserAssignment',
         'MembershipRoleAssignment',
         'OrganizationMembership',
+        'Participant',
         'UserInvitation',
       ].sort(),
     );

@@ -392,15 +392,17 @@ Convention `resource.action`, minuscules, `snake_case` pour les actions composé
 
 ```
 organizations.read      events.read        participants.read      attendance.check_in
-organizations.manage    events.create      participants.import    attendance.check_out
-users.read              events.update      participants.export    attendance.override
-users.invite            events.activate    registrations.read     reports.read
-users.manage_roles      events.cancel      registrations.manage   reports.export
-sessions.read           event_sessions.manage
+organizations.manage    events.create      participants.create    attendance.check_out
+users.read              events.update      participants.update    attendance.override
+users.invite            events.activate    participants.delete    reports.read
+users.manage_roles      events.cancel      participants.import    reports.export
+sessions.read           event_sessions.manage   participants.export
 sessions.revoke         tickets.issue      scanners.manage
                         tickets.revoke     scanners.assign
 platform.organizations.manage   platform.kill_switch.execute   platform.users.impersonate
 ```
+
+`participants.create` / `.update` / `.delete` sont ajoutés par [EVT-054](../sprints/sprint-10/README.md#evt-054) — 33 codes au total. Le corpus source ne nommait que `.read` et `.import` (§1) : la table `participants` elle-même n'existait dans aucun document avant celui-ci.
 
 `role_permissions` : PK composite `(role_id, permission_id)`, `created_at`, `created_by`.
 Index : `ix_role_permissions_permission(permission_id, role_id)` — sens inverse, pour répondre à « quels rôles portent cette permission ».

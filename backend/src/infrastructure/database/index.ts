@@ -16,6 +16,7 @@ export {
 export { ID_PREFIXES, newId, hasPrefix, type IdPrefix } from './identifiers';
 export { uuidV7 } from './uuid-v7';
 export { normalizeEmail } from './normalize-email';
+export { escapeLikePattern } from './like-pattern';
 export { PrismaService, type PrismaConnectionSettings } from './prisma.service';
 export {
   TransactionManager,

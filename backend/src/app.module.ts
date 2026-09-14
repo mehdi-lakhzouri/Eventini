@@ -25,6 +25,7 @@ import { OrganizationsModule } from './modules/organizations';
 import { EventsModule } from './modules/events';
 import { EventSessionsModule } from './modules/event-sessions';
 import { EventAssignmentsModule } from './modules/event-assignments/event-assignments.module';
+import { ParticipantsModule } from './modules/participants';
 import { RateLimitingModule } from './modules/rate-limiting';
 import { IdentityModule } from './modules/identity';
 
@@ -95,6 +96,7 @@ if (!isProduction) {
     EventsModule,
     EventSessionsModule,
     EventAssignmentsModule,
+    ParticipantsModule,
   ],
   providers: [
     // Registered here rather than in `main.ts` because all three need DI:

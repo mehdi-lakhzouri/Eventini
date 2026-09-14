@@ -7,8 +7,13 @@ import {
 import { ROLE_SCOPES } from './enums';
 
 describe('permission catalogue', () => {
-  it('carries the 30 codes DATABASE_SCHEMA.md §5.4 lists', () => {
-    expect(PERMISSIONS).toHaveLength(30);
+  /**
+   * 33, not 30: EVT-054 adds `participants.create` / `.update` / `.delete`,
+   * absent from the original catalogue because the source corpus never named
+   * them — only `.read` and `.import` existed (DATABASE_SCHEMA.md §1).
+   */
+  it('carries the 33 codes DATABASE_SCHEMA.md §5.4 lists', () => {
+    expect(PERMISSIONS).toHaveLength(33);
   });
 
   it('has no duplicate code', () => {
