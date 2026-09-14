@@ -232,7 +232,9 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
     await pool.query(`DELETE FROM user_credentials WHERE user_id = $1`, [
       ids.user,
     ]);
-    await pool.query(`DELETE FROM users WHERE id = ANY($1)`, [[ids.user, ids.assignee]]);
+    await pool.query(`DELETE FROM users WHERE id = ANY($1)`, [
+      [ids.user, ids.assignee],
+    ]);
     await pool.query(`DELETE FROM organizations WHERE id = ANY($1)`, [
       [ids.org, ids.otherOrg],
     ]);
@@ -405,30 +407,58 @@ describeWithDatabase('Event session CRUD and lifecycle — EVT-050/051', () => {
     expect(assignment.assignmentType).toBe('SCANNER');
     expect(assignment.status).toBe('ACTIVE');
 
-    const listed = await request(server()).get(base).set('Cookie', jar).expect(200);
+    const listed = await request(server())
+      .get(base)
+      .set('Cookie', jar)
+      .expect(200);
     expect((listed.body as ApiEnvelope<AssignmentResponse[]>).data).toEqual(
-      expect.arrayContaining([expect.objectContaining({ assignmentId: assignment.assignmentId })]),
+      expect.arrayContaining([
+        expect.objectContaining({ assignmentId: assignment.assignmentId }),
+      ]),
     );
 
-    await request(server()).post(base).set(csrf.headers(jar)).send({
-      membershipId: ids.assigneeMembership,
-      assignmentType: 'SCANNER',
-    }).expect(409);
-    await request(server()).post(base).set(csrf.headers(jar)).send({
-      membershipId: ids.assigneeMembership,
-      assignmentType: 'SCANNER',
-      validFrom: '2027-04-09T10:00:00.000Z',
-      validUntil: '2027-04-09T09:00:00.000Z',
-    }).expect(400);
-    await request(server()).get(`/api/v1/events/${ids.otherEvent}/assignments`).set('Cookie', jar).expect(404);
+    await request(server())
+      .post(base)
+      .set(csrf.headers(jar))
+      .send({
+        membershipId: ids.assigneeMembership,
+        assignmentType: 'SCANNER',
+      })
+      .expect(409);
+    await request(server())
+      .post(base)
+      .set(csrf.headers(jar))
+      .send({
+        membershipId: ids.assigneeMembership,
+        assignmentType: 'SCANNER',
+        validFrom: '2027-04-09T10:00:00.000Z',
+        validUntil: '2027-04-09T09:00:00.000Z',
+      })
+      .expect(400);
+    await request(server())
+      .get(`/api/v1/events/${ids.otherEvent}/assignments`)
+      .set('Cookie', jar)
+      .expect(404);
 
-    const revoked = await request(server()).delete(`${base}/${assignment.assignmentId}`).set(csrf.headers(jar)).expect(200);
-    expect((revoked.body as ApiEnvelope<AssignmentResponse>).data!.revokedAt).not.toBeNull();
-    await request(server()).delete(`${base}/${assignment.assignmentId}`).set(csrf.headers(jar)).expect(404);
+    const revoked = await request(server())
+      .delete(`${base}/${assignment.assignmentId}`)
+      .set(csrf.headers(jar))
+      .expect(200);
+    expect(
+      (revoked.body as ApiEnvelope<AssignmentResponse>).data!.revokedAt,
+    ).not.toBeNull();
+    await request(server())
+      .delete(`${base}/${assignment.assignmentId}`)
+      .set(csrf.headers(jar))
+      .expect(404);
 
     const audit = await pool.query<{ action: string }>(
-      `SELECT action FROM audit_logs WHERE target_id = $1 ORDER BY occurred_at`, [assignment.assignmentId],
+      `SELECT action FROM audit_logs WHERE target_id = $1 ORDER BY occurred_at`,
+      [assignment.assignmentId],
     );
-    expect(audit.rows).toEqual([{ action: 'event_assignment.created' }, { action: 'event_assignment.revoked' }]);
+    expect(audit.rows).toEqual([
+      { action: 'event_assignment.created' },
+      { action: 'event_assignment.revoked' },
+    ]);
   });
 });

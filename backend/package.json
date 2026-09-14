@@ -52,16 +52,16 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
-    "csv-parse": "^7.0.1",
+    "csv-parse": "^7.0.2",
     "date-fns": "^4.4.0",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "handlebars": "^4.7.9",
     "helmet": "^8.3.0",
     "jose": "^6.2.4",
-    "multer": "^2.2.0",
+    "multer": "^2.3.0",
     "nestjs-pino": "^4.6.1",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^9.1.1",
     "otplib": "^13.4.1",
     "pg": "^8.22.0",
     "pino": "^10.3.1",
@@ -71,7 +71,7 @@
     "redis": "^6.1.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"
   },
@@ -141,6 +141,9 @@
       "uuid": "11.1.1"
     },
     "fast-uri": "^3.1.6",
-    "mysql2": "^3.23.1"
+    "mysql2": "^3.23.1",
+    "@nestjs/platform-express": {
+      "multer": "$multer"
+    }
   }
 }

@@ -13,8 +13,13 @@ import { PrismaEventAssignmentRepository } from './infrastructure/prisma-event-a
   imports: [AuditModule, AuthorizationModule],
   controllers: [EventAssignmentsController],
   providers: [
-    { provide: EventAssignmentRepository, useClass: PrismaEventAssignmentRepository },
-    ListEventAssignmentsUseCase, AssignEventUserUseCase, RevokeEventAssignmentUseCase,
+    {
+      provide: EventAssignmentRepository,
+      useClass: PrismaEventAssignmentRepository,
+    },
+    ListEventAssignmentsUseCase,
+    AssignEventUserUseCase,
+    RevokeEventAssignmentUseCase,
   ],
 })
 export class EventAssignmentsModule {}
